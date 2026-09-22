@@ -18,7 +18,9 @@ struct StreamingView: View {
             Form {
                 heroSection
                 streamHostSection
+                remoteSessionSection
                 pairingRequestsSection
+                coopSeatsSection
 
                 if case .paired(let deviceName) = session.phase {
                     pairedSections(deviceName: deviceName)
@@ -36,6 +38,7 @@ struct StreamingView: View {
             Task {
                 await hostManager.ensureReady()
                 await hostManager.refreshPendingPairRequests()
+                await hostManager.refreshCoopSession()
                 session.refreshHostStatus()
                 session.beginListeningForRequests()
             }
@@ -160,6 +163,59 @@ struct StreamingView: View {
     }
 
     @ViewBuilder
+    private var remoteSessionSection: some View {
+        Section("Remote co-op (session tunnel)") {
+            Text(
+                "Sign in with Google (or dev token) on the coordinator so your own devices join without invites. Mint an invite for a friend on another network — no port forwarding."
+            )
+            .font(.caption)
+            .foregroundStyle(.secondary)
+            .fixedSize(horizontal: false, vertical: true)
+
+            let coord = GBearSessionCoordinatorClient.shared
+            if let email = coord.email {
+                LabeledContent("Account") { Text(email) }
+            }
+            if let sid = coord.remoteSessionID {
+                LabeledContent("Remote session") {
+                    Text(String(sid.prefix(8)) + "…")
+                        .font(.caption.monospaced())
+                }
+            }
+            if let invite = coord.lastInviteCode {
+                LabeledContent("Invite code") {
+                    Text(invite)
+                        .font(.title3.monospaced())
+                        .textSelection(.enabled)
+                }
+            }
+            if let err = coord.lastError {
+                Text(err).font(.caption).foregroundStyle(.red)
+            }
+            HStack {
+                Button("Dev sign-in") {
+                    Task {
+                        coord.configure(baseURLString: "http://127.0.0.1:8787")
+                        _ = await coord.signIn(idToken: "dev:host@gbear.local")
+                    }
+                }
+                Button("Create remote session") {
+                    Task { _ = await coord.createRemoteSession() }
+                }
+                Button("Mint invite") {
+                    Task { _ = await coord.mintInvite() }
+                }
+            }
+            Button("Refresh TURN / ICE") {
+                Task { await coord.refreshTURNCredentials() }
+            }
+            Button("End remote session", role: .destructive) {
+                Task { await coord.endRemoteSession() }
+            }
+        }
+    }
+
+    @ViewBuilder
     private var pairingRequestsSection: some View {
         Section("Pairing requests") {
             if hostManager.pendingPairRequests.isEmpty {
@@ -193,6 +249,71 @@ struct StreamingView: View {
                         }
                     }
                     .padding(.vertical, 6)
+                }
+            }
+        }
+    }
+
+    @ViewBuilder
+    private var coopSeatsSection: some View {
+        Section("Co-op seats (2 players)") {
+            if let coop = hostManager.coopSession {
+                LabeledContent("Session") {
+                    Text(String(coop.sessionID.prefix(8)) + "…")
+                        .font(.caption.monospaced())
+                        .textSelection(.enabled)
+                }
+                if coop.seats.isEmpty {
+                    Text("No viewers joined yet. Companions claim a seat when they start streaming.")
+                        .font(.subheadline)
+                        .foregroundStyle(.secondary)
+                } else {
+                    ForEach(coop.seats) { seat in
+                        VStack(alignment: .leading, spacing: 6) {
+                            Label("Player \(seat.seat) — \(seat.deviceName)", systemImage: seat.seat == 1 ? "1.circle.fill" : "2.circle.fill")
+                                .font(.headline)
+                            Text(seat.deviceID)
+                                .font(.caption.monospaced())
+                                .foregroundStyle(.tertiary)
+                                .textSelection(.enabled)
+                            HStack {
+                                if seat.seat != 1 {
+                                    Button("Make P1") {
+                                        Task { _ = await hostManager.reassignSeat(deviceID: seat.deviceID, seat: 1) }
+                                    }
+                                }
+                                if seat.seat != 2 {
+                                    Button("Make P2") {
+                                        Task { _ = await hostManager.reassignSeat(deviceID: seat.deviceID, seat: 2) }
+                                    }
+                                }
+                                Button("Cursor owner") {
+                                    Task { _ = await hostManager.setCursorOwner(deviceID: seat.deviceID) }
+                                }
+                                if coop.cursorOwnerDeviceID == seat.deviceID {
+                                    Text("owns cursor")
+                                        .font(.caption)
+                                        .foregroundStyle(.secondary)
+                                }
+                            }
+                        }
+                        .padding(.vertical, 4)
+                    }
+                }
+                HStack {
+                    Button("Create / ensure session") {
+                        Task { _ = await hostManager.createCoopSession() }
+                    }
+                    Button("End session", role: .destructive) {
+                        Task { await hostManager.endCoopSession() }
+                    }
+                }
+            } else {
+                Text("Create a session to assign Player 1 / Player 2 seats (max 2 viewers).")
+                    .font(.subheadline)
+                    .foregroundStyle(.secondary)
+                Button("Create co-op session") {
+                    Task { _ = await hostManager.createCoopSession() }
                 }
             }
         }
@@ -318,12 +439,13 @@ struct StreamingView: View {
 
     private var capabilitiesSection: some View {
         Section("After pairing") {
+            Label("Up to 2 phones: video + audio fan-out; Player 1 / Player 2 seats", systemImage: "person.2")
             Label("Phone: Session → Start Desktop stream", systemImage: "play.circle")
             Label(
                 "Video TCP \(PlayniteStreamPorts.videoTCP), audio TCP \(PlayniteStreamPorts.audioTCP)",
                 systemImage: "film"
             )
-            Label("Touch on the phone moves the Mac pointer (UDP \(PlayniteStreamPorts.inputUDP))", systemImage: "hand.tap")
+            Label("Co-op pads via PNG1 → virtual Mac gamepads; touch moves pointer (UDP \(PlayniteStreamPorts.inputUDP))", systemImage: "gamecontroller")
             Text(
                 "Capture, audio routing, and Mac speaker mute apply only while a companion stream is active " +
                     "(Session → Start Desktop stream). Use phone media volume during a stream."

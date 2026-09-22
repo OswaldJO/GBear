@@ -8,6 +8,7 @@ class StreamControllerSettings {
   static const _deadZoneKey = 'stream.controller.deadZone';
   static const _usbDriverKey = 'stream.controller.usbDriver';
   static const _bindAllUsbKey = 'stream.controller.bindAllUsb';
+  static const _coopPadModeKey = 'stream.controller.coopPadMode';
 
   StreamControllerSettings(this._prefs);
 
@@ -31,6 +32,10 @@ class StreamControllerSettings {
   /// Android: claim USB devices Moonlight does not recognize by default.
   bool get bindAllUsb => _prefs.getBool(_bindAllUsbKey) ?? false;
 
+  /// When true, stream sends PNG1 gamepad state to Mac virtual pads (co-op).
+  /// When false, use keyboard-chord mappings (single-player / OS shortcuts).
+  bool get coopPadMode => _prefs.getBool(_coopPadModeKey) ?? true;
+
   Future<void> save({
     bool? multiController,
     bool? swapFaceButtons,
@@ -38,6 +43,7 @@ class StreamControllerSettings {
     int? deadZonePercent,
     bool? usbDriver,
     bool? bindAllUsb,
+    bool? coopPadMode,
   }) async {
     if (multiController != null) {
       await _prefs.setBool(_multiControllerKey, multiController);
@@ -57,6 +63,9 @@ class StreamControllerSettings {
     if (bindAllUsb != null) {
       await _prefs.setBool(_bindAllUsbKey, bindAllUsb);
     }
+    if (coopPadMode != null) {
+      await _prefs.setBool(_coopPadModeKey, coopPadMode);
+    }
   }
 
   Map<String, dynamic> toMethodChannelMap() {
@@ -67,6 +76,7 @@ class StreamControllerSettings {
       'deadZonePercent': deadZonePercent,
       'usbDriver': usbDriver,
       'bindAllUsb': bindAllUsb,
+      'coopPadMode': coopPadMode,
     };
   }
 }

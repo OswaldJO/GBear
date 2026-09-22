@@ -63,9 +63,15 @@ object PlayniteStreamSession {
     var tapTimeoutMs: Long = PlayniteInputSender.TAP_TIMEOUT_MS
     var tapPressure: Float = 0.35f
     var controllerBindingsJson: String = ""
+    /** Co-op seat 1 or 2 for PNG1 virtual pads. */
+    var seat: Int = 1
+    /** When true, send PNG1 gamepad state instead of keyboard chords. */
+    var coopPadMode: Boolean = true
 
     @Volatile
     private var keyboardSender: PlayniteKeyboardSender? = null
+    @Volatile
+    private var gamepadSender: PlayniteGamepadSender? = null
 
     /** Shared UDP keyboard client for shortcuts and gamepad mapping for the active stream. */
     fun keyboardSender(): PlayniteKeyboardSender? {
@@ -75,9 +81,21 @@ object PlayniteStreamSession {
         return PlayniteKeyboardSender(host, inputPort).also { keyboardSender = it }
     }
 
+    fun gamepadSender(): PlayniteGamepadSender? {
+        if (!hostStreamActive || host.isEmpty() || !coopPadMode) return null
+        val existing = gamepadSender
+        if (existing != null) return existing
+        return PlayniteGamepadSender(host, inputPort, seat.coerceIn(1, 2)).also { gamepadSender = it }
+    }
+
     fun releaseKeyboardSender() {
         keyboardSender?.close()
         keyboardSender = null
+    }
+
+    fun releaseGamepadSender() {
+        gamepadSender?.close()
+        gamepadSender = null
     }
 
     fun applyFromIntent(intent: android.content.Intent) {
@@ -99,6 +117,9 @@ object PlayniteStreamSession {
         tapPressure = intent.getFloatExtra(PlayniteVideoActivity.EXTRA_TAP_PRESSURE, 0.35f)
         controllerBindingsJson =
             intent.getStringExtra(PlayniteVideoActivity.EXTRA_CONTROLLER_BINDINGS_JSON).orEmpty()
+        seat = intent.getIntExtra(PlayniteVideoActivity.EXTRA_SEAT, 1).coerceIn(1, 2)
+        coopPadMode = intent.getBooleanExtra(PlayniteVideoActivity.EXTRA_COOP_PAD_MODE, true)
+        releaseGamepadSender()
     }
 
     fun toIntentFlags(intent: android.content.Intent) {
@@ -115,6 +136,8 @@ object PlayniteStreamSession {
         intent.putExtra(PlayniteVideoActivity.EXTRA_TAP_TIMEOUT_MS, tapTimeoutMs)
         intent.putExtra(PlayniteVideoActivity.EXTRA_TAP_PRESSURE, tapPressure)
         intent.putExtra(PlayniteVideoActivity.EXTRA_CONTROLLER_BINDINGS_JSON, controllerBindingsJson)
+        intent.putExtra(PlayniteVideoActivity.EXTRA_SEAT, seat)
+        intent.putExtra(PlayniteVideoActivity.EXTRA_COOP_PAD_MODE, coopPadMode)
     }
 
     /**
@@ -128,12 +151,15 @@ object PlayniteStreamSession {
         viewerOpen = false
         swapMouseModeActive = false
         releaseKeyboardSender()
+        releaseGamepadSender()
     }
 
     fun clear() {
         deactivate()
         host = ""
         controllerBindingsJson = ""
+        seat = 1
+        coopPadMode = true
     }
 
     fun recordExternalStopLog(context: android.content.Context) {
@@ -155,5 +181,7 @@ object PlayniteStreamSession {
         "inputPort" to inputPort,
         "width" to width,
         "height" to height,
+        "seat" to seat,
+        "coopPadMode" to coopPadMode,
     )
 }

@@ -8,16 +8,25 @@ public enum GamePathScanner {
         public var reassigned: Int
         public var linkedCovers: Int
         public var autoLinkedDiscSets: Int
+        /// Emulator-linked games under a reachable Paths root whose ROM/file is gone.
+        public var removedMissing: Int
 
-        public init(added: Int, reassigned: Int, linkedCovers: Int, autoLinkedDiscSets: Int = 0) {
+        public init(
+            added: Int,
+            reassigned: Int,
+            linkedCovers: Int,
+            autoLinkedDiscSets: Int = 0,
+            removedMissing: Int = 0
+        ) {
             self.added = added
             self.reassigned = reassigned
             self.linkedCovers = linkedCovers
             self.autoLinkedDiscSets = autoLinkedDiscSets
+            self.removedMissing = removedMissing
         }
 
         public var hasAnyChanges: Bool {
-            added > 0 || reassigned > 0 || linkedCovers > 0 || autoLinkedDiscSets > 0
+            added > 0 || reassigned > 0 || linkedCovers > 0 || autoLinkedDiscSets > 0 || removedMissing > 0
         }
     }
 
@@ -531,6 +540,11 @@ public enum GamePathScanner {
             )
         }
 
+        let removedMissing = pruneMissingPathScannedGames(
+            modelContext: modelContext,
+            folderEntries: romFolderEntries
+        )
+
         var linkedCovers = 0
         let allGames = try modelContext.fetch(gamesFetch)
         for game in allGames {
@@ -547,17 +561,82 @@ public enum GamePathScanner {
 
         let autoLinkedDiscSets = DiscGroupService.autoLinkAllEnabledEmulators(context: modelContext)
 
-        if added > 0 || reassignedTotal > 0 || linkedCovers > 0 || autoLinkedDiscSets > 0 {
+        if added > 0 || reassignedTotal > 0 || linkedCovers > 0 || autoLinkedDiscSets > 0 || removedMissing > 0 {
             try modelContext.save()
         }
         DebugLog.log(
-            "Scan result: added=\(added) reassigned=\(reassignedTotal) linkedCovers=\(linkedCovers) autoLinkedDiscSets=\(autoLinkedDiscSets)"
+            "Scan result: added=\(added) reassigned=\(reassignedTotal) linkedCovers=\(linkedCovers) autoLinkedDiscSets=\(autoLinkedDiscSets) removedMissing=\(removedMissing)"
         )
         return ScanSummary(
             added: added,
             reassigned: reassignedTotal,
             linkedCovers: linkedCovers,
-            autoLinkedDiscSets: autoLinkedDiscSets
+            autoLinkedDiscSets: autoLinkedDiscSets,
+            removedMissing: removedMissing
         )
+    }
+
+    /// Removes path-scanned games whose files are gone, without wiping entries when a whole drive/root is offline.
+    ///
+    /// Only considers emulator-linked games whose `romPath` sits under a configured **Paths** game folder.
+    /// If every matching root is missing (unmounted volume), the game is kept. If at least one matching
+    /// root is reachable and the file is absent, the library row is deleted.
+    @discardableResult
+    private static func pruneMissingPathScannedGames(
+        modelContext: ModelContext,
+        folderEntries: [GameFolderPath]
+    ) -> Int {
+        struct RootInfo {
+            let normalized: String
+            let reachable: Bool
+        }
+
+        var rootsByEmulator: [UUID: [RootInfo]] = [:]
+        for entry in folderEntries {
+            guard let emulatorID = entry.emulator?.id else { continue }
+            let rootURL = URL(fileURLWithPath: entry.folderPath)
+            var isDir: ObjCBool = false
+            let reachable = FileManager.default.fileExists(atPath: rootURL.path, isDirectory: &isDir) && isDir.boolValue
+            let info = RootInfo(
+                normalized: normalizedPathForComparison(rootURL.path),
+                reachable: reachable
+            )
+            rootsByEmulator[emulatorID, default: []].append(info)
+        }
+
+        guard !rootsByEmulator.isEmpty else { return 0 }
+
+        let games = (try? modelContext.fetch(FetchDescriptor<LibraryGame>())) ?? []
+        var removed = 0
+        for game in games {
+            guard let emulatorID = game.emulatorUUID,
+                  let roots = rootsByEmulator[emulatorID],
+                  !roots.isEmpty else { continue }
+
+            let gamePath = normalizedPathForComparison(game.romPath)
+            let matching = roots.filter { isPath(gamePath, insideAny: [$0.normalized]) }
+            guard !matching.isEmpty else { continue }
+
+            let reachableMatches = matching.filter(\.reachable)
+            guard !reachableMatches.isEmpty else {
+                continue
+            }
+
+            let standardized = (game.romPath as NSString).standardizingPath
+            if FileManager.default.fileExists(atPath: standardized) {
+                continue
+            }
+
+            DebugLog.log(
+                "Scan: removing missing path-scanned game title=\(game.title) path=\(standardized)"
+            )
+            modelContext.delete(game)
+            removed += 1
+        }
+
+        if removed > 0 {
+            DebugLog.log("Scan: pruned missing path-scanned games count=\(removed)")
+        }
+        return removed
     }
 }

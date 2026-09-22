@@ -2,23 +2,32 @@ import Darwin
 import Foundation
 import Network
 
-/// Sends `PNA1` PCM to the phone (TCP downlink + optional UDP after `PNAS` subscribe).
+/// Sends `PNA1` PCM to up to two phones (TCP downlink + optional UDP after `PNAS` subscribe).
 actor PlayniteAudioStreamServer {
+    static let maxClients = 2
+
     private var udp: PlayniteUDPSocket?
-    private var clientAddress: sockaddr_storage?
-    private var clientAddressLen: socklen_t = 0
+    private var udpSubscribers: [String: UDPSubscriber] = [:]
     private var packetsSent = 0
     private var loggedWaitingForSubscribe = false
     private var datagramsReceived = 0
     /// ~10 ms of stereo PCM at 48 kHz (must be a multiple of 4 bytes for s16le stereo).
     private static let maxPCMBytesPerDatagram = 1_920
 
+    private struct UDPSubscriber {
+        var address: sockaddr_storage
+        var addressLen: socklen_t
+    }
+
     private var tcpListener: NWListener?
-    private var tcpConnection: NWConnection?
-    private var tcpSendInFlight = false
-    private var tcpPending: [Data] = []
-    private var hasTCPClient = false
-    private var tcpFramesSent = 0
+    private var tcpClients: [ObjectIdentifier: TCPClient] = [:]
+
+    private struct TCPClient {
+        let connection: NWConnection
+        var sendInFlight: Bool
+        var pending: [Data]
+        var framesSent: Int
+    }
 
     func startListener(port: UInt16 = PlayniteStreamPorts.audioUDP) async throws {
         if udp != nil { return }
@@ -48,22 +57,19 @@ actor PlayniteAudioStreamServer {
     }
 
     func stop() async {
-        tcpConnection?.cancel()
-        tcpConnection = nil
+        for (_, client) in tcpClients {
+            client.connection.cancel()
+        }
+        tcpClients.removeAll()
         if let tcpListener {
             tcpListener.cancel()
             await PlayniteNWListenerAwait.waitUntilCancelled(tcpListener)
         }
         tcpListener = nil
-        hasTCPClient = false
-        tcpSendInFlight = false
-        tcpPending.removeAll()
-        tcpFramesSent = 0
 
         udp?.stop()
         udp = nil
-        clientAddress = nil
-        clientAddressLen = 0
+        udpSubscribers.removeAll()
         packetsSent = 0
         datagramsReceived = 0
     }
@@ -85,12 +91,12 @@ actor PlayniteAudioStreamServer {
     }
 
     private func sendPacket(_ packet: Data, pcmBytes: Int, sampleRate: UInt16, channels: UInt8) {
-        if hasTCPClient {
-            enqueueTCP(packet)
+        for id in Array(tcpClients.keys) {
+            enqueueTCP(id: id, packet: packet)
         }
 
         guard let udp else { return }
-        guard let clientAddress, clientAddressLen > 0 else {
+        if udpSubscribers.isEmpty {
             if !loggedWaitingForSubscribe {
                 loggedWaitingForSubscribe = true
                 print("[PlayniteAudio] capture active — waiting for phone PNAS subscribe on UDP \(PlayniteStreamPorts.audioUDP)")
@@ -98,10 +104,28 @@ actor PlayniteAudioStreamServer {
             return
         }
         loggedWaitingForSubscribe = false
-        udp.send(packet, to: clientAddress, addressLen: clientAddressLen)
+        for (_, sub) in udpSubscribers {
+            udp.send(packet, to: sub.address, addressLen: sub.addressLen)
+        }
         packetsSent += 1
         if packetsSent == 1 || packetsSent % 200 == 0 {
-            print("[PlayniteAudio] sent UDP packet #\(packetsSent) pcmBytes=\(pcmBytes) \(sampleRate)Hz ch=\(channels)")
+            print(
+                "[PlayniteAudio] sent UDP packet #\(packetsSent) pcmBytes=\(pcmBytes) " +
+                    "\(sampleRate)Hz ch=\(channels) subscribers=\(udpSubscribers.count)"
+            )
+        }
+    }
+
+    private func subscriberKey(for address: sockaddr_storage) -> String {
+        var addr = address
+        return withUnsafePointer(to: &addr) { ptr in
+            ptr.withMemoryRebound(to: sockaddr.self, capacity: 1) { sa in
+                var host = [CChar](repeating: 0, count: Int(NI_MAXHOST))
+                var serv = [CChar](repeating: 0, count: Int(NI_MAXSERV))
+                let len = socklen_t(address.ss_len > 0 ? address.ss_len : UInt8(MemoryLayout<sockaddr_storage>.size))
+                getnameinfo(sa, len, &host, socklen_t(host.count), &serv, socklen_t(serv.count), NI_NUMERICHOST | NI_NUMERICSERV)
+                return "\(String(cString: host)):\(String(cString: serv))"
+            }
         }
     }
 
@@ -118,28 +142,40 @@ actor PlayniteAudioStreamServer {
             }
             return
         }
-        clientAddress = address
-        clientAddressLen = addressLen
-        udp?.connect(to: address, addressLen: addressLen)
+        let key = subscriberKey(for: address)
+        if udpSubscribers.count >= Self.maxClients, udpSubscribers[key] == nil {
+            if let oldest = udpSubscribers.keys.first {
+                udpSubscribers.removeValue(forKey: oldest)
+            }
+        }
+        udpSubscribers[key] = UDPSubscriber(address: address, addressLen: addressLen)
         packetsSent = 0
         loggedWaitingForSubscribe = false
-        PlayniteStreamSessionLog.i("Phone subscribed for audio (UDP \(PlayniteStreamPorts.audioUDP))")
-        print("[PlayniteAudio] phone subscribed for audio (UDP) — will send PNA1 packets")
-        sendSubscribeAck()
+        PlayniteStreamSessionLog.i(
+            "Phone subscribed for audio (UDP \(PlayniteStreamPorts.audioUDP)); subscribers=\(udpSubscribers.count)"
+        )
+        print("[PlayniteAudio] phone subscribed for audio (UDP) — subscribers=\(udpSubscribers.count)")
+        sendSubscribeAck(to: address, addressLen: addressLen)
     }
 
-    private func sendSubscribeAck() {
+    private func sendSubscribeAck(to address: sockaddr_storage? = nil, addressLen: socklen_t = 0) {
         let silent = Data(count: 960)
         for i in 0 ..< 5 {
             let packet = PlayniteAudioFrameFormat.pack(payload: silent, sampleRate: 48_000, channels: 2)
             if i == 0 {
                 print("[PlayniteAudio] sent subscribe ack (silent PNA1)")
             }
-            if hasTCPClient {
-                enqueueTCP(packet)
+            for id in Array(tcpClients.keys) {
+                enqueueTCP(id: id, packet: packet)
             }
-            if let udp, let clientAddress, clientAddressLen > 0 {
-                udp.send(packet, to: clientAddress, addressLen: clientAddressLen)
+            if let udp {
+                if let address, addressLen > 0 {
+                    udp.send(packet, to: address, addressLen: addressLen)
+                } else {
+                    for (_, sub) in udpSubscribers {
+                        udp.send(packet, to: sub.address, addressLen: sub.addressLen)
+                    }
+                }
             }
         }
     }
@@ -147,65 +183,75 @@ actor PlayniteAudioStreamServer {
     // MARK: - TCP downlink
 
     private func acceptTCP(connection: NWConnection) {
-        tcpConnection?.cancel()
-        tcpConnection = connection
-        hasTCPClient = true
-        tcpSendInFlight = false
-        tcpPending.removeAll()
+        if tcpClients.count >= Self.maxClients {
+            if let oldest = tcpClients.keys.first {
+                tcpClients[oldest]?.connection.cancel()
+                tcpClients.removeValue(forKey: oldest)
+                print("[PlayniteAudio] dropped oldest TCP client (max \(Self.maxClients))")
+            }
+        }
+        let id = ObjectIdentifier(connection)
+        tcpClients[id] = TCPClient(connection: connection, sendInFlight: false, pending: [], framesSent: 0)
         connection.stateUpdateHandler = { [weak self] state in
             guard let self else { return }
             switch state {
             case .failed, .cancelled:
-                Task { await self.dropTCP() }
+                Task { await self.dropTCP(id: id) }
             default:
                 break
             }
         }
         connection.start(queue: .global(qos: .userInitiated))
-        PlayniteStreamSessionLog.i("Phone connected (TCP audio \(PlayniteStreamPorts.audioTCP))")
-        print("[PlayniteAudio] phone connected (TCP audio)")
+        PlayniteStreamSessionLog.i(
+            "Phone connected (TCP audio \(PlayniteStreamPorts.audioTCP)); clients=\(tcpClients.count)"
+        )
+        print("[PlayniteAudio] phone connected (TCP audio); clients=\(tcpClients.count)")
         sendSubscribeAck()
     }
 
-    private func dropTCP() {
-        hasTCPClient = false
-        tcpConnection = nil
-        tcpSendInFlight = false
-        tcpPending.removeAll()
-        print("[PlayniteAudio] TCP audio client disconnected")
+    private func dropTCP(id: ObjectIdentifier) {
+        tcpClients.removeValue(forKey: id)
+        print("[PlayniteAudio] TCP audio client disconnected; remaining=\(tcpClients.count)")
     }
 
-    private func enqueueTCP(_ packet: Data) {
+    private func enqueueTCP(id: ObjectIdentifier, packet: Data) {
+        guard var client = tcpClients[id] else { return }
         var length = UInt32(packet.count).littleEndian
         var framed = Data(capacity: 4 + packet.count)
         framed.append(Data(bytes: &length, count: 4))
         framed.append(packet)
-        tcpPending.append(framed)
-        flushTCP()
+        client.pending.append(framed)
+        tcpClients[id] = client
+        flushTCP(id: id)
     }
 
-    private func flushTCP() {
-        guard let connection = tcpConnection, hasTCPClient, !tcpSendInFlight, !tcpPending.isEmpty else { return }
-        let chunk = tcpPending.removeFirst()
-        tcpSendInFlight = true
+    private func flushTCP(id: ObjectIdentifier) {
+        guard var client = tcpClients[id], !client.sendInFlight, !client.pending.isEmpty else { return }
+        let chunk = client.pending.removeFirst()
+        client.sendInFlight = true
+        tcpClients[id] = client
+        let connection = client.connection
         connection.send(content: chunk, completion: .contentProcessed { [weak self] error in
             guard let self else { return }
-            Task { await self.completeTCPSend(error: error) }
+            Task { await self.completeTCPSend(id: id, error: error) }
         })
     }
 
-    private func completeTCPSend(error: NWError?) {
-        tcpSendInFlight = false
+    private func completeTCPSend(id: ObjectIdentifier, error: NWError?) {
+        guard var client = tcpClients[id] else { return }
+        client.sendInFlight = false
         if let error {
             print("[PlayniteAudio] TCP send failed: \(error.localizedDescription)")
-            dropTCP()
+            tcpClients[id] = client
+            dropTCP(id: id)
             return
         }
-        tcpFramesSent += 1
-        if tcpFramesSent == 1 || tcpFramesSent % 200 == 0 {
-            print("[PlayniteAudio] sent TCP audio frame #\(tcpFramesSent)")
+        client.framesSent += 1
+        if client.framesSent == 1 || client.framesSent % 200 == 0 {
+            print("[PlayniteAudio] sent TCP audio frame #\(client.framesSent) clients=\(tcpClients.count)")
         }
-        flushTCP()
+        tcpClients[id] = client
+        flushTCP(id: id)
     }
 }
 
@@ -291,28 +337,18 @@ final class PlayniteUDPSocket: @unchecked Sendable {
             guard let self, self.socketFD >= 0 else { return }
             data.withUnsafeBytes { raw in
                 guard let base = raw.baseAddress else { return }
-                let sent: Int
-                if self.connected {
-                    sent = Darwin.send(
-                        self.socketFD,
-                        base.assumingMemoryBound(to: UInt8.self),
-                        raw.count,
-                        0
-                    )
-                } else {
-                    var addr = address
-                    let len = addressLen > 0 ? addressLen : socklen_t(address.ss_len)
-                    sent = withUnsafePointer(to: &addr) {
-                        $0.withMemoryRebound(to: sockaddr.self, capacity: 1) { ptr in
-                            sendto(
-                                self.socketFD,
-                                base.assumingMemoryBound(to: UInt8.self),
-                                raw.count,
-                                0,
-                                ptr,
-                                len
-                            )
-                        }
+                var addr = address
+                let len = addressLen > 0 ? addressLen : socklen_t(address.ss_len)
+                let sent = withUnsafePointer(to: &addr) {
+                    $0.withMemoryRebound(to: sockaddr.self, capacity: 1) { ptr in
+                        sendto(
+                            self.socketFD,
+                            base.assumingMemoryBound(to: UInt8.self),
+                            raw.count,
+                            0,
+                            ptr,
+                            len
+                        )
                     }
                 }
                 if sent < 0 {

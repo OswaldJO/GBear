@@ -23,11 +23,13 @@ actor PlayniteStreamControlServer {
     private var pairedDevices: [PairedDevice] = []
     private var captureReady = false
     private var videoStreaming = false
+    private var coopSession: PlayniteCoopSessionState?
     private let storeURL: URL
 
     var onStreamStartRequested: (@Sendable (String, Int, Int, Int) async -> Void)?
     var onStreamStopRequested: (@Sendable () async -> Void)?
     var onPairingQueueChanged: (@Sendable () async -> Void)?
+    var onSessionChanged: (@Sendable () async -> Void)?
 
     init() {
         let base = FileManager.default.urls(for: .applicationSupportDirectory, in: .userDomainMask).first!
@@ -144,9 +146,61 @@ actor PlayniteStreamControlServer {
         onPairingQueueChanged = handler
     }
 
+    func setSessionChangedHandler(_ handler: @escaping @Sendable () async -> Void) {
+        onSessionChanged = handler
+    }
+
+    func currentSession() -> PlayniteCoopSessionState? {
+        coopSession
+    }
+
+    @discardableResult
+    func ensureSession() -> PlayniteCoopSessionState {
+        if let coopSession { return coopSession }
+        let created = PlayniteCoopSessionState(
+            sessionID: UUID().uuidString,
+            createdAt: Date(),
+            seats: [],
+            cursorOwnerDeviceID: nil
+        )
+        coopSession = created
+        notifySessionChanged()
+        return created
+    }
+
+    func endSession() {
+        coopSession = nil
+        notifySessionChanged()
+    }
+
+    func reassignSeat(deviceID: String, seat: Int) -> Bool {
+        guard var session = coopSession else { return false }
+        switch session.reassign(deviceID: deviceID, toSeat: seat) {
+        case .success:
+            coopSession = session
+            notifySessionChanged()
+            return true
+        case .failure:
+            return false
+        }
+    }
+
+    func setCursorOwner(deviceID: String) -> Bool {
+        guard var session = coopSession, session.seat(for: deviceID) != nil else { return false }
+        session.cursorOwnerDeviceID = deviceID
+        coopSession = session
+        notifySessionChanged()
+        return true
+    }
+
     private func notifyPairingQueueChanged() {
         guard let onPairingQueueChanged else { return }
         Task { await onPairingQueueChanged() }
+    }
+
+    private func notifySessionChanged() {
+        guard let onSessionChanged else { return }
+        Task { await onSessionChanged() }
     }
 
     private func handle(connection: NWConnection) {
@@ -238,7 +292,7 @@ actor PlayniteStreamControlServer {
 
         switch (request.method, request.path) {
         case ("GET", "/playnite/v1/status"), ("GET", "/playnite/v1/serverinfo"):
-            return httpResponse(status: 200, body: [
+            var body: [String: Any] = [
                 "protocol": PlayniteStreamPorts.protocolVersion,
                 "hostname": ProcessInfo.processInfo.hostName,
                 "captureReady": captureReady,
@@ -249,7 +303,96 @@ actor PlayniteStreamControlServer {
                 "audioPort": PlayniteStreamPorts.audioUDP,
                 "audioTcpPort": PlayniteStreamPorts.audioTCP,
                 "inputPort": PlayniteStreamPorts.inputUDP,
-            ])
+                "maxViewers": PlayniteStreamPorts.maxCoopViewers,
+            ]
+            if let coopSession {
+                body["session"] = coopSession.json
+            } else {
+                body["session"] = NSNull()
+            }
+            return httpResponse(status: 200, body: body)
+        case ("POST", "/playnite/v1/session/create"):
+            let created = ensureSession()
+            DebugLog.log("Playnite co-op session created \(created.sessionID)")
+            return httpResponse(status: 200, body: ["ok": true, "session": created.json])
+        case ("GET", "/playnite/v1/session"):
+            guard let coopSession else {
+                return httpResponse(status: 404, body: ["ok": false, "error": "no session"])
+            }
+            return httpResponse(status: 200, body: ["ok": true, "session": coopSession.json])
+        case ("POST", "/playnite/v1/session/join"):
+            guard let deviceID = json?["deviceId"] as? String, !deviceID.isEmpty else {
+                return httpResponse(status: 400, body: ["ok": false, "error": "deviceId required"])
+            }
+            guard isPaired(deviceID: deviceID) else {
+                return httpResponse(status: 403, body: ["ok": false, "error": "not paired"])
+            }
+            var session = ensureSession()
+            let name = pairedDeviceName(deviceID: deviceID)
+                ?? (json?["deviceName"] as? String)
+                ?? "Companion"
+            let preferred = json?["preferredSeat"] as? Int
+            switch session.join(deviceID: deviceID, deviceName: name, preferredSeat: preferred) {
+            case .success(let seat):
+                coopSession = session
+                notifySessionChanged()
+                DebugLog.log("Playnite session join \(name) seat=\(seat.seat)")
+                return httpResponse(status: 200, body: [
+                    "ok": true,
+                    "seat": seat.seat,
+                    "session": session.json,
+                ])
+            case .failure(.full):
+                return httpResponse(status: 409, body: ["ok": false, "error": "session full"])
+            case .failure:
+                return httpResponse(status: 400, body: ["ok": false, "error": "join failed"])
+            }
+        case ("POST", "/playnite/v1/session/leave"):
+            guard let deviceID = json?["deviceId"] as? String, !deviceID.isEmpty else {
+                return httpResponse(status: 400, body: ["ok": false, "error": "deviceId required"])
+            }
+            guard var session = coopSession else {
+                return httpResponse(status: 200, body: ["ok": true])
+            }
+            _ = session.leave(deviceID: deviceID)
+            if session.seats.isEmpty {
+                coopSession = nil
+            } else {
+                coopSession = session
+            }
+            notifySessionChanged()
+            return httpResponse(status: 200, body: ["ok": true, "session": coopSession?.json as Any])
+        case ("POST", "/playnite/v1/session/reassign"):
+            guard let deviceID = json?["deviceId"] as? String,
+                  let seat = json?["seat"] as? Int
+            else {
+                return httpResponse(status: 400, body: ["ok": false, "error": "deviceId and seat required"])
+            }
+            guard var session = coopSession else {
+                return httpResponse(status: 404, body: ["ok": false, "error": "no session"])
+            }
+            switch session.reassign(deviceID: deviceID, toSeat: seat) {
+            case .success:
+                coopSession = session
+                notifySessionChanged()
+                return httpResponse(status: 200, body: ["ok": true, "session": session.json])
+            case .failure:
+                return httpResponse(status: 400, body: ["ok": false, "error": "reassign failed"])
+            }
+        case ("POST", "/playnite/v1/session/cursor-owner"):
+            guard let deviceID = json?["deviceId"] as? String else {
+                return httpResponse(status: 400, body: ["ok": false, "error": "deviceId required"])
+            }
+            guard var session = coopSession, session.seat(for: deviceID) != nil else {
+                return httpResponse(status: 404, body: ["ok": false, "error": "not in session"])
+            }
+            session.cursorOwnerDeviceID = deviceID
+            coopSession = session
+            notifySessionChanged()
+            return httpResponse(status: 200, body: ["ok": true, "session": session.json])
+        case ("POST", "/playnite/v1/session/end"):
+            endSession()
+            return httpResponse(status: 200, body: ["ok": true])
         case ("POST", "/playnite/v1/pair/request"), ("POST", "/playnite/v1/pair/begin"):
             guard let deviceID = json?["deviceId"] as? String, !deviceID.isEmpty else {
                 DebugLog.log("Playnite pair/request rejected: missing deviceId")
@@ -305,30 +448,61 @@ actor PlayniteStreamControlServer {
             let width = json?["width"] as? Int ?? 1920
             let height = json?["height"] as? Int ?? 1080
             let fps = json?["fps"] as? Int ?? 60
-            PlayniteStreamSessionLog.i(
-                "Companion POST stream/start deviceId=\(deviceID) \(width)x\(height) @ \(fps)fps"
-            )
-            if let onStreamStartRequested {
-                Task { await onStreamStartRequested(deviceID, width, height, fps) }
+            var session = ensureSession()
+            let name = pairedDeviceName(deviceID: deviceID) ?? "Companion"
+            switch session.join(deviceID: deviceID, deviceName: name, preferredSeat: json?["preferredSeat"] as? Int) {
+            case .success(let seatInfo):
+                coopSession = session
+                notifySessionChanged()
+                PlayniteStreamSessionLog.i(
+                    "Companion POST stream/start deviceId=\(deviceID) seat=\(seatInfo.seat) " +
+                        "\(width)x\(height) @ \(fps)fps alreadyStreaming=\(videoStreaming)"
+                )
+                if let onStreamStartRequested {
+                    Task { await onStreamStartRequested(deviceID, width, height, fps) }
+                }
+                let lanHost = LocalNetworkAddress.primaryIPv4() ?? "127.0.0.1"
+                return httpResponse(status: 200, body: [
+                    "ok": true,
+                    "seat": seatInfo.seat,
+                    "videoPort": PlayniteStreamPorts.videoTCP,
+                    "audioPort": PlayniteStreamPorts.audioUDP,
+                    "audioTcpPort": PlayniteStreamPorts.audioTCP,
+                    "inputPort": PlayniteStreamPorts.inputUDP,
+                    "host": lanHost,
+                    "loopbackHost": "127.0.0.1",
+                    "session": session.json,
+                    "attached": videoStreaming,
+                ])
+            case .failure(.full):
+                return httpResponse(status: 409, body: ["ok": false, "error": "session full (max 2 viewers)"])
+            case .failure:
+                return httpResponse(status: 400, body: ["ok": false, "error": "could not join session"])
             }
-            let lanHost = LocalNetworkAddress.primaryIPv4() ?? "127.0.0.1"
-            return httpResponse(status: 200, body: [
-                "ok": true,
-                "videoPort": PlayniteStreamPorts.videoTCP,
-                "audioPort": PlayniteStreamPorts.audioUDP,
-                "audioTcpPort": PlayniteStreamPorts.audioTCP,
-                "inputPort": PlayniteStreamPorts.inputUDP,
-                "host": lanHost,
-                "loopbackHost": "127.0.0.1",
-            ])
         case ("POST", "/playnite/v1/stream/stop"):
             PlayniteStreamSessionLog.i("Companion POST stream/stop")
-            if let onStreamStopRequested {
+            if let deviceID = json?["deviceId"] as? String, var session = coopSession {
+                _ = session.leave(deviceID: deviceID)
+                if session.seats.isEmpty {
+                    coopSession = nil
+                    if let onStreamStopRequested {
+                        Task { await onStreamStopRequested() }
+                    } else {
+                        setVideoStreaming(false)
+                    }
+                } else {
+                    coopSession = session
+                    // Other viewer still connected — do not tear down capture.
+                    notifySessionChanged()
+                    return httpResponse(status: 200, body: ["ok": true, "captureStopped": false, "session": session.json])
+                }
+                notifySessionChanged()
+            } else if let onStreamStopRequested {
                 Task { await onStreamStopRequested() }
             } else {
                 setVideoStreaming(false)
             }
-            return httpResponse(status: 200, body: ["ok": true])
+            return httpResponse(status: 200, body: ["ok": true, "captureStopped": true])
         default:
             return httpResponse(status: 404, body: ["error": "not found"])
         }
@@ -345,6 +519,7 @@ actor PlayniteStreamControlServer {
         case 200: return "OK"
         case 403: return "Forbidden"
         case 404: return "Not Found"
+        case 409: return "Conflict"
         default: return "Error"
         }
     }

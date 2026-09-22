@@ -147,6 +147,15 @@ For release notes style summaries, see `source control log.md`. For architecture
 | **Fix** | `LaunchArgumentTemplate`: expand `{user_name}` / `~`; normalize stored home prefixes to `/Users/{user_name}/…` on migrate/save. |
 | **Commit** | *Not committed yet* |
 
+### BJ-085 — Missing ROM files stayed in library after Scan Paths
+| | |
+|---|---|
+| **When** | Jul 26, 2026 (**in progress**) |
+| **Symptom** | After restoring the full MacDeck/GBear store, PS2/Switch (etc.) titles whose files are no longer on the Mac remained in the library even after **Scan Paths**. |
+| **Cause** | “Orphan” cleanup only deleted games whose **emulator** was missing. Scan only added/reassigned; it never pruned absent files. |
+| **Fix** | `GamePathScanner.pruneMissingPathScannedGames`: on scan, delete emulator-linked games under a **reachable** Paths game root when the file is gone; keep rows if the whole root/volume is offline. Scan feedback reports **Removed N missing game(s)**. |
+| **Commit** | *Not committed yet* |
+
 ---
 
 ## Streaming — architecture (Sunshine → native Playnite)
@@ -265,6 +274,15 @@ For release notes style summaries, see `source control log.md`. For architecture
 | **Fix** | `OutlinedButton` theme from `CompanionAppearanceSettings` primary text color; chips outlined in mapping/shortcut editors. |
 | **Commit** | `ae82eac` |
 
+### BJ-053 — Second companion stream replaced the first viewer
+| | |
+|---|---|
+| **When** | Sep 22, 2026 (**in progress**) |
+| **Symptom** | Two phones could pair, but starting a second Desktop stream dropped the first phone’s video/audio (single TCP client + `beginVideoStream` always ended prior capture). |
+| **Cause** | `PlayniteVideoStreamServer` / audio kept one client; companion `startStream` stopped Mac capture whenever `videoStreaming` was already true. |
+| **Fix** | Fan-out to 2 video/audio clients; co-op session seats; attach without restarting capture; companion no longer stops an active multi-viewer session when joining. |
+| **Commit** | *Not committed yet* |
+
 ---
 
 ## Companion — stream notification (Android)
@@ -379,6 +397,7 @@ For release notes style summaries, see `source control log.md`. For architecture
 | ID | Issue | Notes |
 |----|--------|--------|
 | BJ-080–083 | ARMSX2 launch regressions (sandbox argv, gray GS, open-document crash) | Verify after rebuild with sandbox **off**; quit ARMSX2 before Play; emulog should show `isoFile open ok`. |
+| BJ-085 | Missing files left in library after scan | Verify **Scan Paths** reports removed missing games when Paths roots are online. |
 | BJ-007 | Scrape log still mostly `emulatorSystemeid=nil` on some libraries | Confirm **Scan Paths** after rebuild; verify ROM paths match configured folder roots (symlinks / external drives). |
 | BJ-008 | Residual `no_match` for short/obscure titles | *rain*, *Hannah*, *ChokoNana* may need manual ScreenScraper pick even with platform set. |
 | — | Some OEMs still collapse custom notification layout | `addAction` fallback present; may need in-app stream control panel. |

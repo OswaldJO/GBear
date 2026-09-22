@@ -92,13 +92,16 @@ struct GBear: App {
                         title: "Missing Orphan Games",
                         message: """
                         Why this exists:
-                        Sometimes old library entries can reference emulator records that no longer exist (for example after emulator edits/imports or stale data). Those entries can show up as ghost games in “All” and not in emulator-specific sections.
+                        Library rows can go stale in two ways:
+                        1) They still reference an emulator that was deleted.
+                        2) They were imported from Paths, but the ROM/file is no longer on disk.
 
                         What the app does:
-                        On startup, the app now auto-cleans these orphan entries and shows a cleanup notice if any were removed.
+                        On startup, the app removes games whose emulator no longer exists (ghost entries in “All”).
+                        On Scan Paths, the app also removes emulator-linked games under a reachable Paths folder when the file is gone. If an entire Paths folder/volume is offline (unmounted drive), those games are kept so a temporary disconnect does not wipe the library.
 
                         Result:
-                        Library sections stay consistent, and stale ghost entries no longer cause play/launch instability.
+                        Library sections stay consistent with what’s actually on disk and configured.
                         """
                     )
                 }

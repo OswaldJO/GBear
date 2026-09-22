@@ -19,3 +19,6 @@ GBear/Resources/Sunshine/sunshine
 # Generated Moonlight companion iOS pod artifacts
 companion_app/ios/MoonlightStream/Sources/
 companion_app/ios/MoonlightStream/Vendor/
+
+# Session coordinator deps
+services/gbear-session/node_modules/

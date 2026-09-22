@@ -125,6 +125,8 @@ class MainActivity : FlutterActivity() {
                         ?: PlayniteInputSender.TAP_TIMEOUT_MS
                     val tapPressure = (call.argument<Double>("tapPressure") ?: 0.35).toFloat()
                     val bindingsJson = call.argument<String>("controllerBindingsJson").orEmpty()
+                    val seat = (call.argument<Int>("seat") ?: 1).coerceIn(1, 2)
+                    val coopPadMode = call.argument<Boolean>("coopPadMode") ?: true
                     if (host.isEmpty()) {
                         result.error("invalid_args", "Missing host", null)
                         return@setMethodCallHandler
@@ -142,6 +144,9 @@ class MainActivity : FlutterActivity() {
                     PlayniteStreamSession.tapTimeoutMs = tapTimeoutMs
                     PlayniteStreamSession.tapPressure = tapPressure
                     PlayniteStreamSession.controllerBindingsJson = bindingsJson
+                    PlayniteStreamSession.seat = seat
+                    PlayniteStreamSession.coopPadMode = coopPadMode
+                    PlayniteStreamSession.releaseGamepadSender()
                     cancelPendingFlutterStreamStoppedNotify()
                     PlayniteStreamSession.clearPendingExternalStopLog()
                     PlayniteStreamSession.cancelPendingMacStop()

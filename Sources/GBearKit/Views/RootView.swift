@@ -341,6 +341,9 @@ public struct RootView: View {
                 if summary.autoLinkedDiscSets > 0 {
                     parts.append("Auto-linked \(summary.autoLinkedDiscSets) multi-disc set(s)")
                 }
+                if summary.removedMissing > 0 {
+                    parts.append("Removed \(summary.removedMissing) missing game(s)")
+                }
                 if epicSummary.added > 0 {
                     parts.append("Imported \(epicSummary.added) Epic game(s)")
                 }

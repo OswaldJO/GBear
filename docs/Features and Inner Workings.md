@@ -23,7 +23,7 @@ This document describes **how the app behaves today** and **where implementation
 ### Toolbar (Library)
 
 - **Add Game** — `NSOpenPanel` for app/executable/directory; creates `LibraryGame` with no emulator.
-- **Scan Paths** — `GamePathScanner.scan` plus `EpicInstalledGamesImporter.importInstalledGames`; may schedule metadata pass.
+- **Scan Paths** — `GamePathScanner.scan` plus `EpicInstalledGamesImporter.importInstalledGames`; may schedule metadata pass. After scanning, **prunes** emulator-linked games under a **reachable** Paths game folder when the ROM/file is missing (`ScanSummary.removedMissing`). Games under an offline/unmounted Paths root are kept. Startup still removes games whose **emulator** no longer exists.
 - **Import Epic Installed Games** — Epic-only import.
 - **Metadata Settings** — presents `ScreenScraperSettingsSheet`.
 
@@ -139,14 +139,14 @@ The Mac app embeds its own **Playnite stream host** (ScreenCaptureKit → H.264,
 
 ### Host lifecycle
 
-- **`PlayniteStreamHostManager`** — in **`ensureReady()`** starts HTTP control (**28765**) and keeps transport listeners bound for the life of the host: TCP video (**28766**), UDP audio subscribe (**28767**), TCP audio downlink (**28769**), UDP input (**28768**). A companion session only starts/stops **capture** (`video.startCapture` / `video.stopStream`); listeners are torn down only on host **`stop()`** / **`restartHost()`**. Stream start/stop is serialized on **`streamOperationChain`**; **`beginVideoStream`** ends any prior capture first, then starts a new capture task. On stream start, **`PlayniteLocalOutputMute`** mutes Mac default output; unmutes on stream stop or host stop. **`isVideoStreaming`** mirrors **`videoStreaming`** on the control API for companion preflight. **`stopActiveVideoStream()`** (Streaming tab) ends capture if the phone quit without **`stream/stop`**.
-- **`PlayniteStreamControlServer`** — pairing queue (approve / deny / **cancel**), stream start/stop; **`POST /playnite/v1/stream/start`** and **`POST /playnite/v1/stream/stop`** return **200** immediately and run handlers in a background **`Task`** (phone connects to ports that are already listening). JSON includes `videoPort`, `audioPort`, `audioTcpPort`, `inputPort`, and **`videoStreaming`** on **`GET /playnite/v1/status`** (companion polls until false when clearing a stale capture session).
-- **`PlayniteVideoStreamServer`** — one TCP client; sends framed **`PNV1`** H.264 (Annex-B from `PlayniteH264Encoder`).
-- **`PlayniteDisplayCapture`** — SCK display + **system audio** (`capturesAudio`); PCM converted to s16le (packed or planar stereo interleave when ScreenCaptureKit returns multiple buffers).
-- **`PlayniteAudioStreamServer`** — phone sends **`PNAS`** on UDP **28767**; Mac streams **`PNA1`** PCM primarily over **TCP 28769** (4-byte little-endian length + frame); UDP downlink remains as fallback. Serial TCP send queue with subscribe ack (silent frames) on connect.
-- **`PlayniteStreamInputServer`** — receives **`PNI1`** touch packets; **`PlayniteRemoteInputPlayback`** posts `CGEvent` pointer events (relative move, tap, drag). **`PNK1`** keyboard packets from gamepad mapping and stream shortcuts; **`PlayniteKeyboardPlayback`** maps Moonlight short codes (Windows VK in the low byte) to US ANSI **`CGKeyCode`** via Carbon `kVK_ANSI_*` (letters are **not** `vk - 0x41`). Modifiers (**Shift**, **Control**, **Option** `0xA4`/`0xA5`, **Command** `0x5B`/`0x5C`) update **`CGEvent.flags`** only; chord keys (e.g. **Q** for quit) are posted with those flags held. Requires **Accessibility**; logs `[PlayniteInput] PNK1` / `keyboard` lines to Console when packets arrive.
-- **`PlayniteLocalOutputMute`** — CoreAudio mute on default output device during an active stream; restores prior mute state afterward.
-- **`StreamingView`** — LAN IP, port summary, Screen Recording + **Accessibility** status, **Test cursor on streamed display**, pairing approve/deny; when **`isVideoStreaming`**, **Stop active stream** tears down capture/transport; notes that playback is on the phone and Mac speakers are muted while streaming.
+- **`PlayniteStreamHostManager`** — in **`ensureReady()`** starts HTTP control (**28765**) and keeps transport listeners bound for the life of the host: TCP video (**28766**), UDP audio subscribe (**28767**), TCP audio downlink (**28769**), UDP input (**28768**). Capture starts on first companion **`stream/start`**; a **second viewer attaches without restarting encode**. Stream start/stop is serialized on **`streamOperationChain`**. On stream start, **`PlayniteLocalOutputMute`** mutes Mac default output; unmutes when the last viewer leaves / host stop. **`isVideoStreaming`** mirrors **`videoStreaming`** on the control API. **`stopActiveVideoStream()`** (Streaming tab) ends capture.
+- **`PlayniteStreamControlServer`** — pairing queue + **co-op session seats** (`POST /playnite/v1/session/create|join|leave|reassign|cursor-owner|end`); **`stream/start`** auto-joins a seat (max **2**); **`stream/stop`** with `deviceId` leaves the seat and only stops capture when no seats remain. Status includes `session` + `maxViewers`.
+- **`PlayniteVideoStreamServer`** — up to **2** TCP clients; fans out framed **`PNV1`** H.264.
+- **`PlayniteDisplayCapture`** — SCK display + **system audio** (`capturesAudio`); PCM converted to s16le.
+- **`PlayniteAudioStreamServer`** — up to **2** UDP `PNAS` subscribers + **2** TCP audio clients; fans out **`PNA1`**.
+- **`PlayniteStreamInputServer`** — **`PNI1`** touch, **`PNK1`** keyboard, **`PNG1`** gamepad (seat-tagged). **`PlayniteVirtualGamepadManager`** (PlayniteHID / IOHIDUserDevice) exposes two virtual pads. Cursor owner seat is driven from session state.
+- **`GBearSessionCoordinatorClient` / `PlayniteSessionTunnel`** — remote co-op session tunnel (coordinator auth/invites/ICE/TURN + GBTL mux). LAN remains direct ports.
+- **`StreamingView`** — LAN IP, co-op seats UI, remote session (dev sign-in / invite), pairing, Screen Recording + Accessibility.
 
 ### macOS permissions
 
@@ -154,6 +154,7 @@ The Mac app embeds its own **Playnite stream host** (ScreenCaptureKit → H.264,
 |------------|---------|---------|
 | **Screen Recording** | Desktop video + system audio capture | GBear |
 | **Accessibility** | Synthetic mouse move/click from phone touch | GBear (same list entry; not a separate “touch” item) |
+| **Virtual HID** (`com.apple.developer.hid.virtual.device`) | Two co-op virtual gamepads from `PNG1` | Entitlement on Mac target |
 
 Restart the Mac app after toggling Accessibility. Stream audio is **not** a separate item in **System Settings → Sound → Output**; it is captured and sent to the phone. While a stream is active, the Mac’s default output is **muted** so speakers stay quiet and the phone is the playback device (use phone **media** volume during a stream).
 
@@ -161,15 +162,15 @@ Restart the Mac app after toggling Accessibility. Stream audio is **not** a sepa
 
 | Port | Protocol | Role |
 |------|----------|------|
-| 28765 | HTTP | Control — `playnite-stream/1`, pairing, stream start/stop |
-| 28766 | TCP | Video — `PNV1` framed H.264 |
-| 28767 | UDP | Audio subscribe — phone `PNAS` → Mac registers client; optional UDP `PNA1` fallback |
-| 28769 | TCP | Audio downlink — length-prefixed `PNA1` PCM (primary path on Android) |
-| 28768 | UDP | Input — phone `PNI1` normalized touch |
+| 28765 | HTTP | Control — pairing, co-op session, stream start/stop |
+| 28766 | TCP | Video — `PNV1` framed H.264 (up to 2 viewers) |
+| 28767 | UDP | Audio subscribe — phone `PNAS` |
+| 28769 | TCP | Audio downlink — length-prefixed `PNA1` PCM |
+| 28768 | UDP | Input — `PNI1` / `PNK1` / `PNG1` |
 
-**Key types:** `StreamingView.swift`, `PlayniteStreamHostManager.swift`, `PlayniteStreamControlServer.swift`, `PlayniteVideoStreamServer.swift`, `PlayniteDisplayCapture.swift`, `PlayniteAudioStreamServer.swift`, `PlayniteLocalOutputMute.swift`, `PlayniteStreamInputServer.swift`, `PlayniteRemoteInputPlayback.swift`, `PlayniteKeyboardPlayback.swift`, `PlayniteStreamPorts.swift`, `AccessibilityPermission.swift`.
+**Key types:** `StreamingView.swift`, `PlayniteStreamHostManager.swift`, `PlayniteStreamControlServer.swift`, `PlayniteCoopSession.swift`, `PlayniteVideoStreamServer.swift`, `PlayniteDisplayCapture.swift`, `PlayniteAudioStreamServer.swift`, `PlayniteLocalOutputMute.swift`, `PlayniteStreamInputServer.swift`, `PlayniteGamepadEventFormat.swift`, `PlayniteVirtualGamepad.swift`, `GBearSessionCoordinatorClient.swift`, `PlayniteSessionTunnel.swift`, `PlayniteRemoteInputPlayback.swift`, `PlayniteKeyboardPlayback.swift`, `PlayniteStreamPorts.swift`, `AccessibilityPermission.swift`. Separate C target **`PlayniteHID`**.
 
-Setup: `docs/streaming-native.md`.
+Setup: `docs/streaming-native.md`. Remote coordinator: `services/gbear-session/`.
 
 ---
 
@@ -180,9 +181,9 @@ Flutter shell (iOS + Android) for discovery, HTTP pairing with the native Mac ho
 ### Tabs
 
 - **Hosts** — discover Mac via Playnite HTTP control plane; **Add IP** (outlined); **Pair** / **Cancel** while a pairing request is pending (`PairingCancellation` + **`POST /playnite/v1/pair/cancel`** on the Mac).
-- **Session** — **`PlayniteHostClient.startStream`**: if status shows **`videoStreaming: true`**, sends **`stream/stop`** and polls until idle; then **`POST /playnite/v1/stream/start`** (single request; Mac returns ports immediately). **`StreamingBridge.startPlayniteStream`** → **Android** `PlayniteVideoActivity` (full-screen `SurfaceView` + `MediaCodec`). **Back** sets **`leaveViewerWithoutMacStop`** and closes the viewer **without** Mac **`stream/stop`** (capture can keep running; listeners stay up). **Stop** (Session tab) runs **`PlayniteStreamStopCoordinator`** + **`ensureHostStreamStopped`** + idle poll. **Resume stream view** when **`hostStreamActive`** and viewer closed → native **`resumeStream`**. **Start Desktop 1080p60** after **Stop** (or when idle) for a new capture session. Repeat **Stop → Start** works without rebinding Mac ports (verified Jun 4 2026).
-- **Controller** — per-button **keyboard chords**, **Link gamepad** (button, D-pad hat, or stick direction for the slot being linked), **Assign Swap** (toggle mouse mode; not **A**, **B**, **X**, or **left stick** directions), and **Touchpad (stream view)** tunables. Mappable elements include **left/right stick up/down/left/right** (axis-held chords, not L3/R3). Bindings persist in **`StreamControllerMappingStore`**; optional **`targetAction: toggleSwap`**. Phone **media** volume keys work in the Flutter shell and stream view (`volumeControlStream = STREAM_MUSIC`).
-- **Settings** — **Appearance**, **Notification Swap button** (behavior + **Swap stick cursor speed**), **Shortcuts** (named chords), Mac LAN IP (`StreamingHostSettings`).
+- **Session** — **`PlayniteHostClient.startStream`** attaches as a co-op seat (does **not** stop an existing capture when a second viewer joins). Opens **Android** `PlayniteVideoActivity`. Status shows **Player 1 / Player 2**. **Stop** leaves the seat; capture ends when the last viewer leaves.
+- **Controller** — **Co-op pad mode (PNG1)** (default on) sends structured gamepad state to Mac virtual pads; off uses keyboard chords / Swap. Link gamepad + chord UI remains for single-player / shortcuts.
+- **Settings** — **Appearance**, Swap, Shortcuts, **Remote co-op** (coordinator URL, sign-in, redeem invite).
 
 ### Android native (Playnite video)
 

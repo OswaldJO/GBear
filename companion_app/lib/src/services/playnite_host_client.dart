@@ -160,6 +160,7 @@ class PlayniteHostClient {
     required int width,
     required int height,
     required int fps,
+    int? preferredSeat,
   }) async {
     final deviceId = await CompanionDeviceIdentity.deviceId();
     if (!await isDevicePaired(deviceId)) {
@@ -167,24 +168,40 @@ class PlayniteHostClient {
     }
 
     final priorStatus = await fetchStatus();
-    if (priorStatus != null && priorStatus['videoStreaming'] == true) {
-      await _ensureMacStreamFullyStopped();
+    // Second viewer attaches to an existing capture — do not stop the host.
+    final alreadyStreaming = priorStatus != null && priorStatus['videoStreaming'] == true;
+    if (alreadyStreaming) {
+      final session = priorStatus['session'];
+      final seats = session is Map ? session['seats'] : null;
+      if (seats is List && seats.length >= 2) {
+        final mine = seats.any((e) => e is Map && e['deviceId'] == deviceId);
+        if (!mine) {
+          return StreamStartOutcome.failed('Co-op session is full (2 players).');
+        }
+      }
     }
 
     try {
+      final body = <String, dynamic>{
+        'deviceId': deviceId,
+        'width': width,
+        'height': height,
+        'fps': fps,
+      };
+      if (preferredSeat != null) {
+        body['preferredSeat'] = preferredSeat;
+      }
       final response = await http
           .post(
             _uri('/playnite/v1/stream/start'),
             headers: {'Content-Type': 'application/json'},
-            body: jsonEncode({
-              'deviceId': deviceId,
-              'width': width,
-              'height': height,
-              'fps': fps,
-            }),
+            body: jsonEncode(body),
           )
           .timeout(const Duration(seconds: 8));
 
+      if (response.statusCode == 409) {
+        return StreamStartOutcome.failed('Co-op session is full (2 players).');
+      }
       if (response.statusCode != 200) {
         return StreamStartOutcome.failed(
           'Mac could not start stream (HTTP ${response.statusCode}).',
@@ -200,6 +217,7 @@ class PlayniteHostClient {
       final audioPort = json?['audioPort'] as int? ?? StreamingHostSettings.defaultAudioPort;
       final audioTcpPort = json?['audioTcpPort'] as int? ?? StreamingHostSettings.defaultAudioTcpPort;
       final inputPort = json?['inputPort'] as int? ?? StreamingHostSettings.defaultInputPort;
+      final seat = json?['seat'] as int? ?? 1;
       return StreamStartOutcome.success(
         host: host,
         loopbackHost: loopbackHost,
@@ -209,10 +227,47 @@ class PlayniteHostClient {
         inputPort: inputPort,
         width: width,
         height: height,
+        seat: seat,
       );
     } catch (e) {
       return StreamStartOutcome.failed('Could not start stream: $e');
     }
+  }
+
+  Future<Map<String, dynamic>?> joinSession({int? preferredSeat}) async {
+    final deviceId = await CompanionDeviceIdentity.deviceId();
+    final deviceName = await CompanionDeviceIdentity.deviceName();
+    try {
+      final body = <String, dynamic>{
+        'deviceId': deviceId,
+        'deviceName': deviceName,
+      };
+      if (preferredSeat != null) body['preferredSeat'] = preferredSeat;
+      final response = await http
+          .post(
+            _uri('/playnite/v1/session/join'),
+            headers: {'Content-Type': 'application/json'},
+            body: jsonEncode(body),
+          )
+          .timeout(const Duration(seconds: 8));
+      if (response.statusCode != 200) return null;
+      return jsonDecode(response.body) as Map<String, dynamic>?;
+    } catch (_) {
+      return null;
+    }
+  }
+
+  Future<void> leaveSession() async {
+    final deviceId = await CompanionDeviceIdentity.deviceId();
+    try {
+      await http
+          .post(
+            _uri('/playnite/v1/session/leave'),
+            headers: {'Content-Type': 'application/json'},
+            body: jsonEncode({'deviceId': deviceId}),
+          )
+          .timeout(const Duration(seconds: 4));
+    } catch (_) {}
   }
 
   static bool _macStreamFullyIdle(Map<String, dynamic>? status) {
@@ -234,7 +289,6 @@ class PlayniteHostClient {
       final status = await fetchStatus();
       if (status == null) {
         unreachableStreak += 1;
-        // Control plane unreachable — do not spin for ~6s before every start.
         if (unreachableStreak >= 2) {
           return;
         }
@@ -251,7 +305,14 @@ class PlayniteHostClient {
 
   Future<void> stopStreamOnHost() async {
     try {
-      await http.post(_uri('/playnite/v1/stream/stop')).timeout(const Duration(seconds: 4));
+      final deviceId = await CompanionDeviceIdentity.deviceId();
+      await http
+          .post(
+            _uri('/playnite/v1/stream/stop'),
+            headers: {'Content-Type': 'application/json'},
+            body: jsonEncode({'deviceId': deviceId}),
+          )
+          .timeout(const Duration(seconds: 4));
     } catch (_) {}
   }
 }
@@ -282,6 +343,7 @@ class StreamStartOutcome {
     this.inputPort,
     this.width,
     this.height,
+    this.seat,
   });
 
   final bool ok;
@@ -294,6 +356,7 @@ class StreamStartOutcome {
   final int? inputPort;
   final int? width;
   final int? height;
+  final int? seat;
 
   factory StreamStartOutcome.success({
     required String host,
@@ -304,6 +367,7 @@ class StreamStartOutcome {
     required int inputPort,
     required int width,
     required int height,
+    int seat = 1,
   }) =>
       StreamStartOutcome._(
         ok: true,
@@ -315,6 +379,7 @@ class StreamStartOutcome {
         inputPort: inputPort,
         width: width,
         height: height,
+        seat: seat,
       );
 
   factory StreamStartOutcome.failed(String message) => StreamStartOutcome._(ok: false, message: message);

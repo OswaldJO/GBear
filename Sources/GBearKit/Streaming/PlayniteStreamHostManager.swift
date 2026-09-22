@@ -16,6 +16,7 @@ final class PlayniteStreamHostManager {
     private(set) var state: HostState = .idle
     private(set) var pendingPairRequests: [PlayniteStreamControlServer.PendingPairRequest] = []
     private(set) var isVideoStreaming = false
+    private(set) var coopSession: PlayniteCoopSessionState?
     private(set) var lastStreamLogURL: URL?
 
     private let server = PlayniteStreamControlServer()
@@ -61,7 +62,8 @@ final class PlayniteStreamHostManager {
         case .preparing: return "Starting pairing host…"
         case .running:
             if isVideoStreaming {
-                return "Streaming desktop to the companion."
+                let seats = coopSession?.seats.count ?? 0
+                return "Streaming desktop to \(seats) companion viewer(s)."
             }
             return "Ready for pairing — capture starts when the companion starts a stream."
         case .unavailable(let message): return message
@@ -165,10 +167,52 @@ final class PlayniteStreamHostManager {
         await server.setPairingQueueHandler { [weak self] in
             await self?.refreshPendingPairRequests()
         }
+        await server.setSessionChangedHandler { [weak self] in
+            await self?.refreshCoopSession()
+        }
     }
 
     func refreshPendingPairRequests() async {
         pendingPairRequests = await server.pendingRequests()
+    }
+
+    func refreshCoopSession() async {
+        coopSession = await server.currentSession()
+        if let session = coopSession {
+            let ownerSeat: UInt8?
+            if let ownerID = session.cursorOwnerDeviceID,
+               let seat = session.seat(for: ownerID)?.seat {
+                ownerSeat = UInt8(seat)
+            } else {
+                ownerSeat = 1
+            }
+            await input.setCursorOwnerSeat(ownerSeat)
+            await input.setShortcutOwnerSeat(1)
+        }
+    }
+
+    @discardableResult
+    func createCoopSession() async -> PlayniteCoopSessionState {
+        let session = await server.ensureSession()
+        coopSession = session
+        return session
+    }
+
+    func endCoopSession() async {
+        await server.endSession()
+        coopSession = nil
+    }
+
+    func reassignSeat(deviceID: String, seat: Int) async -> Bool {
+        let ok = await server.reassignSeat(deviceID: deviceID, seat: seat)
+        await refreshCoopSession()
+        return ok
+    }
+
+    func setCursorOwner(deviceID: String) async -> Bool {
+        let ok = await server.setCursorOwner(deviceID: deviceID)
+        await refreshCoopSession()
+        return ok
     }
 
     func beginVideoStream(deviceID: String, width: Int, height: Int, fps: Int) async {
@@ -191,6 +235,13 @@ final class PlayniteStreamHostManager {
     }
 
     private func beginVideoStreamUnlocked(deviceID: String, width: Int, height: Int, fps: Int) async {
+        await refreshCoopSession()
+        // Second viewer attaches to existing capture — do not restart encode.
+        if isVideoStreaming, captureTask != nil {
+            PlayniteStreamSessionLog.i("Viewer \(deviceID) attached to existing capture session")
+            print("[PlayniteStream] viewer attached without restarting capture")
+            return
+        }
         await endVideoStreamUnlocked(reason: "starting new capture session")
         if !capture.isReady {
             guard await capture.requestSystemPrompt() else { return }
@@ -200,6 +251,7 @@ final class PlayniteStreamHostManager {
         let deviceName = await server.pairedDeviceName(deviceID: deviceID)
         PlayniteStreamSessionLog.startSession(deviceName: deviceName, width: width, height: height, fps: fps)
         PlayniteKeyboardPlayback.resetModifierState()
+        await PlayniteVirtualGamepadManager.shared.ensurePads()
         isVideoStreaming = true
         await server.setVideoStreaming(true)
         PlayniteLocalOutputMute.setStreamingMuted(true)
@@ -236,8 +288,10 @@ final class PlayniteStreamHostManager {
         isVideoStreaming = false
         await server.setVideoStreaming(false)
         PlayniteKeyboardPlayback.resetModifierState()
+        await PlayniteVirtualGamepadManager.shared.resetAll()
         PlayniteLocalOutputMute.setStreamingMuted(false)
         lastStreamLogURL = PlayniteStreamSessionLog.endSession(reason: reason)
+        await refreshCoopSession()
         print("[PlayniteStream] stream ended")
     }
 

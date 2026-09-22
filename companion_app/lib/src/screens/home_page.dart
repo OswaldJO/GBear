@@ -22,6 +22,7 @@ import '../widgets/stream_shortcuts_picker_sheet.dart';
 import '../widgets/companion_appearance_section.dart';
 import '../widgets/stream_shortcuts_section.dart';
 import '../services/stream_shortcuts_store.dart';
+import '../services/gbear_session_client.dart';
 
 class HomePage extends StatefulWidget {
   const HomePage({super.key});
@@ -180,6 +181,7 @@ class _HomePageState extends State<HomePage> with WidgetsBindingObserver {
     int? deadZonePercent,
     bool? usbDriver,
     bool? bindAllUsb,
+    bool? coopPadMode,
   }) async {
     final current = _controllerSettings ?? await StreamControllerSettings.load();
     await current.save(
@@ -189,6 +191,7 @@ class _HomePageState extends State<HomePage> with WidgetsBindingObserver {
       deadZonePercent: deadZonePercent,
       usbDriver: usbDriver,
       bindAllUsb: bindAllUsb,
+      coopPadMode: coopPadMode,
     );
     if (!mounted) return;
     setState(() => _controllerSettings = current);
@@ -490,6 +493,7 @@ class _HomePageState extends State<HomePage> with WidgetsBindingObserver {
         width: streamWidth,
         height: streamHeight,
         fps: streamFps,
+        controllerSettings: _controllerSettings,
         controllerBindingsJson: mappingStore.bindingsJson(),
       );
       if (!mounted) return;
@@ -497,7 +501,9 @@ class _HomePageState extends State<HomePage> with WidgetsBindingObserver {
       setState(() {
         _streamActive = outcome.ok;
         _streamViewerOpen = outcome.ok;
-        _sessionStatus = outcome.message ?? (outcome.ok ? 'Streaming' : 'Failed');
+        _sessionStatus = outcome.ok
+            ? 'Streaming as Player ${outcome.seat ?? 1}'
+            : (outcome.message ?? 'Failed');
       });
       if (outcome.ok) {
         await _refreshStreamSessionState();
@@ -713,10 +719,9 @@ class _HomePageState extends State<HomePage> with WidgetsBindingObserver {
           ),
           const SizedBox(height: 8),
           const Text(
-            'Streams your Mac desktop via GBear on Mac H.264 (port ${StreamingHostSettings.defaultVideoPort}). '
-            'Connect a gamepad first (Controller tab), then start Desktop stream. '
-            'While streaming, use the notification Stop, Swap, Controller, or Shortcuts buttons (Stop matches the Session tab). '
-            'To start a fresh stream after leaving the video with Back, tap Stop here first, then Start.',
+            'Streams your Mac desktop via GBear H.264. Two phones can join as Player 1 / Player 2 '
+            '(same capture). Connect a gamepad (Controller tab), then start Desktop stream. '
+            'Co-op pad mode sends PNG1 to Mac virtual pads; keyboard-chord mode stays available for shortcuts.',
           ),
           if (_sessionStatus.isNotEmpty) ...[
             const SizedBox(height: 12),
@@ -781,8 +786,8 @@ class _HomePageState extends State<HomePage> with WidgetsBindingObserver {
         const SizedBox(height: 8),
         const Text(
           'Pair a telescopic or Bluetooth gamepad to this phone (not the Mac). '
-          'During a stream, GBear sends your mapped buttons and sticks to the Mac as keyboard chords '
-          '(and Swap mouse mode when enabled).',
+          'In co-op pad mode the phone sends PNG1 to Mac virtual pads (Player 1 / 2). '
+          'Keyboard-chord mappings and Swap mouse mode remain available when co-op pad mode is off.',
         ),
         const SizedBox(height: 12),
         Text(
@@ -942,6 +947,15 @@ class _HomePageState extends State<HomePage> with WidgetsBindingObserver {
             )
           else ...[
             SwitchListTile(
+              title: const Text('Co-op pad mode (PNG1)'),
+              subtitle: const Text(
+                'Send structured gamepad state to Mac virtual Player 1/2 pads. '
+                'Turn off to use keyboard-chord mappings instead.',
+              ),
+              value: settings.coopPadMode,
+              onChanged: (value) => _saveControllerSettings(coopPadMode: value),
+            ),
+            SwitchListTile(
               title: const Text('Multi-controller'),
               subtitle: const Text('Keep slots open when a pad disconnects mid-game.'),
               value: settings.multiController,
@@ -1059,6 +1073,144 @@ class _HomePageState extends State<HomePage> with WidgetsBindingObserver {
           ),
         const SizedBox(height: 28),
         const StreamShortcutsSection(),
+        const SizedBox(height: 28),
+        const _RemoteSessionSection(),
+      ],
+    );
+  }
+}
+
+class _RemoteSessionSection extends StatefulWidget {
+  const _RemoteSessionSection();
+
+  @override
+  State<_RemoteSessionSection> createState() => _RemoteSessionSectionState();
+}
+
+class _RemoteSessionSectionState extends State<_RemoteSessionSection> {
+  GBearSessionClient? _client;
+  final _baseCtrl = TextEditingController();
+  final _tokenCtrl = TextEditingController();
+  final _inviteCtrl = TextEditingController();
+  String _status = '';
+
+  @override
+  void initState() {
+    super.initState();
+    unawaited(_load());
+  }
+
+  @override
+  void dispose() {
+    _baseCtrl.dispose();
+    _tokenCtrl.dispose();
+    _inviteCtrl.dispose();
+    super.dispose();
+  }
+
+  Future<void> _load() async {
+    final client = await GBearSessionClient.load();
+    if (!mounted) return;
+    setState(() {
+      _client = client;
+      _baseCtrl.text = client.baseUrl;
+      _status = client.isSignedIn
+          ? 'Signed in as ${client.email ?? "account"}'
+          : 'Not signed in — use coordinator with GBEAR_DEV_AUTH=1 or a Google ID token.';
+    });
+  }
+
+  @override
+  Widget build(BuildContext context) {
+    return Column(
+      crossAxisAlignment: CrossAxisAlignment.stretch,
+      children: [
+        const Text(
+          'Remote co-op (session tunnel)',
+          style: TextStyle(fontSize: 18, fontWeight: FontWeight.w600),
+        ),
+        const SizedBox(height: 8),
+        Text(
+          'Join a friend’s Mac off-LAN without port forwarding. Sign in (same Google as the host) '
+          'or redeem an invite code from the Mac Streaming tab.',
+          style: TextStyle(color: Theme.of(context).colorScheme.onSurfaceVariant),
+        ),
+        const SizedBox(height: 12),
+        TextField(
+          controller: _baseCtrl,
+          decoration: const InputDecoration(
+            labelText: 'Coordinator URL',
+            hintText: 'http://127.0.0.1:8787',
+          ),
+        ),
+        const SizedBox(height: 8),
+        TextField(
+          controller: _tokenCtrl,
+          decoration: const InputDecoration(
+            labelText: 'ID token',
+            hintText: 'dev:you@gmail.com',
+          ),
+        ),
+        const SizedBox(height: 8),
+        Wrap(
+          spacing: 8,
+          children: [
+            OutlinedButton(
+              onPressed: () async {
+                final client = _client ?? await GBearSessionClient.load();
+                await client.setBaseUrl(_baseCtrl.text.trim());
+                final ok = await client.signIn(_tokenCtrl.text.trim());
+                if (!mounted) return;
+                setState(() {
+                  _client = client;
+                  _status = ok
+                      ? 'Signed in as ${client.email}'
+                      : 'Sign-in failed — is the coordinator running?';
+                });
+              },
+              child: const Text('Sign in'),
+            ),
+            OutlinedButton(
+              onPressed: () async {
+                await _client?.signOut();
+                if (!mounted) return;
+                setState(() => _status = 'Signed out');
+              },
+              child: const Text('Sign out'),
+            ),
+          ],
+        ),
+        const SizedBox(height: 12),
+        TextField(
+          controller: _inviteCtrl,
+          decoration: const InputDecoration(
+            labelText: 'Friend invite code',
+            hintText: 'ABCDEF',
+          ),
+          textCapitalization: TextCapitalization.characters,
+        ),
+        const SizedBox(height: 8),
+        FilledButton(
+          onPressed: () async {
+            final client = _client ?? await GBearSessionClient.load();
+            final json = await client.redeemInvite(_inviteCtrl.text);
+            if (!mounted) return;
+            setState(() {
+              _client = client;
+              _status = json == null
+                  ? 'Invite redeem failed'
+                  : 'Joined remote session as Player ${json['seat'] ?? 2}';
+            });
+          },
+          child: const Text('Redeem invite'),
+        ),
+        if (_status.isNotEmpty) ...[
+          const SizedBox(height: 8),
+          Text(
+            _status,
+            style: TextStyle(color: Theme.of(context).colorScheme.primary),
+          ),
+        ],
       ],
     );
   }

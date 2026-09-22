@@ -438,6 +438,15 @@ class PlayniteVideoActivity : Activity(), SurfaceHolder.Callback {
         if (GamepadLinkCapture.tryConsume(event)) {
             return true
         }
+        if (PlayniteStreamSession.coopPadMode) {
+            val pad = PlayniteStreamSession.gamepadSender()
+            if (pad != null && pad.handleKeyEvent(event)) {
+                return true
+            }
+            if (GamepadInputFilter.isGamepadKey(event)) {
+                return true
+            }
+        }
         val mapping = gamepadMappingForEvent()
         val keyboard = keyboardSender ?: PlayniteStreamSession.keyboardSender().also { keyboardSender = it }
         val swapActive = PlayniteStreamSession.swapMouseModeActive
@@ -471,6 +480,10 @@ class PlayniteVideoActivity : Activity(), SurfaceHolder.Callback {
         }
         if (!GamepadInputFilter.isGamepadMotion(event)) {
             return super.dispatchGenericMotionEvent(event)
+        }
+        if (PlayniteStreamSession.coopPadMode) {
+            PlayniteStreamSession.gamepadSender()?.handleMotion(event)
+            return true
         }
         val mapping = gamepadMappingForEvent()
         val keyboard = keyboardSender ?: PlayniteStreamSession.keyboardSender().also { keyboardSender = it }
@@ -539,6 +552,7 @@ class PlayniteVideoActivity : Activity(), SurfaceHolder.Callback {
         inputSender = null
         gamepadMouseSender?.close()
         gamepadMouseSender = null
+        PlayniteStreamSession.releaseGamepadSender()
         if (releaseKeyboard) {
             PlayniteStreamSession.releaseKeyboardSender()
         }
@@ -984,6 +998,8 @@ class PlayniteVideoActivity : Activity(), SurfaceHolder.Callback {
         const val EXTRA_WIDTH = "width"
         const val EXTRA_HEIGHT = "height"
         const val EXTRA_CONTROLLER_BINDINGS_JSON = "controllerBindingsJson"
+        const val EXTRA_SEAT = "seat"
+        const val EXTRA_COOP_PAD_MODE = "coopPadMode"
 
         private const val MAX_SPS_BYTES = 512
         private const val MAX_PPS_BYTES = 512

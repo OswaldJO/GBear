@@ -166,19 +166,26 @@ class StreamingBridge {
     StreamControllerSettings? controllerSettings,
     StreamTouchSettings? touchSettings,
     String? controllerBindingsJson,
+    int? preferredSeat,
   }) async {
     playniteStreamDebug('prepareForNewStream…');
     await prepareForNewStream();
     final client = await _client();
+    final settings = controllerSettings ?? await StreamControllerSettings.load();
     playniteStreamDebug('POST Mac stream/start ${width}x$height @ ${fps}fps…');
-    final outcome = await client.startStream(width: width, height: height, fps: fps);
+    final outcome = await client.startStream(
+      width: width,
+      height: height,
+      fps: fps,
+      preferredSeat: preferredSeat,
+    );
     if (!outcome.ok || outcome.host == null || outcome.videoPort == null) {
       playniteStreamDebug('Mac stream/start failed: ${outcome.message}');
       return outcome;
     }
     final videoHost = await _resolveVideoHost(outcome);
     playniteStreamDebug(
-      'Mac capture started; opening native player $videoHost:${outcome.videoPort}'
+      'Mac capture started; opening native player $videoHost:${outcome.videoPort} seat=${outcome.seat}'
       '${videoHost != outcome.host ? " (LAN ${outcome.host})" : ""}',
     );
 
@@ -194,6 +201,8 @@ class StreamingBridge {
         'width': outcome.width ?? width,
         'height': outcome.height ?? height,
         'controllerBindingsJson': controllerBindingsJson ?? '',
+        'seat': outcome.seat ?? 1,
+        'coopPadMode': settings.coopPadMode,
         ...touch.toMethodChannelMap(),
       });
       if (started == true) {

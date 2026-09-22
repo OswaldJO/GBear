@@ -18,6 +18,9 @@ enum PlayniteStreamPorts {
     static let audioSubscribeMagic: UInt32 = 0x5341_4E50 // "PNAS" little-endian
     static let inputMagic: UInt32 = 0x3149_4E50 // "PNI1" little-endian
     static let keyboardMagic: UInt32 = 0x314B_4E50 // "PNK1" little-endian
+    /// Structured gamepad state for co-op seats (`PNG1`).
+    static let gamepadMagic: UInt32 = 0x3147_4E50 // "PNG1" little-endian
+    static let maxCoopViewers = 2
 }
 
 /// File-backed diagnostics for an active companion stream (Mac host side).

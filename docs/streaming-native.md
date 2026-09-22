@@ -12,14 +12,15 @@ GBear implements its own LAN streaming stack. **Sunshine and Moonlight are not u
 
 ### HTTP API
 
-- `GET /playnite/v1/status` — hostname, protocol, capture ready, video port
+- `GET /playnite/v1/status` — hostname, protocol, capture ready, ports, **`session`**, **`maxViewers`**
 - `POST /playnite/v1/pair/request` — phone requests pairing (`deviceId`, `deviceName`)
 - `GET /playnite/v1/pair/pending` — Mac polls pending requests
 - `POST /playnite/v1/pair/approve` / `POST /playnite/v1/pair/deny` — Mac UI (`deviceId`)
 - `GET /playnite/v1/pair/status?deviceId=` — phone polls `pending` | `paired` | `denied`
 - `GET /playnite/v1/pair/clients` — paired device list
-- `POST /playnite/v1/stream/start` — begins H.264 capture (paired device only)
-- `POST /playnite/v1/stream/stop` — stops capture
+- `POST /playnite/v1/session/create` | `join` | `leave` | `reassign` | `cursor-owner` | `end` — co-op seats (max 2)
+- `POST /playnite/v1/stream/start` — join seat + start or **attach** to capture (paired device only)
+- `POST /playnite/v1/stream/stop` — leave seat; stop capture when empty (`deviceId` recommended)
 
 Paired devices persist under:
 
@@ -31,9 +32,16 @@ Paired devices persist under:
 2. Mac: **Streaming** shows “{device} is trying to pair” → **Pair** or **Deny**.
 3. Phone polls `/pair/status` until `paired`.
 
+### Co-op (2 players)
+
+1. Both phones pair on LAN (or join via remote session invite).
+2. Each **Start Desktop stream** — first starts capture; second **attaches** (same encode).
+3. Seats **P1 / P2** shown on Mac Streaming tab; **Co-op pad mode** sends **`PNG1`** → Mac virtual HID pads.
+4. Remote: run `services/gbear-session` (`GBEAR_DEV_AUTH=1 npm start`); Mac mints invite; friend redeems in companion Settings.
+
 ### Video (v1)
 
-- Mac: ScreenCaptureKit → VideoToolbox H.264 → TCP port **28766** (`PNV1` framed packets).
+- Mac: ScreenCaptureKit → VideoToolbox H.264 → TCP port **28766** (`PNV1`), up to **2** clients.
 - Phone: native full-screen player (`PlayniteVideoActivity` / `PlayniteVideoViewController`).
 
 ### Audio (v1)
