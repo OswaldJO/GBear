@@ -390,6 +390,15 @@ For release notes style summaries, see `source control log.md`. For architecture
 | **Fix** | Restored persistent listeners in **`ensureReady()`**; capture-only **`beginVideoStream`** / **`endVideoStream`**; fire-and-forget **`stream/start`** + **`stream/stop`**; idempotent **`startListener`**; removed **`transportReady`**. Companion: single **`stream/start`**; preflight stop only when **`videoStreaming`** true. Retained **Back** resume, **Stop** coordinator, and **Stop active stream** on Mac. |
 | **Commit** | *Not committed yet* |
 
+### BJ-086 — Co-op locked to two phones / join order
+| | |
+|---|---|
+| **When** | Sep 22, 2026 (**in progress**) |
+| **Symptom** | Remote couch co-op only allowed two companion phones; player order followed join order; host Mac and a second computer could not occupy slots; co-op PNG1 ignored button remaps. |
+| **Cause** | `maxSeats` / video-audio `maxClients` / HID pads hardcoded to 2; seats were phone-device identity with no `joinSeat` remap; no host-local or computer-guest client kinds; PNG1 used a fixed Android keycode table. |
+| **Fix** | 8 slots (`PlayniteCoopSession`); this Mac counts as a player (**7 remotes**); **8 remotes** only if a companion plays as host; join-order default with Player 1 reserved for the host; `joinSeat` frozen + host translation for **Move to**; virtual pads per occupied seat; computer guests; companion auto-map + overrides. WAN relay remains 2-peer. |
+| **Commit** | *in progress* |
+
 ---
 
 ## Open / known issues
@@ -401,7 +410,8 @@ For release notes style summaries, see `source control log.md`. For architecture
 | BJ-007 | Scrape log still mostly `emulatorSystemeid=nil` on some libraries | Confirm **Scan Paths** after rebuild; verify ROM paths match configured folder roots (symlinks / external drives). |
 | BJ-008 | Residual `no_match` for short/obscure titles | *rain*, *Hannah*, *ChokoNana* may need manual ScreenScraper pick even with platform set. |
 | — | Some OEMs still collapse custom notification layout | `addAction` fallback present; may need in-app stream control panel. |
-| — | iOS native video/audio receiver stub | Android is reference client. |
+| — | Host physical pad + GBear virtual pad both visible to emulators | If double-input, disconnect the physical device in the emulator and map **GBear Virtual Pad N**. |
+| — | WAN 8-player over session relay | Coordinator membership is 8; byte-relay is still two sockets. Use LAN for 3+ remote viewers. |
 | — | `stream/start` returns before capture is running | Phone connects to TCP **28766** immediately; first frames may lag until SCK starts (expected). |
 | — | Force-quit without **Stop** | Use Session **Stop** or Mac **Stop active stream**; next **Start** sends preflight **`stream/stop`** when **`videoStreaming`** is still true. |
 | — | Right stick on some pads uses **AXIS_RX/RY** vs **Z/RZ** | Mapping tries both; link capture matches target element only. |

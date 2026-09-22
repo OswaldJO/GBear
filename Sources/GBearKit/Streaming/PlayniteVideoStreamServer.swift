@@ -1,9 +1,9 @@
 import Foundation
 import Network
 
-/// Broadcasts `PNV1` H.264 frames to up to two connected phone clients.
+/// Broadcasts `PNV1` H.264 frames to connected viewers (phones + computer guests).
 actor PlayniteVideoStreamServer {
-    static let maxClients = 2
+    static let maxClients = PlayniteStreamPorts.maxCoopViewers
 
     private var listener: NWListener?
     private var clients: [ObjectIdentifier: ClientSlot] = [:]

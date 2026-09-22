@@ -4,7 +4,7 @@
  *
  * - Google ID token auth (or GBEAR_DEV_AUTH=1 for local testing)
  * - Owner devices auto-join without invite
- * - Short-lived invite codes for friends (seat 2)
+ * - Short-lived invite codes for friends (any open seat 1–8)
  * - WebRTC-style SDP/ICE signaling mailbox
  * - Short-lived TURN credentials (coturn REST or static)
  * - TCP byte relay (DERP-like) when direct ICE fails
@@ -22,9 +22,16 @@ const DEV_AUTH = process.env.GBEAR_DEV_AUTH === '1';
 const TURN_HOST = process.env.GBEAR_TURN_HOST || '';
 const TURN_SECRET = process.env.GBEAR_TURN_SECRET || '';
 const TURN_TTL_SEC = Number(process.env.GBEAR_TURN_TTL || 3600);
-const INVITE_TTL_MS = Number(process.env.GBEAR_INVITE_TTL_MS || 30 * 60 * 1000);
+const MAX_SEATS = 8;
 
-const googleClient = GOOGLE_CLIENT_ID ? new OAuth2Client(GOOGLE_CLIENT_ID) : null;
+function firstFreeSeat(taken, preferred) {
+  const pref = Number(preferred);
+  if (pref >= 1 && pref <= MAX_SEATS && !taken.has(pref)) return pref;
+  for (let i = 1; i <= MAX_SEATS; i++) {
+    if (!taken.has(i)) return i;
+  }
+  return null;
+}
 
 /** @type {Map<string, { email: string, devices: Map<string, object> }>} */
 const accounts = new Map();
@@ -164,14 +171,17 @@ app.post('/v1/session/join', authMiddleware, (req, res) => {
   }
 
   const companions = session.members.filter((m) => m.role === 'companion');
-  if (companions.length >= 2) {
+  if (companions.length >= MAX_SEATS) {
     res.status(409).json({ ok: false, error: 'session full' });
     return;
   }
 
   const taken = new Set(companions.map((m) => m.seat));
-  let seat = preferredSeat === 2 || preferredSeat === 1 ? preferredSeat : taken.has(1) ? 2 : 1;
-  if (taken.has(seat)) seat = taken.has(1) ? 2 : 1;
+  const seat = firstFreeSeat(taken, preferredSeat);
+  if (seat == null) {
+    res.status(409).json({ ok: false, error: 'session full' });
+    return;
+  }
 
   session.members.push({
     deviceId,
@@ -214,7 +224,6 @@ app.post('/v1/session/redeem-invite', authMiddleware, (req, res) => {
     return;
   }
   req.body.sessionId = invite.sessionId;
-  req.body.preferredSeat = 2;
   // Reuse join
   const session = sessions.get(invite.sessionId);
   if (!session) {
@@ -222,14 +231,18 @@ app.post('/v1/session/redeem-invite', authMiddleware, (req, res) => {
     return;
   }
   const companions = session.members.filter((m) => m.role === 'companion');
-  if (companions.length >= 2 && !companions.some((m) => m.deviceId === deviceId)) {
+  if (companions.length >= MAX_SEATS && !companions.some((m) => m.deviceId === deviceId)) {
     res.status(409).json({ ok: false, error: 'session full' });
     return;
   }
   let member = session.members.find((m) => m.deviceId === deviceId);
   if (!member) {
     const taken = new Set(companions.map((m) => m.seat));
-    const seat = taken.has(1) ? 2 : 1;
+    const seat = firstFreeSeat(taken);
+    if (seat == null) {
+      res.status(409).json({ ok: false, error: 'session full' });
+      return;
+    }
     member = {
       deviceId,
       email: req.user.email,

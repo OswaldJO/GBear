@@ -20,7 +20,8 @@ enum PlayniteStreamPorts {
     static let keyboardMagic: UInt32 = 0x314B_4E50 // "PNK1" little-endian
     /// Structured gamepad state for co-op seats (`PNG1`).
     static let gamepadMagic: UInt32 = 0x3147_4E50 // "PNG1" little-endian
-    static let maxCoopViewers = 2
+    /// Player slots 1…8. This Mac counts as a slot when it is playing (7 remotes). Eight remotes only if a device plays as the host instead of this Mac.
+    static let maxCoopViewers = 8
 }
 
 /// File-backed diagnostics for an active companion stream (Mac host side).

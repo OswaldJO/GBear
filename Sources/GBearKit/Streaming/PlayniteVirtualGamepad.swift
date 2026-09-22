@@ -1,37 +1,80 @@
 import Foundation
 import PlayniteHID
 
-/// Two virtual HID gamepads for co-op seats (emulators see pad 1 / pad 2).
+/// Virtual HID gamepads for co-op seats (emulators see `GBear Virtual Pad N`).
 actor PlayniteVirtualGamepadManager {
     static let shared = PlayniteVirtualGamepadManager()
 
-    private var pad1: PlayniteVirtualGamepad?
-    private var pad2: PlayniteVirtualGamepad?
-    private var ready = false
+    private var pads: [Int: PlayniteVirtualGamepad] = [:]
+    /// PNG1 `joinSeat` → current assigned virtual pad.
+    private var translation: [UInt8: UInt8] = [:]
 
-    func ensurePads() {
-        if ready { return }
-        pad1 = PlayniteVirtualGamepad(seat: 1)
-        pad2 = PlayniteVirtualGamepad(seat: 2)
-        ready = true
-        print("[PlayniteVirtualPad] seats 1 and 2 ready")
+    func setJoinSeatTranslation(_ map: [UInt8: UInt8]) {
+        translation = map
     }
 
-    func apply(_ event: PlayniteGamepadEventFormat.Event) {
-        ensurePads()
-        switch event.seat {
-        case 1:
-            pad1?.update(event)
-        case 2:
-            pad2?.update(event)
-        default:
-            break
+    /// Create pads for occupied seats; tear down unused ones.
+    func syncPads(occupiedSeats: Set<Int>) {
+        let valid = occupiedSeats.filter { PlayniteCoopSessionState.isValidSeat($0) }
+        for seat in pads.keys where !valid.contains(seat) {
+            pads[seat]?.reset()
+            pads.removeValue(forKey: seat)
+        }
+        for seat in valid where pads[seat] == nil {
+            pads[seat] = PlayniteVirtualGamepad(seat: seat)
+            print("[PlayniteVirtualPad] seat \(seat) HID device created")
         }
     }
 
+    func apply(_ event: PlayniteGamepadEventFormat.Event) {
+        let incoming = event.seat
+        let mapped = translation[incoming] ?? incoming
+        let seat = Int(mapped)
+        guard PlayniteCoopSessionState.isValidSeat(seat) else { return }
+        if pads[seat] == nil {
+            pads[seat] = PlayniteVirtualGamepad(seat: seat)
+        }
+        var routed = event
+        routed = PlayniteGamepadEventFormat.Event(
+            seat: UInt8(seat),
+            buttons: event.buttons,
+            leftX: event.leftX,
+            leftY: event.leftY,
+            rightX: event.rightX,
+            rightY: event.rightY,
+            leftTrigger: event.leftTrigger,
+            rightTrigger: event.rightTrigger
+        )
+        pads[seat]?.update(routed)
+    }
+
+    func applyToSeat(_ seat: Int, event: PlayniteGamepadEventFormat.Event) {
+        guard PlayniteCoopSessionState.isValidSeat(seat) else { return }
+        if pads[seat] == nil {
+            pads[seat] = PlayniteVirtualGamepad(seat: seat)
+        }
+        let routed = PlayniteGamepadEventFormat.Event(
+            seat: UInt8(seat),
+            buttons: event.buttons,
+            leftX: event.leftX,
+            leftY: event.leftY,
+            rightX: event.rightX,
+            rightY: event.rightY,
+            leftTrigger: event.leftTrigger,
+            rightTrigger: event.rightTrigger
+        )
+        pads[seat]?.update(routed)
+    }
+
     func resetAll() {
-        pad1?.reset()
-        pad2?.reset()
+        for pad in pads.values {
+            pad.reset()
+        }
+    }
+
+    func removeAll() {
+        resetAll()
+        pads.removeAll()
     }
 }
 
@@ -83,8 +126,6 @@ final class PlayniteVirtualGamepad: @unchecked Sendable {
         }
         if device == nil {
             print("[PlayniteVirtualPad] seat \(seat) create failed")
-        } else {
-            print("[PlayniteVirtualPad] seat \(seat) HID device created")
         }
     }
 

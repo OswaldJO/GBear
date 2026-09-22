@@ -46,7 +46,7 @@ final class GBearSessionCoordinatorClient {
             return json["ok"] as? Bool == true
         } catch {
             lastError = error.localizedDescription
-            idToken = nil
+            self.idToken = nil
             return false
         }
     }

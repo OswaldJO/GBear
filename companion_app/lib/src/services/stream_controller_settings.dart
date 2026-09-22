@@ -10,6 +10,9 @@ class StreamControllerSettings {
   static const _bindAllUsbKey = 'stream.controller.bindAllUsb';
   static const _coopPadModeKey = 'stream.controller.coopPadMode';
 
+  static const _preferredSeatKey = 'stream.controller.preferredSeat';
+  static const _playAsHostKey = 'stream.controller.playAsHost';
+
   StreamControllerSettings(this._prefs);
 
   final SharedPreferences _prefs;
@@ -36,6 +39,12 @@ class StreamControllerSettings {
   /// When false, use keyboard-chord mappings (single-player / OS shortcuts).
   bool get coopPadMode => _prefs.getBool(_coopPadModeKey) ?? true;
 
+  /// 1…8, or 0 for join order (next open seat after the host).
+  int get preferredSeat => _prefs.getInt(_preferredSeatKey) ?? 0;
+
+  /// When true, this companion claims Player 1 in place of the host Mac.
+  bool get playAsHost => _prefs.getBool(_playAsHostKey) ?? false;
+
   Future<void> save({
     bool? multiController,
     bool? swapFaceButtons,
@@ -44,6 +53,8 @@ class StreamControllerSettings {
     bool? usbDriver,
     bool? bindAllUsb,
     bool? coopPadMode,
+    int? preferredSeat,
+    bool? playAsHost,
   }) async {
     if (multiController != null) {
       await _prefs.setBool(_multiControllerKey, multiController);
@@ -66,6 +77,12 @@ class StreamControllerSettings {
     if (coopPadMode != null) {
       await _prefs.setBool(_coopPadModeKey, coopPadMode);
     }
+    if (preferredSeat != null) {
+      await _prefs.setInt(_preferredSeatKey, preferredSeat.clamp(0, 8));
+    }
+    if (playAsHost != null) {
+      await _prefs.setBool(_playAsHostKey, playAsHost);
+    }
   }
 
   Map<String, dynamic> toMethodChannelMap() {
@@ -77,6 +94,8 @@ class StreamControllerSettings {
       'usbDriver': usbDriver,
       'bindAllUsb': bindAllUsb,
       'coopPadMode': coopPadMode,
+      'preferredSeat': preferredSeat,
+      'playAsHost': playAsHost,
     };
   }
 }
@@ -106,12 +125,16 @@ class ConnectedControllerInfo {
     required this.id,
     required this.name,
     this.vendor,
+    this.product,
+    this.guid,
     this.detectedButtons = const [],
   });
 
   final String id;
   final String name;
   final String? vendor;
+  final String? product;
+  final String? guid;
   final List<DetectedGamepadButton> detectedButtons;
 
   factory ConnectedControllerInfo.fromMap(Map<dynamic, dynamic> map) {
@@ -127,6 +150,8 @@ class ConnectedControllerInfo {
       id: map['id']?.toString() ?? '',
       name: map['name']?.toString() ?? 'Controller',
       vendor: map['vendor']?.toString(),
+      product: map['product']?.toString(),
+      guid: map['guid']?.toString(),
       detectedButtons: buttons,
     );
   }

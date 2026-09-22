@@ -52,6 +52,8 @@ class _HomePageState extends State<HomePage> with WidgetsBindingObserver {
   List<StreamControllerProfile> _controllerProfiles = const [];
   String? _activeControllerProfileId;
   List<ConnectedControllerInfo> _connectedControllers = const [];
+  List<Map<String, dynamic>> _coopMappings = const [];
+  String? _linkingCoopLogical;
   String _controllerStatus = 'Connect a telescopic or Bluetooth gamepad to this phone.';
   bool _controllersRefreshing = false;
   bool _startingStream = false;
@@ -117,6 +119,49 @@ class _HomePageState extends State<HomePage> with WidgetsBindingObserver {
     if (!mounted) return;
     setState(() => _controllerSettings = settings);
     await _refreshConnectedControllers();
+    await _loadCoopMappings();
+  }
+
+  Future<void> _loadCoopMappings() async {
+    if (!Platform.isAndroid) return;
+    final mapped = await _bridge.listCoopPadMappings();
+    if (!mounted) return;
+    setState(() => _coopMappings = mapped);
+  }
+
+  Future<void> _autoMapCoopPads() async {
+    if (!Platform.isAndroid) return;
+    final mapped = await _bridge.autoMapCoopPads(
+      swapFaceButtons: _controllerSettings?.swapFaceButtons ?? false,
+    );
+    if (!mounted) return;
+    setState(() {
+      _coopMappings = mapped;
+      _controllerStatus = mapped.isEmpty
+          ? 'No controller found to auto-map. Connect a pad and try again.'
+          : 'Auto-mapped ${mapped.length} controller(s). Start or restart the stream to apply. Override any button below.';
+    });
+  }
+
+  Future<void> _overrideCoopBinding(String logical, String label) async {
+    if (_linkingCoopLogical != null) return;
+    setState(() => _linkingCoopLogical = logical);
+    final press = await _bridge.awaitGamepadButtonPress(elementId: logical);
+    if (!mounted) return;
+    if (press != null && press.guid.isNotEmpty) {
+      await _bridge.applyCoopPadOverride(
+        guid: press.guid,
+        logical: logical,
+        keyCode: press.keyCode,
+        deviceName: press.deviceName,
+      );
+      await _loadCoopMappings();
+      if (!mounted) return;
+      ScaffoldMessenger.of(context).showSnackBar(
+        SnackBar(content: Text('$label → ${press.label}')),
+      );
+    }
+    setState(() => _linkingCoopLogical = null);
   }
 
   Future<void> _reloadControllerMappingState() async {
@@ -182,6 +227,8 @@ class _HomePageState extends State<HomePage> with WidgetsBindingObserver {
     bool? usbDriver,
     bool? bindAllUsb,
     bool? coopPadMode,
+    int? preferredSeat,
+    bool? playAsHost,
   }) async {
     final current = _controllerSettings ?? await StreamControllerSettings.load();
     await current.save(
@@ -192,6 +239,8 @@ class _HomePageState extends State<HomePage> with WidgetsBindingObserver {
       usbDriver: usbDriver,
       bindAllUsb: bindAllUsb,
       coopPadMode: coopPadMode,
+      preferredSeat: preferredSeat,
+      playAsHost: playAsHost,
     );
     if (!mounted) return;
     setState(() => _controllerSettings = current);
@@ -719,9 +768,11 @@ class _HomePageState extends State<HomePage> with WidgetsBindingObserver {
           ),
           const SizedBox(height: 8),
           const Text(
-            'Streams your Mac desktop via GBear H.264. Two phones can join as Player 1 / Player 2 '
-            '(same capture). Connect a gamepad (Controller tab), then start Desktop stream. '
-            'Co-op pad mode sends PNG1 to Mac virtual pads; keyboard-chord mode stays available for shortcuts.',
+            'Streams your Mac desktop via GBear H.264. At most 8 players. '
+            'If the host Mac is playing, 7 devices can join. An 8th device can join '
+            'only if it plays as the host instead of that Mac (this Mac then leaves the pad list). '
+            'Join order is the default. Connect a gamepad (Controller tab), then start Desktop stream. '
+            'Co-op pad mode auto-maps the controller (Eden-style) and sends PNG1 to Mac virtual pads.',
           ),
           if (_sessionStatus.isNotEmpty) ...[
             const SizedBox(height: 12),
@@ -738,6 +789,42 @@ class _HomePageState extends State<HomePage> with WidgetsBindingObserver {
             Text(
               '${selected.name} (${selected.address}) • ${selected.paired ? "Paired" : "Not paired"}',
               style: TextStyle(color: Theme.of(context).colorScheme.onSurfaceVariant),
+            ),
+          ],
+          const SizedBox(height: 16),
+          if (_controllerSettings != null) ...[
+            SwitchListTile(
+              contentPadding: EdgeInsets.zero,
+              title: const Text('Play as the host (Player 1)'),
+              subtitle: const Text(
+                'Use this phone instead of the host computer. That frees the Mac’s player slot, so 8 devices can join (this phone is the 8th if 7 others are already in).',
+              ),
+              value: _controllerSettings!.playAsHost,
+              onChanged: (value) {
+                _saveControllerSettings(playAsHost: value);
+              },
+            ),
+            const SizedBox(height: 8),
+            DropdownButtonFormField<int>(
+              value: _controllerSettings!.preferredSeat,
+              decoration: InputDecoration(
+                labelText: 'Join as player',
+                helperText: _controllerSettings!.playAsHost
+                    ? 'Host player always takes Player 1.'
+                    : 'Default is join order (next open seat after the host). Override only if you need a specific slot at join.',
+                border: const OutlineInputBorder(),
+              ),
+              items: [
+                const DropdownMenuItem(value: 0, child: Text('Join in order')),
+                for (var i = 1; i <= 8; i++)
+                  DropdownMenuItem(value: i, child: Text('Player $i')),
+              ],
+              onChanged: _controllerSettings!.playAsHost
+                  ? null
+                  : (value) {
+                      if (value == null) return;
+                      _saveControllerSettings(preferredSeat: value);
+                    },
             ),
           ],
           const SizedBox(height: 16),
@@ -949,12 +1036,60 @@ class _HomePageState extends State<HomePage> with WidgetsBindingObserver {
             SwitchListTile(
               title: const Text('Co-op pad mode (PNG1)'),
               subtitle: const Text(
-                'Send structured gamepad state to Mac virtual Player 1/2 pads. '
+                'Send structured gamepad state to Mac virtual Player 1–8 pads. '
                 'Turn off to use keyboard-chord mappings instead.',
               ),
               value: settings.coopPadMode,
               onChanged: (value) => _saveControllerSettings(coopPadMode: value),
             ),
+            if (settings.coopPadMode && isAndroid) ...[
+              ListTile(
+                title: const Text('Auto-map connected controllers'),
+                subtitle: const Text(
+                  'Eden-style: probe buttons and axes, then you can override any control.',
+                ),
+                trailing: FilledButton(
+                  onPressed: _autoMapCoopPads,
+                  child: const Text('Auto-map'),
+                ),
+              ),
+              for (final mapping in _coopMappings)
+                ExpansionTile(
+                  title: Text(mapping['deviceName']?.toString() ?? 'Controller'),
+                  subtitle: Text(mapping['guid']?.toString() ?? ''),
+                  children: [
+                    for (final row in (mapping['bindings'] as List? ?? const [])
+                        .whereType<Map>())
+                      ListTile(
+                        dense: true,
+                        title: Text(row['logical']?.toString() ?? ''),
+                        subtitle: Text(row['summary']?.toString() ?? ''),
+                        trailing: TextButton(
+                          onPressed: _linkingCoopLogical == row['logical']
+                              ? null
+                              : () => _overrideCoopBinding(
+                                    row['logical']?.toString() ?? '',
+                                    row['logical']?.toString() ?? 'control',
+                                  ),
+                          child: Text(
+                            _linkingCoopLogical == row['logical']
+                                ? 'Press…'
+                                : 'Override',
+                          ),
+                        ),
+                      ),
+                    TextButton(
+                      onPressed: () async {
+                        final guid = mapping['guid']?.toString() ?? '';
+                        if (guid.isEmpty) return;
+                        await _bridge.resetCoopPadMapping(guid);
+                        await _loadCoopMappings();
+                      },
+                      child: const Text('Reset to auto-map'),
+                    ),
+                  ],
+                ),
+            ],
             SwitchListTile(
               title: const Text('Multi-controller'),
               subtitle: const Text('Keep slots open when a pad disconnects mid-game.'),

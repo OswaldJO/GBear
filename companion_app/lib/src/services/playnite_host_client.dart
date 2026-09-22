@@ -111,7 +111,11 @@ class PlayniteHostClient {
           .post(
             _uri('/playnite/v1/pair/request'),
             headers: {'Content-Type': 'application/json'},
-            body: jsonEncode({'deviceId': deviceId, 'deviceName': deviceName}),
+            body: jsonEncode({
+              'deviceId': deviceId,
+              'deviceName': deviceName,
+              'clientKind': 'companion',
+            }),
           )
           .timeout(const Duration(seconds: 8));
 
@@ -161,6 +165,7 @@ class PlayniteHostClient {
     required int height,
     required int fps,
     int? preferredSeat,
+    bool? playAsHost,
   }) async {
     final deviceId = await CompanionDeviceIdentity.deviceId();
     if (!await isDevicePaired(deviceId)) {
@@ -173,10 +178,20 @@ class PlayniteHostClient {
     if (alreadyStreaming) {
       final session = priorStatus['session'];
       final seats = session is Map ? session['seats'] : null;
-      if (seats is List && seats.length >= 2) {
+      if (seats is List && seats.length >= 8) {
         final mine = seats.any((e) => e is Map && e['deviceId'] == deviceId);
         if (!mine) {
-          return StreamStartOutcome.failed('Co-op session is full (2 players).');
+          final macPlaying = seats.any((e) => e is Map && e['kind'] == 'localHost');
+          if (playAsHost == true && macPlaying) {
+            // 8th device stands in for the Mac — let the host accept the join.
+          } else if (macPlaying) {
+            return StreamStartOutcome.failed(
+              'Session full: the Mac is playing, so only 7 devices can join. '
+              'Turn on Play as the host to join as the 8th player in place of the Mac.',
+            );
+          } else {
+            return StreamStartOutcome.failed('Co-op session is full (8 players).');
+          }
         }
       }
     }
@@ -187,8 +202,11 @@ class PlayniteHostClient {
         'width': width,
         'height': height,
         'fps': fps,
+        'clientKind': 'companion',
       };
-      if (preferredSeat != null) {
+      if (playAsHost == true) {
+        body['playAsHost'] = true;
+      } else if (preferredSeat != null) {
         body['preferredSeat'] = preferredSeat;
       }
       final response = await http
@@ -200,7 +218,11 @@ class PlayniteHostClient {
           .timeout(const Duration(seconds: 8));
 
       if (response.statusCode == 409) {
-        return StreamStartOutcome.failed('Co-op session is full (2 players).');
+        final json = jsonDecode(response.body) as Map<String, dynamic>?;
+        return StreamStartOutcome.failed(
+          json?['error'] as String? ??
+              'Session full: the Mac is playing, so only 7 devices can join unless the 8th plays as the host.',
+        );
       }
       if (response.statusCode != 200) {
         return StreamStartOutcome.failed(
@@ -234,7 +256,10 @@ class PlayniteHostClient {
     }
   }
 
-  Future<Map<String, dynamic>?> joinSession({int? preferredSeat}) async {
+  Future<Map<String, dynamic>?> joinSession({
+    int? preferredSeat,
+    bool playAsHost = false,
+  }) async {
     final deviceId = await CompanionDeviceIdentity.deviceId();
     final deviceName = await CompanionDeviceIdentity.deviceName();
     try {
@@ -242,7 +267,11 @@ class PlayniteHostClient {
         'deviceId': deviceId,
         'deviceName': deviceName,
       };
-      if (preferredSeat != null) body['preferredSeat'] = preferredSeat;
+      if (playAsHost) {
+        body['playAsHost'] = true;
+      } else if (preferredSeat != null) {
+        body['preferredSeat'] = preferredSeat;
+      }
       final response = await http
           .post(
             _uri('/playnite/v1/session/join'),

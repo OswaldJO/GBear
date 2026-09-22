@@ -70,6 +70,58 @@ class StreamingBridge {
     return client.discoverHosts();
   }
 
+  Future<List<Map<String, dynamic>>> autoMapCoopPads({bool swapFaceButtons = false}) async {
+    try {
+      final raw = await _invokeNative<List<dynamic>>('autoMapCoopPads', {
+        'swapFaceButtons': swapFaceButtons,
+      });
+      if (raw == null) return const [];
+      return raw.whereType<Map>().map((e) => Map<String, dynamic>.from(e)).toList();
+    } catch (_) {
+      return const [];
+    }
+  }
+
+  Future<List<Map<String, dynamic>>> listCoopPadMappings() async {
+    try {
+      final raw = await _invokeNative<List<dynamic>>('listCoopPadMappings');
+      if (raw == null) return const [];
+      return raw.whereType<Map>().map((e) => Map<String, dynamic>.from(e)).toList();
+    } catch (_) {
+      return const [];
+    }
+  }
+
+  Future<Map<String, dynamic>?> applyCoopPadOverride({
+    required String guid,
+    required String logical,
+    required int keyCode,
+    String deviceName = '',
+    int axis = -1,
+    bool invert = false,
+  }) async {
+    try {
+      final raw = await _invokeNative<Map<Object?, Object?>>('applyCoopPadOverride', {
+        'guid': guid,
+        'logical': logical,
+        'keyCode': keyCode,
+        'deviceName': deviceName,
+        'axis': axis,
+        'invert': invert,
+      });
+      if (raw == null) return null;
+      return Map<String, dynamic>.from(raw);
+    } catch (_) {
+      return null;
+    }
+  }
+
+  Future<void> resetCoopPadMapping(String guid) async {
+    try {
+      await _invokeNative<void>('resetCoopPadMapping', {'guid': guid});
+    } catch (_) {}
+  }
+
   Future<List<ConnectedControllerInfo>> listConnectedControllers() async {
     try {
       final raw = await _invokeNative<List<dynamic>>('listConnectedControllers');
@@ -140,6 +192,8 @@ class StreamingBridge {
         keyCode: (raw['keyCode'] as num?)?.toInt() ?? 0,
         label: raw['label']?.toString() ?? 'Button',
         elementId: raw['elementId']?.toString(),
+        guid: raw['guid']?.toString() ?? '',
+        deviceName: raw['deviceName']?.toString() ?? '',
       );
     } on PlatformException {
       return null;
@@ -167,17 +221,23 @@ class StreamingBridge {
     StreamTouchSettings? touchSettings,
     String? controllerBindingsJson,
     int? preferredSeat,
+    bool? playAsHost,
   }) async {
     playniteStreamDebug('prepareForNewStream…');
     await prepareForNewStream();
     final client = await _client();
     final settings = controllerSettings ?? await StreamControllerSettings.load();
     playniteStreamDebug('POST Mac stream/start ${width}x$height @ ${fps}fps…');
+    final asHost = playAsHost ?? settings.playAsHost;
     final outcome = await client.startStream(
       width: width,
       height: height,
       fps: fps,
-      preferredSeat: preferredSeat,
+      preferredSeat: asHost
+          ? null
+          : (preferredSeat ??
+              (settings.preferredSeat == 0 ? null : settings.preferredSeat)),
+      playAsHost: asHost,
     );
     if (!outcome.ok || outcome.host == null || outcome.videoPort == null) {
       playniteStreamDebug('Mac stream/start failed: ${outcome.message}');
@@ -203,6 +263,8 @@ class StreamingBridge {
         'controllerBindingsJson': controllerBindingsJson ?? '',
         'seat': outcome.seat ?? 1,
         'coopPadMode': settings.coopPadMode,
+        'swapFaceButtons': settings.swapFaceButtons,
+        'deadZonePercent': settings.deadZonePercent,
         ...touch.toMethodChannelMap(),
       });
       if (started == true) {
@@ -279,9 +341,13 @@ class GamepadButtonPress {
     required this.keyCode,
     required this.label,
     this.elementId,
+    this.guid = '',
+    this.deviceName = '',
   });
 
   final int keyCode;
   final String label;
   final String? elementId;
+  final String guid;
+  final String deviceName;
 }

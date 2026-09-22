@@ -18,6 +18,8 @@ final class PlayniteStreamHostManager {
     private(set) var isVideoStreaming = false
     private(set) var coopSession: PlayniteCoopSessionState?
     private(set) var lastStreamLogURL: URL?
+    private(set) var pairedDevices: [PlayniteStreamControlServer.PairedDevice] = []
+    private(set) var hostPlayerDeviceID: String = PlayniteCoopSessionState.localHostDeviceID
 
     private let server = PlayniteStreamControlServer()
     private let video = PlayniteVideoStreamServer()
@@ -62,10 +64,14 @@ final class PlayniteStreamHostManager {
         case .preparing: return "Starting pairing host…"
         case .running:
             if isVideoStreaming {
-                let seats = coopSession?.seats.count ?? 0
-                return "Streaming desktop to \(seats) companion viewer(s)."
+                let remotes = coopSession?.remotePlayerCount ?? 0
+                let mac = coopSession?.localHostIsPlaying == true
+                if mac {
+                    return "Streaming desktop to \(remotes) of 7 devices (this Mac is a player). An 8th device can join only as the host in place of this Mac."
+                }
+                return "Streaming desktop to \(remotes) of 8 devices (this Mac is not a player)."
             }
-            return "Ready for pairing — capture starts when the companion starts a stream."
+            return "Ready for pairing — this Mac is Player 1, so 7 devices can join. An 8th device can join only by playing as the host instead of this Mac. Capture starts when a remote viewer starts a stream."
         case .unavailable(let message): return message
         }
     }
@@ -89,6 +95,7 @@ final class PlayniteStreamHostManager {
             AccessibilityPermission.promptIfNeeded()
             state = .running
             await refreshPendingPairRequests()
+            _ = await createCoopSession()
             startPendingPoll()
         } catch {
             state = .unavailable("Could not start Playnite pairing host: \(error.localizedDescription)")
@@ -132,7 +139,9 @@ final class PlayniteStreamHostManager {
     }
 
     func approvePairing(deviceID: String) async -> Bool {
-        await server.approve(deviceID: deviceID)
+        let ok = await server.approve(deviceID: deviceID)
+        await refreshPairedDevices()
+        return ok
     }
 
     func denyPairing(deviceID: String) async -> Bool {
@@ -140,7 +149,13 @@ final class PlayniteStreamHostManager {
     }
 
     func fetchPairedClientNames() async -> [String] {
-        await server.pairedNames()
+        await refreshPairedDevices()
+        return pairedDevices.map(\.name)
+    }
+
+    func refreshPairedDevices() async {
+        pairedDevices = await server.pairedDeviceList()
+        hostPlayerDeviceID = await server.currentHostPlayerDeviceID()
     }
 
     func ping() async -> Bool {
@@ -174,10 +189,14 @@ final class PlayniteStreamHostManager {
 
     func refreshPendingPairRequests() async {
         pendingPairRequests = await server.pendingRequests()
+        await refreshPairedDevices()
     }
 
     func refreshCoopSession() async {
         coopSession = await server.currentSession()
+        hostPlayerDeviceID = await server.currentHostPlayerDeviceID()
+        pairedDevices = await server.pairedDeviceList()
+        await syncSessionDevices()
         if let session = coopSession {
             let ownerSeat: UInt8?
             if let ownerID = session.cursorOwnerDeviceID,
@@ -191,16 +210,59 @@ final class PlayniteStreamHostManager {
         }
     }
 
+    private func syncSessionDevices() async {
+        let session = coopSession
+        let occupied = session?.occupiedSeats ?? []
+        await PlayniteVirtualGamepadManager.shared.syncPads(occupiedSeats: occupied)
+        await PlayniteVirtualGamepadManager.shared.setJoinSeatTranslation(session?.joinSeatTranslation ?? [:])
+        if let local = session?.seat(for: PlayniteCoopSessionState.localHostDeviceID) {
+            PlayniteHostLocalGamepad.shared.start(seat: local.seat)
+        } else {
+            PlayniteHostLocalGamepad.shared.stop()
+        }
+    }
+
+    @discardableResult
+    func joinLocalPlayer(preferredSeat: Int?) async -> PlayniteCoopSeat? {
+        _ = await setHostPlayer(deviceID: PlayniteCoopSessionState.localHostDeviceID)
+        return coopSession?.seat(for: PlayniteCoopSessionState.localHostDeviceID)
+    }
+
+    @discardableResult
+    func setHostPlayer(deviceID: String) async -> PlayniteCoopSessionState {
+        let session = await server.setHostPlayer(deviceID: deviceID)
+        await refreshCoopSession()
+        return session
+    }
+
+    func leaveLocalPlayer() async {
+        _ = await server.leaveDevice(deviceID: PlayniteCoopSessionState.localHostDeviceID)
+        await refreshCoopSession()
+        if coopSession?.videoClientCount == 0 {
+            await endVideoStream(reason: "no remote viewers")
+        }
+    }
+
     @discardableResult
     func createCoopSession() async -> PlayniteCoopSessionState {
-        let session = await server.ensureSession()
-        coopSession = session
-        return session
+        _ = await server.ensureSession()
+        await refreshCoopSession()
+        return coopSession ?? PlayniteCoopSessionState(
+            sessionID: "",
+            createdAt: Date(),
+            seats: [],
+            cursorOwnerDeviceID: nil
+        )
     }
 
     func endCoopSession() async {
         await server.endSession()
+        PlayniteHostLocalGamepad.shared.stop()
+        await PlayniteVirtualGamepadManager.shared.removeAll()
         coopSession = nil
+        if !isVideoStreaming {
+            await PlayniteVirtualGamepadManager.shared.resetAll()
+        }
     }
 
     func reassignSeat(deviceID: String, seat: Int) async -> Bool {
@@ -251,7 +313,7 @@ final class PlayniteStreamHostManager {
         let deviceName = await server.pairedDeviceName(deviceID: deviceID)
         PlayniteStreamSessionLog.startSession(deviceName: deviceName, width: width, height: height, fps: fps)
         PlayniteKeyboardPlayback.resetModifierState()
-        await PlayniteVirtualGamepadManager.shared.ensurePads()
+        await syncSessionDevices()
         isVideoStreaming = true
         await server.setVideoStreaming(true)
         PlayniteLocalOutputMute.setStreamingMuted(true)

@@ -2,9 +2,9 @@ import Darwin
 import Foundation
 import Network
 
-/// Sends `PNA1` PCM to up to two phones (TCP downlink + optional UDP after `PNAS` subscribe).
+/// Sends `PNA1` PCM to viewers (TCP downlink + optional UDP after `PNAS` subscribe).
 actor PlayniteAudioStreamServer {
-    static let maxClients = 2
+    static let maxClients = PlayniteStreamPorts.maxCoopViewers
 
     private var udp: PlayniteUDPSocket?
     private var udpSubscribers: [String: UDPSubscriber] = [:]

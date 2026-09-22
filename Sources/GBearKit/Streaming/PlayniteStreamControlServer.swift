@@ -6,16 +6,21 @@ actor PlayniteStreamControlServer {
     struct PendingPairRequest: Sendable, Codable, Equatable, Identifiable {
         let deviceID: String
         let deviceName: String
+        let clientKind: PlayniteCoopClientKind
         let createdAt: Date
 
         var id: String { deviceID }
     }
 
-    struct PairedDevice: Sendable, Codable {
+    struct PairedDevice: Sendable, Codable, Equatable, Identifiable {
         let deviceID: String
         let name: String
         let pairedAt: Date
+
+        var id: String { deviceID }
     }
+
+    private static let hostPlayerDefaultsKey = "gbear.playnite.hostPlayerDeviceID"
 
     private var listener: NWListener?
     private var pendingByDeviceID: [String: PendingPairRequest] = [:]
@@ -24,6 +29,7 @@ actor PlayniteStreamControlServer {
     private var captureReady = false
     private var videoStreaming = false
     private var coopSession: PlayniteCoopSessionState?
+    private var hostPlayerDeviceID: String
     private let storeURL: URL
 
     var onStreamStartRequested: (@Sendable (String, Int, Int, Int) async -> Void)?
@@ -38,6 +44,12 @@ actor PlayniteStreamControlServer {
             .appending(path: "playnite-stream", directoryHint: .isDirectory)
             .appending(path: "paired-devices.json")
         pairedDevices = (try? Self.loadPaired(from: storeURL)) ?? []
+        let stored = UserDefaults.standard.string(forKey: Self.hostPlayerDefaultsKey)
+        if let stored, !stored.isEmpty {
+            hostPlayerDeviceID = stored
+        } else {
+            hostPlayerDeviceID = PlayniteCoopSessionState.localHostDeviceID
+        }
     }
 
     var isListening: Bool { listener != nil }
@@ -154,15 +166,59 @@ actor PlayniteStreamControlServer {
         coopSession
     }
 
+    func pairedDeviceList() -> [PairedDevice] {
+        pairedDevices
+    }
+
+    func currentHostPlayerDeviceID() -> String {
+        hostPlayerDeviceID
+    }
+
+    func setHostPlayer(deviceID: String) -> PlayniteCoopSessionState {
+        let trimmed = deviceID.trimmingCharacters(in: .whitespacesAndNewlines)
+        hostPlayerDeviceID = trimmed.isEmpty ? PlayniteCoopSessionState.localHostDeviceID : trimmed
+        persistHostPlayer()
+        var session = ensureSession()
+        session.designateHostPlayer(deviceID: hostPlayerDeviceID)
+        session.seatLocalHostIfNeeded(deviceName: ProcessInfo.processInfo.hostName)
+        coopSession = session
+        notifySessionChanged()
+        return session
+    }
+
+    private func persistHostPlayer() {
+        UserDefaults.standard.set(hostPlayerDeviceID, forKey: Self.hostPlayerDefaultsKey)
+    }
+
+    private static func jsonBool(_ json: [String: Any]?, _ key: String) -> Bool {
+        if let value = json?[key] as? Bool { return value }
+        if let number = json?[key] as? NSNumber { return number.boolValue }
+        if let text = json?[key] as? String {
+            return text.lowercased() == "true" || text == "1"
+        }
+        return false
+    }
+
     @discardableResult
     func ensureSession() -> PlayniteCoopSessionState {
-        if let coopSession { return coopSession }
-        let created = PlayniteCoopSessionState(
+        if var existing = coopSession {
+            let before = existing
+            existing.hostPlayerDeviceID = hostPlayerDeviceID
+            existing.seatLocalHostIfNeeded(deviceName: ProcessInfo.processInfo.hostName)
+            coopSession = existing
+            if existing != before {
+                notifySessionChanged()
+            }
+            return existing
+        }
+        var created = PlayniteCoopSessionState(
             sessionID: UUID().uuidString,
             createdAt: Date(),
             seats: [],
-            cursorOwnerDeviceID: nil
+            cursorOwnerDeviceID: nil,
+            hostPlayerDeviceID: hostPlayerDeviceID
         )
+        created.seatLocalHostIfNeeded(deviceName: ProcessInfo.processInfo.hostName)
         coopSession = created
         notifySessionChanged()
         return created
@@ -191,6 +247,45 @@ actor PlayniteStreamControlServer {
         coopSession = session
         notifySessionChanged()
         return true
+    }
+
+    @discardableResult
+    func joinLocalPlayer(preferredSeat: Int?, deviceName: String) -> Result<PlayniteCoopSeat, PlayniteCoopSessionState.JoinError> {
+        hostPlayerDeviceID = PlayniteCoopSessionState.localHostDeviceID
+        persistHostPlayer()
+        var session = ensureSession()
+        session.designateHostPlayer(deviceID: PlayniteCoopSessionState.localHostDeviceID)
+        let result = session.join(
+            deviceID: PlayniteCoopSessionState.localHostDeviceID,
+            deviceName: deviceName,
+            preferredSeat: preferredSeat ?? 1,
+            kind: .localHost
+        )
+        if case .success = result {
+            coopSession = session
+            notifySessionChanged()
+        }
+        return result
+    }
+
+    @discardableResult
+    func leaveDevice(deviceID: String) -> PlayniteCoopSessionState? {
+        guard var session = coopSession else { return nil }
+        _ = session.leave(deviceID: deviceID)
+        if session.seats.isEmpty {
+            coopSession = nil
+        } else {
+            coopSession = session
+        }
+        notifySessionChanged()
+        return coopSession
+    }
+
+    private static func clientKind(from json: [String: Any]?) -> PlayniteCoopClientKind {
+        if let raw = json?["clientKind"] as? String, let kind = PlayniteCoopClientKind(rawValue: raw) {
+            return kind
+        }
+        return .companion
     }
 
     private func notifyPairingQueueChanged() {
@@ -304,6 +399,7 @@ actor PlayniteStreamControlServer {
                 "audioTcpPort": PlayniteStreamPorts.audioTCP,
                 "inputPort": PlayniteStreamPorts.inputUDP,
                 "maxViewers": PlayniteStreamPorts.maxCoopViewers,
+                "hostPlayerDeviceId": hostPlayerDeviceID,
             ]
             if let coopSession {
                 body["session"] = coopSession.json
@@ -327,13 +423,26 @@ actor PlayniteStreamControlServer {
             guard isPaired(deviceID: deviceID) else {
                 return httpResponse(status: 403, body: ["ok": false, "error": "not paired"])
             }
-            var session = ensureSession()
             let name = pairedDeviceName(deviceID: deviceID)
                 ?? (json?["deviceName"] as? String)
                 ?? "Companion"
             let preferred = json?["preferredSeat"] as? Int
-            switch session.join(deviceID: deviceID, deviceName: name, preferredSeat: preferred) {
+            let kind = Self.clientKind(from: json)
+            let playAsHost = Self.jsonBool(json, "playAsHost")
+            var session = ensureSession()
+            let fullMessage = session.joinFullMessage
+            switch session.join(
+                deviceID: deviceID,
+                deviceName: name,
+                preferredSeat: preferred,
+                kind: kind,
+                playAsHost: playAsHost
+            ) {
             case .success(let seat):
+                if playAsHost {
+                    hostPlayerDeviceID = deviceID
+                    persistHostPlayer()
+                }
                 coopSession = session
                 notifySessionChanged()
                 DebugLog.log("Playnite session join \(name) seat=\(seat.seat)")
@@ -343,7 +452,7 @@ actor PlayniteStreamControlServer {
                     "session": session.json,
                 ])
             case .failure(.full):
-                return httpResponse(status: 409, body: ["ok": false, "error": "session full"])
+                return httpResponse(status: 409, body: ["ok": false, "error": fullMessage])
             case .failure:
                 return httpResponse(status: 400, body: ["ok": false, "error": "join failed"])
             }
@@ -390,6 +499,37 @@ actor PlayniteStreamControlServer {
             coopSession = session
             notifySessionChanged()
             return httpResponse(status: 200, body: ["ok": true, "session": session.json])
+        case ("POST", "/playnite/v1/session/join-local"):
+            let name = (json?["deviceName"] as? String)?.trimmingCharacters(in: .whitespacesAndNewlines)
+            let display = (name?.isEmpty == false) ? name! : ProcessInfo.processInfo.hostName
+            switch joinLocalPlayer(preferredSeat: json?["preferredSeat"] as? Int, deviceName: display) {
+            case .success(let seat):
+                return httpResponse(status: 200, body: [
+                    "ok": true,
+                    "seat": seat.seat,
+                    "session": coopSession?.json as Any,
+                ])
+            case .failure(.full):
+                return httpResponse(status: 409, body: [
+                    "ok": false,
+                    "error": coopSession?.joinFullMessage ?? PlayniteCoopSessionState.slotCapacityExplanation,
+                ])
+            case .failure:
+                return httpResponse(status: 400, body: ["ok": false, "error": "join failed"])
+            }
+        case ("POST", "/playnite/v1/session/host-player"):
+            guard let deviceID = json?["deviceId"] as? String, !deviceID.isEmpty else {
+                return httpResponse(status: 400, body: ["ok": false, "error": "deviceId required"])
+            }
+            if deviceID != PlayniteCoopSessionState.localHostDeviceID, !isPaired(deviceID: deviceID) {
+                return httpResponse(status: 403, body: ["ok": false, "error": "not paired"])
+            }
+            let session = setHostPlayer(deviceID: deviceID)
+            return httpResponse(status: 200, body: [
+                "ok": true,
+                "hostPlayerDeviceId": session.hostPlayerDeviceID,
+                "session": session.json,
+            ])
         case ("POST", "/playnite/v1/session/end"):
             endSession()
             return httpResponse(status: 200, body: ["ok": true])
@@ -400,8 +540,14 @@ actor PlayniteStreamControlServer {
             }
             let deviceName = (json?["deviceName"] as? String)?.trimmingCharacters(in: .whitespacesAndNewlines)
             let name = deviceName?.isEmpty == false ? deviceName! : "Companion"
+            let kind = Self.clientKind(from: json)
             deniedDeviceIDs.remove(deviceID)
-            pendingByDeviceID[deviceID] = PendingPairRequest(deviceID: deviceID, deviceName: name, createdAt: Date())
+            pendingByDeviceID[deviceID] = PendingPairRequest(
+                deviceID: deviceID,
+                deviceName: name,
+                clientKind: kind,
+                createdAt: Date()
+            )
             notifyPairingQueueChanged()
             DebugLog.log("Playnite pair/request queued: \(name) (\(deviceID))")
             return httpResponse(status: 200, body: ["ok": true, "status": "pending"])
@@ -410,6 +556,7 @@ actor PlayniteStreamControlServer {
                 [
                     "deviceId": $0.deviceID,
                     "deviceName": $0.deviceName,
+                    "clientKind": $0.clientKind.rawValue,
                     "createdAt": ISO8601DateFormatter().string(from: $0.createdAt),
                 ] as [String: Any]
             }
@@ -449,9 +596,25 @@ actor PlayniteStreamControlServer {
             let height = json?["height"] as? Int ?? 1080
             let fps = json?["fps"] as? Int ?? 60
             var session = ensureSession()
-            let name = pairedDeviceName(deviceID: deviceID) ?? "Companion"
-            switch session.join(deviceID: deviceID, deviceName: name, preferredSeat: json?["preferredSeat"] as? Int) {
+            let kind = Self.clientKind(from: json)
+            let playAsHost = Self.jsonBool(json, "playAsHost")
+            let providedName = (json?["deviceName"] as? String)?.trimmingCharacters(in: .whitespacesAndNewlines)
+            let name = pairedDeviceName(deviceID: deviceID)
+                ?? (providedName?.isEmpty == false ? providedName! : nil)
+                ?? (kind == .computerGuest ? "Computer" : "Companion")
+            let fullMessage = session.joinFullMessage
+            switch session.join(
+                deviceID: deviceID,
+                deviceName: name,
+                preferredSeat: json?["preferredSeat"] as? Int,
+                kind: kind,
+                playAsHost: playAsHost
+            ) {
             case .success(let seatInfo):
+                if playAsHost {
+                    hostPlayerDeviceID = deviceID
+                    persistHostPlayer()
+                }
                 coopSession = session
                 notifySessionChanged()
                 PlayniteStreamSessionLog.i(
@@ -475,7 +638,10 @@ actor PlayniteStreamControlServer {
                     "attached": videoStreaming,
                 ])
             case .failure(.full):
-                return httpResponse(status: 409, body: ["ok": false, "error": "session full (max 2 viewers)"])
+                return httpResponse(
+                    status: 409,
+                    body: ["ok": false, "error": fullMessage]
+                )
             case .failure:
                 return httpResponse(status: 400, body: ["ok": false, "error": "could not join session"])
             }
@@ -483,8 +649,9 @@ actor PlayniteStreamControlServer {
             PlayniteStreamSessionLog.i("Companion POST stream/stop")
             if let deviceID = json?["deviceId"] as? String, var session = coopSession {
                 _ = session.leave(deviceID: deviceID)
-                if session.seats.isEmpty {
-                    coopSession = nil
+                if session.videoClientCount == 0 {
+                    coopSession = session.seats.isEmpty ? nil : session
+                    notifySessionChanged()
                     if let onStreamStopRequested {
                         Task { await onStreamStopRequested() }
                     } else {
@@ -496,7 +663,6 @@ actor PlayniteStreamControlServer {
                     notifySessionChanged()
                     return httpResponse(status: 200, body: ["ok": true, "captureStopped": false, "session": session.json])
                 }
-                notifySessionChanged()
             } else if let onStreamStopRequested {
                 Task { await onStreamStopRequested() }
             } else {

@@ -11,6 +11,8 @@ object GamepadLinkCapture {
         val keyCode: Int,
         val label: String,
         val elementId: String,
+        val guid: String = "",
+        val deviceName: String = "",
     )
 
     private data class PendingLink(
@@ -41,11 +43,14 @@ object GamepadLinkCapture {
         val link = pending.getAndSet(null) ?: return false
         motionEdgeId = null
         val keyCode = event.keyCode
+        val device = event.device
         link.onCaptured(
             CapturedInput(
                 keyCode = keyCode,
                 label = GamepadKeyCodes.labelForKeyCode(keyCode),
                 elementId = link.targetElementId,
+                guid = device?.let { PlayniteGamepadAutoMapper.guid(it) }.orEmpty(),
+                deviceName = device?.name.orEmpty(),
             ),
         )
         return true
@@ -70,6 +75,8 @@ object GamepadLinkCapture {
                 keyCode = direction.keyCode,
                 label = direction.label,
                 elementId = captured.targetElementId,
+                guid = event.device?.let { PlayniteGamepadAutoMapper.guid(it) }.orEmpty(),
+                deviceName = event.device?.name.orEmpty(),
             ),
         )
         motionEdgeId = null

@@ -1000,6 +1000,8 @@ class PlayniteVideoActivity : Activity(), SurfaceHolder.Callback {
         const val EXTRA_CONTROLLER_BINDINGS_JSON = "controllerBindingsJson"
         const val EXTRA_SEAT = "seat"
         const val EXTRA_COOP_PAD_MODE = "coopPadMode"
+        const val EXTRA_SWAP_FACE = "swapFaceButtons"
+        const val EXTRA_DEADZONE = "deadZonePercent"
 
         private const val MAX_SPS_BYTES = 512
         private const val MAX_PPS_BYTES = 512

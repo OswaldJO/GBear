@@ -63,10 +63,13 @@ object PlayniteStreamSession {
     var tapTimeoutMs: Long = PlayniteInputSender.TAP_TIMEOUT_MS
     var tapPressure: Float = 0.35f
     var controllerBindingsJson: String = ""
-    /** Co-op seat 1 or 2 for PNG1 virtual pads. */
+    /** Co-op seat 1…8 for PNG1 virtual pads. */
     var seat: Int = 1
     /** When true, send PNG1 gamepad state instead of keyboard chords. */
     var coopPadMode: Boolean = true
+    var swapFaceButtons: Boolean = false
+    var deadZonePercent: Int = 12
+    var appContext: android.content.Context? = null
 
     @Volatile
     private var keyboardSender: PlayniteKeyboardSender? = null
@@ -85,7 +88,14 @@ object PlayniteStreamSession {
         if (!hostStreamActive || host.isEmpty() || !coopPadMode) return null
         val existing = gamepadSender
         if (existing != null) return existing
-        return PlayniteGamepadSender(host, inputPort, seat.coerceIn(1, 2)).also { gamepadSender = it }
+        return PlayniteGamepadSender(
+            host,
+            inputPort,
+            seat.coerceIn(1, 8),
+            appContext = appContext,
+            swapFaceButtons = swapFaceButtons,
+            deadzone = (deadZonePercent.coerceIn(0, 40) / 100f).coerceAtLeast(0.04f),
+        ).also { gamepadSender = it }
     }
 
     fun releaseKeyboardSender() {
@@ -117,8 +127,10 @@ object PlayniteStreamSession {
         tapPressure = intent.getFloatExtra(PlayniteVideoActivity.EXTRA_TAP_PRESSURE, 0.35f)
         controllerBindingsJson =
             intent.getStringExtra(PlayniteVideoActivity.EXTRA_CONTROLLER_BINDINGS_JSON).orEmpty()
-        seat = intent.getIntExtra(PlayniteVideoActivity.EXTRA_SEAT, 1).coerceIn(1, 2)
+        seat = intent.getIntExtra(PlayniteVideoActivity.EXTRA_SEAT, 1).coerceIn(1, 8)
         coopPadMode = intent.getBooleanExtra(PlayniteVideoActivity.EXTRA_COOP_PAD_MODE, true)
+        swapFaceButtons = intent.getBooleanExtra(PlayniteVideoActivity.EXTRA_SWAP_FACE, false)
+        deadZonePercent = intent.getIntExtra(PlayniteVideoActivity.EXTRA_DEADZONE, 12)
         releaseGamepadSender()
     }
 
@@ -138,6 +150,8 @@ object PlayniteStreamSession {
         intent.putExtra(PlayniteVideoActivity.EXTRA_CONTROLLER_BINDINGS_JSON, controllerBindingsJson)
         intent.putExtra(PlayniteVideoActivity.EXTRA_SEAT, seat)
         intent.putExtra(PlayniteVideoActivity.EXTRA_COOP_PAD_MODE, coopPadMode)
+        intent.putExtra(PlayniteVideoActivity.EXTRA_SWAP_FACE, swapFaceButtons)
+        intent.putExtra(PlayniteVideoActivity.EXTRA_DEADZONE, deadZonePercent)
     }
 
     /**
@@ -183,5 +197,7 @@ object PlayniteStreamSession {
         "height" to height,
         "seat" to seat,
         "coopPadMode" to coopPadMode,
+        "swapFaceButtons" to swapFaceButtons,
+        "deadZonePercent" to deadZonePercent,
     )
 }

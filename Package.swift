@@ -27,6 +27,9 @@ let package = Package(
             ],
             linkerSettings: [
                 .linkedLibrary("z"),
+                .linkedFramework("AVFoundation"),
+                .linkedFramework("GameController"),
+                .linkedFramework("VideoToolbox"),
             ]
         )
     ]

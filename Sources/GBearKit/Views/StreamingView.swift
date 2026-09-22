@@ -4,8 +4,10 @@ import SwiftUI
 struct StreamingView: View {
     @State private var session: StreamingPairingSession
     @State private var hostManager = PlayniteStreamHostManager.shared
+    @State private var guestManager = PlayniteStreamGuestManager.shared
     @State private var confirmDisconnect = false
     @State private var streamLogSavedPath: String?
+    @State private var showGuestVideo = false
 
     private let timer = Timer.publish(every: 1, on: .main, in: .common).autoconnect()
 
@@ -18,6 +20,8 @@ struct StreamingView: View {
             Form {
                 heroSection
                 streamHostSection
+                playOnThisMacSection
+                joinComputerSection
                 remoteSessionSection
                 pairingRequestsSection
                 coopSeatsSection
@@ -52,6 +56,14 @@ struct StreamingView: View {
                 session.refreshHostStatus()
             }
         }
+        .onChange(of: guestManager.phase) { _, phase in
+            if phase == .streaming {
+                showGuestVideo = true
+            }
+        }
+        .sheet(isPresented: $showGuestVideo) {
+            guestVideoSheet
+        }
         .confirmationDialog(
             "Disconnect “\(pairedNameForDialog)” from streaming on this Mac?",
             isPresented: $confirmDisconnect,
@@ -72,15 +84,15 @@ struct StreamingView: View {
     private var heroSection: some View {
         Section {
             HStack(alignment: .center, spacing: 12) {
-                Image(systemName: "iphone.radiowaves.left.and.right")
+                Image(systemName: "gamecontroller")
                     .font(.system(size: 36))
                     .foregroundStyle(.secondary)
                     .symbolRenderingMode(.hierarchical)
                 VStack(alignment: .leading, spacing: 6) {
-                    Text("Stream to your phone")
+                    Text("Remote couch co-op")
                         .font(.headline)
                     Text(
-                        "On the companion app: Discover your Mac, then tap Pair. Approve or deny the request here — no PINs. Grant Screen Recording for GBear once."
+                        "At most 8 players. This Mac uses one slot when it is playing, so 7 phones or computers can join. An 8th device can join only if it plays as the host in place of this Mac. After people join, use Move to to swap slots."
                     )
                     .font(.subheadline)
                     .foregroundStyle(.secondary)
@@ -227,10 +239,10 @@ struct StreamingView: View {
                 ForEach(hostManager.pendingPairRequests) { request in
                     VStack(alignment: .leading, spacing: 10) {
                         Label {
-                            Text("\(request.deviceName) is trying to pair")
+                            Text("\(request.deviceName) is trying to pair (\(request.clientKind.displayLabel))")
                                 .font(.headline)
                         } icon: {
-                            Image(systemName: "iphone.circle")
+                            Image(systemName: request.clientKind == .computerGuest ? "laptopcomputer" : "iphone.circle")
                         }
                         Text("Device ID: \(request.deviceID)")
                             .font(.caption.monospaced())
@@ -255,49 +267,189 @@ struct StreamingView: View {
     }
 
     @ViewBuilder
+    private var playOnThisMacSection: some View {
+        Section("Host player (Player 1)") {
+            Text(
+                "This Mac is Player 1 unless you pick a paired companion to play in its place. That frees this Mac’s slot so 8 devices can join (the 8th is the host player). Everyone else joins in order (Player 2, 3…). After they join, use Move to to reassign slots."
+            )
+            .font(.caption)
+            .foregroundStyle(.secondary)
+            .fixedSize(horizontal: false, vertical: true)
+            Picker("Host plays on", selection: hostPlayerBinding) {
+                Text("This Mac").tag(PlayniteCoopSessionState.localHostDeviceID)
+                ForEach(hostManager.pairedDevices) { device in
+                    Text(device.name).tag(device.deviceID)
+                }
+                if hostPlayerIsMissingFromPairedList {
+                    Text("Selected companion").tag(hostManager.hostPlayerDeviceID)
+                }
+            }
+            if let local = hostManager.coopSession?.seat(for: PlayniteCoopSessionState.localHostDeviceID) {
+                Label("This Mac is playing as Player \(local.seat)", systemImage: "desktopcomputer")
+                    .foregroundStyle(.green)
+            } else if hostManager.hostPlayerDeviceID == PlayniteCoopSessionState.localHostDeviceID {
+                Text("This Mac will take Player 1 when the session starts.")
+                    .font(.caption)
+                    .foregroundStyle(.secondary)
+            } else {
+                Label(
+                    "Player 1 reserved for \(hostPlayerDisplayName)",
+                    systemImage: "iphone"
+                )
+                .foregroundStyle(.orange)
+                Text("Start Desktop stream on that companion to play as the host. This Mac is not occupying a player slot, so up to 8 devices can join.")
+                    .font(.caption)
+                    .foregroundStyle(.secondary)
+                    .fixedSize(horizontal: false, vertical: true)
+            }
+        }
+    }
+
+    private var hostPlayerBinding: Binding<String> {
+        Binding(
+            get: { hostManager.hostPlayerDeviceID },
+            set: { newValue in
+                Task { _ = await hostManager.setHostPlayer(deviceID: newValue) }
+            }
+        )
+    }
+
+    private var hostPlayerIsMissingFromPairedList: Bool {
+        let id = hostManager.hostPlayerDeviceID
+        if id == PlayniteCoopSessionState.localHostDeviceID { return false }
+        return !hostManager.pairedDevices.contains(where: { $0.deviceID == id })
+    }
+
+    private var hostPlayerDisplayName: String {
+        let id = hostManager.hostPlayerDeviceID
+        if id == PlayniteCoopSessionState.localHostDeviceID {
+            return "this Mac"
+        }
+        return hostManager.pairedDevices.first(where: { $0.deviceID == id })?.name
+            ?? hostManager.coopSession?.seat(for: id)?.deviceName
+            ?? "companion"
+    }
+
+    @ViewBuilder
+    private var joinComputerSection: some View {
+        Section("Join another computer") {
+            Text("Watch the host’s screen on this Mac and play with a local controller. Default is join order (next open seat after the host).")
+                .font(.caption)
+                .foregroundStyle(.secondary)
+                .fixedSize(horizontal: false, vertical: true)
+            TextField("Host LAN IP", text: $guestManager.hostAddress)
+            Picker("Join as", selection: $guestManager.preferredSeat) {
+                Text("Join in order").tag(0)
+                ForEach(1 ... PlayniteStreamPorts.maxCoopViewers, id: \.self) { seat in
+                    Text("Player \(seat)").tag(seat)
+                }
+            }
+            Text(guestManager.statusMessage)
+                .font(.caption)
+                .foregroundStyle(.secondary)
+            HStack {
+                Button("Pair & join") {
+                    Task { await guestManager.pairAndJoin() }
+                }
+                .disabled(guestManager.phase == .pairing || guestManager.phase == .streaming)
+                Button("Leave", role: .destructive) {
+                    Task {
+                        showGuestVideo = false
+                        await guestManager.stop()
+                    }
+                }
+                .disabled(guestManager.phase == .idle)
+            }
+        }
+    }
+
+    private var guestVideoSheet: some View {
+        VStack(spacing: 12) {
+            HStack {
+                Text(guestManager.statusMessage)
+                    .font(.headline)
+                Spacer()
+                Button("Close") {
+                    showGuestVideo = false
+                    Task { await guestManager.stop() }
+                }
+            }
+            .padding()
+            PlayniteGuestVideoView(sample: guestManager.latestSample)
+                .frame(minWidth: 640, minHeight: 360)
+                .background(.black)
+        }
+        .frame(minWidth: 720, minHeight: 480)
+    }
+
+    @ViewBuilder
     private var coopSeatsSection: some View {
-        Section("Co-op seats (2 players)") {
+        Section("Players (up to \(PlayniteStreamPorts.maxCoopViewers))") {
             if let coop = hostManager.coopSession {
                 LabeledContent("Session") {
                     Text(String(coop.sessionID.prefix(8)) + "…")
                         .font(.caption.monospaced())
                         .textSelection(.enabled)
                 }
-                if coop.seats.isEmpty {
-                    Text("No viewers joined yet. Companions claim a seat when they start streaming.")
-                        .font(.subheadline)
-                        .foregroundStyle(.secondary)
-                } else {
-                    ForEach(coop.seats) { seat in
+                Text(coop.capacityNote)
+                    .font(.caption)
+                    .foregroundStyle(.secondary)
+                    .fixedSize(horizontal: false, vertical: true)
+                LabeledContent("Joined") {
+                    Text(
+                        coop.localHostIsPlaying
+                            ? "This Mac + \(coop.remotePlayerCount) of 7 devices"
+                            : "\(coop.remotePlayerCount) of 8 devices"
+                    )
+                }
+                ForEach(1 ... PlayniteStreamPorts.maxCoopViewers, id: \.self) { number in
+                    if let occupant = coop.occupant(seat: number) {
                         VStack(alignment: .leading, spacing: 6) {
-                            Label("Player \(seat.seat) — \(seat.deviceName)", systemImage: seat.seat == 1 ? "1.circle.fill" : "2.circle.fill")
-                                .font(.headline)
-                            Text(seat.deviceID)
+                            Label(
+                                "Player \(number) — \(occupant.deviceName)\(occupant.deviceID == coop.hostPlayerDeviceID ? " (host)" : "")",
+                                systemImage: occupant.kind == .localHost
+                                    ? "desktopcomputer"
+                                    : (occupant.kind == .computerGuest ? "laptopcomputer" : "iphone")
+                            )
+                            .font(.headline)
+                            Text("\(occupant.kind.displayLabel) • PNG1 join seat \(occupant.joinSeat)")
+                                .font(.caption)
+                                .foregroundStyle(.secondary)
+                            Text(occupant.deviceID)
                                 .font(.caption.monospaced())
                                 .foregroundStyle(.tertiary)
                                 .textSelection(.enabled)
                             HStack {
-                                if seat.seat != 1 {
-                                    Button("Make P1") {
-                                        Task { _ = await hostManager.reassignSeat(deviceID: seat.deviceID, seat: 1) }
+                                Menu("Move to") {
+                                    ForEach(1 ... PlayniteStreamPorts.maxCoopViewers, id: \.self) { target in
+                                        Button("Player \(target)") {
+                                            Task { _ = await hostManager.reassignSeat(deviceID: occupant.deviceID, seat: target) }
+                                        }
+                                        .disabled(target == occupant.seat)
                                     }
                                 }
-                                if seat.seat != 2 {
-                                    Button("Make P2") {
-                                        Task { _ = await hostManager.reassignSeat(deviceID: seat.deviceID, seat: 2) }
+                                if occupant.wantsVideo {
+                                    Button("Cursor owner") {
+                                        Task { _ = await hostManager.setCursorOwner(deviceID: occupant.deviceID) }
                                     }
-                                }
-                                Button("Cursor owner") {
-                                    Task { _ = await hostManager.setCursorOwner(deviceID: seat.deviceID) }
-                                }
-                                if coop.cursorOwnerDeviceID == seat.deviceID {
-                                    Text("owns cursor")
-                                        .font(.caption)
-                                        .foregroundStyle(.secondary)
+                                    if coop.cursorOwnerDeviceID == occupant.deviceID {
+                                        Text("owns cursor")
+                                            .font(.caption)
+                                            .foregroundStyle(.secondary)
+                                    }
                                 }
                             }
                         }
                         .padding(.vertical, 4)
+                    } else if number == 1, coop.reservedHostSeat == 1 {
+                        Label(
+                            "Player 1 — reserved for \(hostPlayerDisplayName)",
+                            systemImage: "hourglass"
+                        )
+                        .foregroundStyle(.orange)
+                    } else {
+                        Label("Player \(number) — empty", systemImage: "circle")
+                            .foregroundStyle(.secondary)
                     }
                 }
                 HStack {
@@ -309,7 +461,7 @@ struct StreamingView: View {
                     }
                 }
             } else {
-                Text("Create a session to assign Player 1 / Player 2 seats (max 2 viewers).")
+                Text("Create a session, then play on this Mac and/or let phones and other computers join in order. Use Move to after people have joined if you need to swap Player 1–8.")
                     .font(.subheadline)
                     .foregroundStyle(.secondary)
                 Button("Create co-op session") {
@@ -439,7 +591,10 @@ struct StreamingView: View {
 
     private var capabilitiesSection: some View {
         Section("After pairing") {
-            Label("Up to 2 phones: video + audio fan-out; Player 1 / Player 2 seats", systemImage: "person.2")
+            Label(
+                "8 player slots: this Mac + 7 devices, or 8 devices if one plays as the host instead of this Mac",
+                systemImage: "person.3"
+            )
             Label("Phone: Session → Start Desktop stream", systemImage: "play.circle")
             Label(
                 "Video TCP \(PlayniteStreamPorts.videoTCP), audio TCP \(PlayniteStreamPorts.audioTCP)",

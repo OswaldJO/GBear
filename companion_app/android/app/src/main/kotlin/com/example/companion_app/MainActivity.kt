@@ -125,8 +125,10 @@ class MainActivity : FlutterActivity() {
                         ?: PlayniteInputSender.TAP_TIMEOUT_MS
                     val tapPressure = (call.argument<Double>("tapPressure") ?: 0.35).toFloat()
                     val bindingsJson = call.argument<String>("controllerBindingsJson").orEmpty()
-                    val seat = (call.argument<Int>("seat") ?: 1).coerceIn(1, 2)
+                    val seat = (call.argument<Int>("seat") ?: 1).coerceIn(1, 8)
                     val coopPadMode = call.argument<Boolean>("coopPadMode") ?: true
+                    val swapFaceButtons = call.argument<Boolean>("swapFaceButtons") ?: false
+                    val deadZonePercent = call.argument<Int>("deadZonePercent") ?: 12
                     if (host.isEmpty()) {
                         result.error("invalid_args", "Missing host", null)
                         return@setMethodCallHandler
@@ -146,6 +148,9 @@ class MainActivity : FlutterActivity() {
                     PlayniteStreamSession.controllerBindingsJson = bindingsJson
                     PlayniteStreamSession.seat = seat
                     PlayniteStreamSession.coopPadMode = coopPadMode
+                    PlayniteStreamSession.swapFaceButtons = swapFaceButtons
+                    PlayniteStreamSession.deadZonePercent = deadZonePercent
+                    PlayniteStreamSession.appContext = applicationContext
                     PlayniteStreamSession.releaseGamepadSender()
                     cancelPendingFlutterStreamStoppedNotify()
                     PlayniteStreamSession.clearPendingExternalStopLog()
@@ -262,6 +267,46 @@ class MainActivity : FlutterActivity() {
                     result.success(ConnectedControllerProbe.list(this))
                 }
 
+                "autoMapCoopPads" -> {
+                    val swap = call.argument<Boolean>("swapFaceButtons") ?: false
+                    result.success(PlayniteCoopPadMappingStore.autoMapAndSave(this, swap))
+                }
+
+                "listCoopPadMappings" -> {
+                    result.success(PlayniteCoopPadMappingStore.all(this))
+                }
+
+                "resetCoopPadMapping" -> {
+                    val guid = call.argument<String>("guid").orEmpty()
+                    if (guid.isNotEmpty()) {
+                        PlayniteCoopPadMappingStore.reset(this, guid)
+                    }
+                    result.success(null)
+                }
+
+                "applyCoopPadOverride" -> {
+                    val guid = call.argument<String>("guid").orEmpty()
+                    val logical = call.argument<String>("logical").orEmpty()
+                    val keyCode = call.argument<Int>("keyCode") ?: 0
+                    val axis = call.argument<Int>("axis") ?: -1
+                    val invert = call.argument<Boolean>("invert") ?: false
+                    val deviceName = call.argument<String>("deviceName").orEmpty()
+                    if (guid.isEmpty() || logical.isEmpty()) {
+                        result.error("invalid_args", "guid and logical required", null)
+                        return@setMethodCallHandler
+                    }
+                    val mapping = PlayniteCoopPadMappingStore.applyOverride(
+                        this,
+                        guid,
+                        logical,
+                        keyCode,
+                        axis,
+                        invert,
+                        deviceName,
+                    )
+                    result.success(mapping.toMap())
+                }
+
                 "awaitGamepadButtonPress" -> {
                     val timeoutMs = call.argument<Int>("timeoutMs") ?: 15_000
                     val targetElementId = call.argument<String>("elementId").orEmpty()
@@ -274,6 +319,8 @@ class MainActivity : FlutterActivity() {
                                     "keyCode" to captured.keyCode,
                                     "label" to captured.label,
                                     "elementId" to captured.elementId,
+                                    "guid" to captured.guid,
+                                    "deviceName" to captured.deviceName,
                                 ),
                             )
                         }

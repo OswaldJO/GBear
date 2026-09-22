@@ -61,7 +61,7 @@ object PlayniteStreamProtocols {
     ): ByteArray {
         val buf = ByteBuffer.allocate(GAMEPAD_PACKET_SIZE).order(ByteOrder.LITTLE_ENDIAN)
         buf.putInt(GAMEPAD_MAGIC)
-        buf.put(seat.coerceIn(1, 2).toByte())
+        buf.put(seat.coerceIn(1, 8).toByte())
         buf.putInt(buttons)
         buf.putFloat(leftX)
         buf.putFloat(leftY)

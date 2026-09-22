@@ -23,6 +23,8 @@ object ConnectedControllerProbe {
                     "id" to deviceId.toString(),
                     "name" to (device.name ?: "Game controller"),
                     "vendor" to device.vendorId.toString(),
+                    "product" to device.productId.toString(),
+                    "guid" to PlayniteGamepadAutoMapper.guid(device),
                     "detectedButtons" to detectedButtons,
                 ),
             )
