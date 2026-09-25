@@ -5,7 +5,7 @@ SCRIPT_DIR="$(cd "$(dirname "$0")" && pwd)"
 ROOT="$(cd "$SCRIPT_DIR/../../.." && pwd)"
 MOONLIGHT_IOS="${MOONLIGHT_IOS:-$ROOT/Vendor/streaming-repos/moonlight-ios}"
 OUT="$SCRIPT_DIR/Vendor/prebuilt"
-SRC="$SCRIPT_DIR/PlayniteSupport/PlayniteFFmpegAv1Stub.c"
+SRC="$SCRIPT_DIR/GBearSupport/GBearFFmpegAv1Stub.c"
 
 FFMPEG_INCLUDE="$MOONLIGHT_IOS/libs/FFmpeg/include"
 SDK_PATH="$(xcrun --sdk iphoneos --show-sdk-path)"
@@ -34,7 +34,7 @@ build_stub() {
   rm -f "$obj"
 }
 
-build_stub iphoneos arm64 libplaynite-ffmpeg-stubs-iOS.a
-build_stub iphonesimulator arm64 libplaynite-ffmpeg-stubs-iOS-Sim.a
+build_stub iphoneos arm64 libgbear-ffmpeg-stubs-iOS.a
+build_stub iphonesimulator arm64 libgbear-ffmpeg-stubs-iOS-Sim.a
 
 echo "Built FFmpeg stub libraries in $OUT"

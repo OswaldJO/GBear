@@ -1,6 +1,6 @@
 import 'package:shared_preferences/shared_preferences.dart';
 
-/// Touchpad / cursor options for [PlayniteVideoActivity] (Android stream view).
+/// Touchpad / cursor options for [GBearVideoActivity] (Android stream view).
 class StreamTouchSettings {
   static const _cursorSpeedKey = 'stream.touch.cursorSpeed';
   static const _tapSlopKey = 'stream.touch.tapSlopPercent';

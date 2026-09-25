@@ -1,5 +1,5 @@
 #!/usr/bin/env bash
-# Archive the Playnite companion app for iOS.
+# Archive the GBear companion app for iOS.
 #
 # Usage:
 #   ./scripts/ios-archive.sh                  # App Store / TestFlight IPA

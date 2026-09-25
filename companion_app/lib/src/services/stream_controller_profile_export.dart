@@ -5,7 +5,7 @@ import 'stream_controller_profile_store.dart';
 /// JSON envelope for sharing controller mapping profiles between devices.
 class StreamControllerProfileExport {
   static const formatVersion = 1;
-  static const type = 'playnite_controller_profile';
+  static const type = 'gbear_controller_profile';
 
   static Map<String, dynamic> envelope(StreamControllerProfile profile) {
     return {

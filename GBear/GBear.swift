@@ -98,7 +98,7 @@ struct GBear: App {
 
                         What the app does:
                         On startup, the app removes games whose emulator no longer exists (ghost entries in “All”).
-                        On Scan Paths, the app also removes emulator-linked games under a reachable Paths folder when the file is gone. If an entire Paths folder/volume is offline (unmounted drive), those games are kept so a temporary disconnect does not wipe the library.
+                        On Scan Paths, the app also removes emulator-linked games under a reachable Paths folder when the file is gone. Extra files that were imported from inside a game folder (for example each .bin next to a .cue) are collapsed so the folder is one game. If an entire Paths folder/volume is offline (unmounted drive), those games are kept so a temporary disconnect does not wipe the library.
 
                         Result:
                         Library sections stay consistent with what’s actually on disk and configured.

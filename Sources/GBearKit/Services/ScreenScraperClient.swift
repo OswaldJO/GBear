@@ -36,7 +36,7 @@ enum ScreenScraperClient {
 
     private static let searchURL = "https://api.screenscraper.fr/api2/jeuRecherche.php"
     private static let gameInfoURL = "https://api.screenscraper.fr/api2/jeuInfos.php"
-    private static let softName = "PlayniteMac"
+    private static let softName = "GBearMac"
 
     static func searchGames(
         searchQuery: String,

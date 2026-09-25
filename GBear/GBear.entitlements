@@ -2,16 +2,9 @@
 <!DOCTYPE plist PUBLIC "-//Apple//DTD PLIST 1.0//EN" "http://www.apple.com/DTDs/PropertyList-1.0.dtd">
 <plist version="1.0">
 <dict>
-	<!--
-	  App Sandbox MUST stay off for this target.
-	  Apple ignores NSWorkspace.OpenConfiguration.arguments (and open --args) when the
-	  caller is sandboxed, so emulators would open to an empty game list with no boot file.
-	-->
 	<key>com.apple.security.network.client</key>
 	<true/>
 	<key>com.apple.security.network.server</key>
-	<true/>
-	<key>com.apple.developer.hid.virtual.device</key>
 	<true/>
 </dict>
 </plist>

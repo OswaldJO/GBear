@@ -5,14 +5,14 @@ iOS and Android companion for pairing with GBear’s native stream host.
 ## Responsibilities
 
 - **Settings** — Mac LAN IPv4 (`StreamingHostSettings`, port **28765** default)
-- **Hosts** — `PlayniteHostClient.fetchStatus()` / discover
+- **Hosts** — `GBearHostClient.fetchStatus()` / discover
 - **Pairing** — phone registers PIN; Mac confirms in Streaming tab
-- **Session** — video start is stubbed until Playnite transport ships
+- **Session** — video start is stubbed until GBear transport ships
 - **Controller** — gamepad mapping UI (applied when stream exists)
 
 ## Key Dart files
 
-- `playnite_host_client.dart` — HTTP API client
+- `gbear_host_client.dart` — HTTP API client
 - `streaming_bridge.dart` — `MethodChannel` for controllers + future native stream
 - `streaming_host_settings.dart` — SharedPreferences
 - `home_page.dart` — tab UI

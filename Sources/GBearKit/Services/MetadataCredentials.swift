@@ -8,6 +8,7 @@ enum MetadataCredentials {
     private static let userPasswordKey = "Metadata.ScreenScraper.UserPassword"
     private static let preferredRegionKey = "Metadata.ScreenScraper.PreferredRegion"
     private static let autoSelectAmbiguityKey = "Metadata.ScreenScraper.AutoSelectAmbiguity"
+    private static let onlyScanMissingKey = "Metadata.ScreenScraper.OnlyScanMissing"
 
     /// Effective developer id for API calls (UserDefaults override, else obfuscated built-in).
     static var screenScraperDevID: String? {
@@ -59,6 +60,19 @@ enum MetadataCredentials {
         }
         set {
             UserDefaults.standard.set(newValue, forKey: autoSelectAmbiguityKey)
+        }
+    }
+
+    /// When true (default), full library scrapes skip games that already have ScreenScraper cover art.
+    static var screenScraperOnlyScanMissing: Bool {
+        get {
+            if UserDefaults.standard.object(forKey: onlyScanMissingKey) == nil {
+                return true
+            }
+            return UserDefaults.standard.bool(forKey: onlyScanMissingKey)
+        }
+        set {
+            UserDefaults.standard.set(newValue, forKey: onlyScanMissingKey)
         }
     }
 

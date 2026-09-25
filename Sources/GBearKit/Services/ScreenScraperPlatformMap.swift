@@ -1,6 +1,6 @@
 import Foundation
 
-/// Maps Playnite-style platform slugs (from `BuiltinEmulatorCatalog.json`) to ScreenScraper `systemeid` values.
+/// Maps GBear-style platform slugs (from `BuiltinEmulatorCatalog.json`) to ScreenScraper `systemeid` values.
 enum ScreenScraperPlatformMap {
     private static let slugToSystemId: [String: Int] = [
         "3do": 29,
@@ -159,7 +159,7 @@ enum ScreenScraperPlatformMap {
         225: "Nintendo Switch",
     ]
 
-    static func systemId(forPlayniteSlug slug: String) -> Int? {
+    static func systemId(forGBearSlug slug: String) -> Int? {
         slugToSystemId[slug.lowercased()]
     }
 
@@ -167,8 +167,8 @@ enum ScreenScraperPlatformMap {
         systemIdToDisplayName[systemId] ?? "System \(systemId)"
     }
 
-    static func displayName(forPlayniteSlug slug: String) -> String {
-        if let id = systemId(forPlayniteSlug: slug) {
+    static func displayName(forGBearSlug slug: String) -> String {
+        if let id = systemId(forGBearSlug: slug) {
             return displayName(forSystemId: id)
         }
         return slug.replacingOccurrences(of: "_", with: " ").capitalized

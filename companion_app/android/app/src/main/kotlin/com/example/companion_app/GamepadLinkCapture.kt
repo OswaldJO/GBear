@@ -49,7 +49,7 @@ object GamepadLinkCapture {
                 keyCode = keyCode,
                 label = GamepadKeyCodes.labelForKeyCode(keyCode),
                 elementId = link.targetElementId,
-                guid = device?.let { PlayniteGamepadAutoMapper.guid(it) }.orEmpty(),
+                guid = device?.let { GBearGamepadAutoMapper.guid(it) }.orEmpty(),
                 deviceName = device?.name.orEmpty(),
             ),
         )
@@ -75,7 +75,7 @@ object GamepadLinkCapture {
                 keyCode = direction.keyCode,
                 label = direction.label,
                 elementId = captured.targetElementId,
-                guid = event.device?.let { PlayniteGamepadAutoMapper.guid(it) }.orEmpty(),
+                guid = event.device?.let { GBearGamepadAutoMapper.guid(it) }.orEmpty(),
                 deviceName = event.device?.name.orEmpty(),
             ),
         )

@@ -1,6 +1,6 @@
 import Foundation
 
-/// PIN shown on the phone and confirmed on the Mac for Playnite native pairing.
+/// PIN shown on the phone and confirmed on the Mac for GBear native pairing.
 struct PINPairingChallenge: Equatable, Sendable {
     var pin: String
     var expiresAt: Date

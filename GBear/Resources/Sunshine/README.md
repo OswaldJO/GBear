@@ -1,6 +1,6 @@
 # Bundled Sunshine binary
 
-Playnite **does not** run Homebrew Sunshine at stream time. The app copies this binary into Application Support and launches it from there so **Screen Recording** targets one stable path.
+GBear **does not** run Homebrew Sunshine at stream time. The app copies this binary into Application Support and launches it from there so **Screen Recording** targets one stable path.
 
 ## Developers (one-time per machine)
 
@@ -16,9 +16,9 @@ Homebrew is only used by the staging script to **obtain** a binary for bundling�
 
 ## End users
 
-1. Open **Streaming** in Playnite Mac.
+1. Open **Streaming** in GBear Mac.
 2. Click **Show host in Finder** and enable that `sunshine` in **System Settings → Privacy & Security → Screen Recording**.
 3. Click **Restart streaming host**.
 4. Status should show **Ready to stream** (not merely “reachable”).
 
-If you previously installed Sunshine via Homebrew, quit that process in Activity Monitor before using Playnite.
+If you previously installed Sunshine via Homebrew, quit that process in Activity Monitor before using GBear.

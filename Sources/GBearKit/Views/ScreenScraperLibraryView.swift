@@ -14,6 +14,7 @@ struct ScreenScraperLibrarySettingsView: View {
 
     @State private var preferredRegion: String = MetadataCredentials.screenScraperPreferredRegion
     @State private var autoSelectAmbiguous = MetadataCredentials.screenScraperAutoSelectAmbiguousMatches
+    @State private var onlyScanMissing = MetadataCredentials.screenScraperOnlyScanMissing
     @State private var showClearCoversConfirmation = false
     @State private var clearCoversStatus: String?
 
@@ -312,8 +313,19 @@ struct ScreenScraperLibrarySettingsView: View {
                         MetadataCredentials.screenScraperAutoSelectAmbiguousMatches = newValue
                     }
 
+                Toggle("Only Scan Missing", isOn: $onlyScanMissing)
+                    .onChange(of: onlyScanMissing) { _, newValue in
+                        MetadataCredentials.screenScraperOnlyScanMissing = newValue
+                    }
+
                 Text(
                     "When off, you choose the console when ScreenScraper finds several matches. When on, the app picks using your emulator platform, title similarity, and ScreenScraper’s result order. Check the scrape log for lines tagged auto_ambiguous to review those picks."
+                )
+                .font(.subheadline)
+                .foregroundStyle(.secondary)
+
+                Text(
+                    "Only Scan Missing skips games that already have ScreenScraper cover art. Uncheck it to scrape every game again."
                 )
                 .font(.subheadline)
                 .foregroundStyle(.secondary)

@@ -34,8 +34,8 @@ Future<void> offerStreamLogShare(BuildContext context, String logPath) async {
   if (shouldShare != true || !context.mounted) return;
 
   await Share.shareXFiles(
-    [XFile(logPath, mimeType: 'text/plain', name: 'playnite_stream.log')],
-    subject: 'Playnite companion stream log',
-    text: 'Playnite companion stream debug log.',
+    [XFile(logPath, mimeType: 'text/plain', name: 'gbear_stream.log')],
+    subject: 'GBear companion stream log',
+    text: 'GBear companion stream debug log.',
   );
 }

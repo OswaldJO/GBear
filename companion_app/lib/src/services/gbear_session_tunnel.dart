@@ -3,7 +3,7 @@ import 'dart:convert';
 import 'dart:io';
 import 'dart:typed_data';
 
-/// Multiplexed GBTL tunnel over TCP (same framing as Mac [PlayniteSessionTunnel]).
+/// Multiplexed GBTL tunnel over TCP (same framing as Mac [GBearSessionTunnel]).
 class GBearSessionTunnel {
   static const magic = 0x4C544247; // GBTL LE
   static const channelControl = 1;
@@ -77,7 +77,7 @@ class SessionTransportChooser {
   static Future<bool> canReachLan(String host, int controlPort) async {
     try {
       final client = HttpClient()..connectionTimeout = const Duration(seconds: 2);
-      final req = await client.getUrl(Uri.parse('http://$host:$controlPort/playnite/v1/status'));
+      final req = await client.getUrl(Uri.parse('http://$host:$controlPort/gbear/v1/status'));
       final res = await req.close().timeout(const Duration(seconds: 2));
       await res.drain<void>();
       client.close(force: true);

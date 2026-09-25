@@ -4,8 +4,8 @@ set -euo pipefail
 ROOT="$(cd "$(dirname "$0")/.." && pwd)"
 MOONLIGHT_IOS="${MOONLIGHT_IOS:-$ROOT/Vendor/streaming-repos/moonlight-ios}"
 COMMON_XCODEPROJ="$MOONLIGHT_IOS/moonlight-common/moonlight-common.xcodeproj"
-DERIVED="${PLAYNITE_MOONLIGHT_DERIVED:-$HOME/.cache/playnite-moonlight-ios/DerivedData}"
-OUT_DIR="${PLAYNITE_MOONLIGHT_VENDOR:-$ROOT/companion_app/ios/MoonlightStream/Vendor}"
+DERIVED="${GBEAR_MOONLIGHT_DERIVED:-$HOME/.cache/gbear-moonlight-ios/DerivedData}"
+OUT_DIR="${GBEAR_MOONLIGHT_VENDOR:-$ROOT/companion_app/ios/MoonlightStream/Vendor}"
 
 if [[ ! -d "$COMMON_XCODEPROJ" ]]; then
   echo "moonlight-common.xcodeproj not found. Run Scripts/clone-streaming-forks.sh first." >&2

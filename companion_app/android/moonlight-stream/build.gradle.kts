@@ -7,7 +7,7 @@ plugins {
 val vendorMoonlightRoot =
     file("../../../Vendor/streaming-repos/moonlight-android/app/src/main")
 val moonlightCacheRoot =
-    File(System.getProperty("user.home"), ".cache/playnite-moonlight-ndk")
+    File(System.getProperty("user.home"), ".cache/gbear-moonlight-ndk")
 
 tasks.register("syncMoonlightVendor") {
     doLast {
@@ -73,7 +73,7 @@ tasks.named("preBuild").configure {
 }
 
 val nativeBuildRoot =
-    File(System.getProperty("user.home"), ".cache/playnite-companion-native")
+    File(System.getProperty("user.home"), ".cache/gbear-companion-native")
 
 android {
     namespace = "com.limelight"
@@ -112,7 +112,7 @@ android {
             java.setSrcDirs(
                 listOf(
                     moonlightCacheRoot.resolve("java"),
-                    file("playnite-support"),
+                    file("gbear-support"),
                 ),
             )
             res.setSrcDirs(listOf(moonlightCacheRoot.resolve("res")))

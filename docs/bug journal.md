@@ -1,12 +1,30 @@
 # Bug journal
 
-Chronicle of bugs encountered in **Playnite Mac** and the **companion app**, and how they were fixed. Entries are grouped by area; dates come from git commits unless noted as **in progress** (not yet committed).
+Chronicle of bugs encountered in **GBear Mac** and the **companion app**, and how they were fixed. Entries are grouped by area; dates come from git commits unless noted as **in progress** (not yet committed).
 
 For release notes style summaries, see `source control log.md`. For architecture context, see `Features and Inner Workings.md`.
 
 ---
 
 ## Mac library — scanning & covers
+
+### BJ-088 — Bin/cue folders imported as one game per file
+| | |
+|---|---|
+| **When** | Sep 24 2026 (**in progress**) |
+| **Symptom** | A game stored as a folder of `.bin`/`.cue` (or similar) under a Paths game folder appeared as many library tiles, one per file. |
+| **Cause** | `GamePathScanner` walked every matching file recursively under the scan root. |
+| **Fix** | Scan only **immediate** children: files and subfolders. Each subfolder is one game; launch file is chosen inside that folder (`m3u`/`cue` before `bin`). Rescan removes leftover nested per-file rows and **cue sidecar `.bin` tracks** (`ScanSummary.removedNested`), including `(Track N)` files. |
+| **Commit** | *in progress* |
+
+### BJ-087 — Library covers locked to one crop for every emulator
+| | |
+|---|---|
+| **When** | Sep 24 2026 (**in progress**) |
+| **Symptom** | All library tiles used a single cover crop (hardcoded ~3:4 / 160×214), so N64/SNES/handheld boxes did not match box art the way a per-system frontend can. |
+| **Cause** | `GameLibraryTile` used `.aspectRatio(3/4)` and a fixed height; `EmulatorProfile` had no cover-size field. Scrape stores the full image; crop was display-only and global. |
+| **Fix** | `CoverAspectRatio` on each `EmulatorProfile` (`coverAspectRatioRaw`, default `"2:3"`). Picker on create/edit; catalog fill infers a starting ratio; grid/inspector height = width × (h/w). |
+| **Commit** | *in progress* |
 
 ### BJ-001 — Exclude folders ignored due to path string mismatch
 | | |
@@ -158,7 +176,7 @@ For release notes style summaries, see `source control log.md`. For architecture
 
 ---
 
-## Streaming — architecture (Sunshine → native Playnite)
+## Streaming — architecture (Sunshine → native GBear)
 
 ### BJ-011 — Sunshine/Moonlight path fragile (ports, PIN, dual instances)
 | | |
@@ -166,7 +184,7 @@ For release notes style summaries, see `source control log.md`. For architecture
 | **When** | Jun 2–3, 2026 (Sunshine era: `f373265`, `cead3f0`, `a0a1ee1`; removed `df1f254`) |
 | **Symptom** | Pairing/streaming depended on external Sunshine; port **48010** conflicts if two instances; Moonlight `/launch` coupling; hard to ship in Mac app bundle. |
 | **Cause** | Out-of-process Sunshine + forked Moonlight repos + TLS/control-plane complexity. |
-| **Fix** | Replaced with in-app **Playnite** stack: `PlayniteStreamControlServer`, ScreenCaptureKit + VideoToolbox, companion `PlayniteHostClient` / `PlayniteVideoActivity`. Removed Sunshine bootstrap scripts and vendor clones (`df1f254`). |
+| **Fix** | Replaced with in-app **GBear** stack: `GBearStreamControlServer`, ScreenCaptureKit + VideoToolbox, companion `GBearHostClient` / `GBearVideoActivity`. Removed Sunshine bootstrap scripts and vendor clones (`df1f254`). |
 | **Commit** | `df1f254` (*no more sunshine or moonlight*) |
 
 ---
@@ -178,9 +196,9 @@ For release notes style summaries, see `source control log.md`. For architecture
 |---|---|
 | **When** | Jun 3, 2026 (`df1f254` native video path; hardened in follow-up work) |
 | **Symptom** | TCP connected but no picture; logs showed `decoder=false` until keyframe/SPS/PPS handled. |
-| **Cause** | Mac sends length-prefixed `PNV1` Annex-B; MediaCodec needs SPS/PPS (avcC or in-band) before slice NALs. |
-| **Fix** | `PlayniteVideoActivity` Annex-B parse, avcC bootstrap, keyframe gating, `c2.android.avc.decoder` path; Mac encoder keyframe on connect. Verified ~900+ frames rendered in session logs. |
-| **Commit** | `df1f254`, ongoing in `41487e8` / `PlayniteVideoActivity.kt` |
+| **Cause** | Mac sends length-prefixed `GBV1` Annex-B; MediaCodec needs SPS/PPS (avcC or in-band) before slice NALs. |
+| **Fix** | `GBearVideoActivity` Annex-B parse, avcC bootstrap, keyframe gating, `c2.android.avc.decoder` path; Mac encoder keyframe on connect. Verified ~900+ frames rendered in session logs. |
+| **Commit** | `df1f254`, ongoing in `41487e8` / `GBearVideoActivity.kt` |
 
 ---
 
@@ -192,7 +210,7 @@ For release notes style summaries, see `source control log.md`. For architecture
 | **When** | Jun 3, 2026 (`cbd1ca8` *no more inverted mouse input*) |
 | **Symptom** | Finger up on phone moved Mac cursor down (or vice versa). |
 | **Cause** | Normalized phone Y mapped with `frame.maxY - ny * height` (flipped). |
-| **Fix** | Use `frame.minY + ny * height` in `PlayniteRemoteInputPlayback`. Removed obsolete companion “mouse emulation” toggle. |
+| **Fix** | Use `frame.minY + ny * height` in `GBearRemoteInputPlayback`. Removed obsolete companion “mouse emulation” toggle. |
 | **Commit** | `cbd1ca8` |
 
 ### BJ-031 — Command+Q (and letters) sent wrong keys to Mac
@@ -200,7 +218,7 @@ For release notes style summaries, see `source control log.md`. For architecture
 |---|---|
 | **When** | Jun 3, 2026 (`ae82eac` *shortcut fix*) |
 | **Symptom** | **Close app** shortcut and chords didn’t quit the foreground app; wrong characters or no effect. |
-| **Cause** | `PlayniteKeyboardPlayback` mapped Windows VK with `vk - 0x41` (e.g. Q → keycode 16 instead of **12**); Command/Option posted as separate key down/up events instead of `CGEvent.flags`. |
+| **Cause** | `GBearKeyboardPlayback` mapped Windows VK with `vk - 0x41` (e.g. Q → keycode 16 instead of **12**); Command/Option posted as separate key down/up events instead of `CGEvent.flags`. |
 | **Fix** | US ANSI `windowsVKToMacKeyCode` table (Carbon `kVK_ANSI_*`); modifiers only update `heldModifierFlags`; letter keys posted with correct `CGKeyCode`. |
 | **Commit** | `ae82eac` |
 
@@ -208,9 +226,9 @@ For release notes style summaries, see `source control log.md`. For architecture
 | | |
 |---|---|
 | **When** | Jun 3, 2026 (`ae82eac`, `f7c4936`) |
-| **Symptom** | Notification or home **Shortcuts** / **Close app** did nothing after Back left `PlayniteVideoActivity`. |
-| **Cause** | `PlayniteKeyboardSender` lived on the activity and was cleared on destroy. |
-| **Fix** | Session-scoped `PlayniteStreamSession.keyboardSender()` for the whole stream; activity uses shared sender. |
+| **Symptom** | Notification or home **Shortcuts** / **Close app** did nothing after Back left `GBearVideoActivity`. |
+| **Cause** | `GBearKeyboardSender` lived on the activity and was cleared on destroy. |
+| **Fix** | Session-scoped `GBearStreamSession.keyboardSender()` for the whole stream; activity uses shared sender. |
 | **Commit** | `f7c4936`, `ae82eac` |
 
 ### BJ-033 — Mac Command/Option missing from chord picker
@@ -219,7 +237,7 @@ For release notes style summaries, see `source control log.md`. For architecture
 | **When** | Jun 3, 2026 (`f7c4936` *controller mapping*) |
 | **Symptom** | Could not map gamepad buttons to Mac Command/Option chords. |
 | **Cause** | Moonlight key list / Mac playback didn’t treat modifier VKs correctly. |
-| **Fix** | Added Option/Command (left/right) to picker; `PlayniteKeyboardPlayback` modifier flag path (completed in `ae82eac`). |
+| **Fix** | Added Option/Command (left/right) to picker; `GBearKeyboardPlayback` modifier flag path (completed in `ae82eac`). |
 | **Commit** | `f7c4936`, `ae82eac` |
 
 ---
@@ -232,7 +250,7 @@ For release notes style summaries, see `source control log.md`. For architecture
 | **When** | Jun 3, 2026 (`41487e8` *streaming and audio work*) |
 | **Symptom** | Video worked; phone silent or audio heavily delayed. |
 | **Cause** | UDP-only or blocked reader; oversized `AudioTrack` buffer; planar ScreenCaptureKit audio not interleaved correctly on Mac. |
-| **Fix** | Mac: stereo interleave in `PlayniteDisplayCapture`; **`PNA1`** over **TCP 28769** (primary). Android: `PlayniteAudioReceiver` network + playback threads, ~150 ms buffer, `PERFORMANCE_MODE_LOW_LATENCY`. |
+| **Fix** | Mac: stereo interleave in `GBearDisplayCapture`; **`GBA1`** over **TCP 28769** (primary). Android: `GBearAudioReceiver` network + playback threads, ~150 ms buffer, `PERFORMANCE_MODE_LOW_LATENCY`. |
 | **Commit** | `41487e8` |
 
 ### BJ-041 — Mac speakers still audible while “streaming” to phone
@@ -241,7 +259,7 @@ For release notes style summaries, see `source control log.md`. For architecture
 | **When** | Jun 3, 2026 (`41487e8`; behavior refined in uncommitted host lifecycle work) |
 | **Symptom** | Mac continued playing audio locally when the Mac app was open, even when user expected phone-only playback. |
 | **Cause** | Output not muted during stream; early host startup started capture/listeners whenever Streaming UI opened. |
-| **Fix** | `PlayniteLocalOutputMute` during active stream; restore on stop. **In progress:** `ensureReady()` only starts HTTP pairing control—capture/transport start on companion `stream/start` (see BJ-050). |
+| **Fix** | `GBearLocalOutputMute` during active stream; restore on stop. **In progress:** `ensureReady()` only starts HTTP pairing control—capture/transport start on companion `stream/start` (see BJ-050). |
 | **Commit** | `41487e8` (mute); host lifecycle split **in progress** (working tree) |
 
 ---
@@ -253,8 +271,8 @@ For release notes style summaries, see `source control log.md`. For architecture
 |---|---|
 | **When** | Jun 3, 2026 (**in progress**, working tree) |
 | **Symptom** | Opening GBear → Streaming muted Mac and felt like “stream always on” without companion starting a session. |
-| **Cause** | `PlayniteStreamHostManager.ensureReady()` started video/audio/input listeners and implied active streaming. |
-| **Fix** | `ensureReady()` starts **HTTP 28765 only**; `beginVideoStream` on `POST /playnite/v1/stream/start`; `endVideoStream` on `stream/stop`; UI copy distinguishes pairing host vs active stream. |
+| **Cause** | `GBearStreamHostManager.ensureReady()` started video/audio/input listeners and implied active streaming. |
+| **Fix** | `ensureReady()` starts **HTTP 28765 only**; `beginVideoStream` on `POST /gbear/v1/stream/start`; `endVideoStream` on `stream/stop`; UI copy distinguishes pairing host vs active stream. |
 | **Commit** | *Not committed yet* |
 
 ### BJ-051 — No way to cancel pairing wait on phone
@@ -263,7 +281,7 @@ For release notes style summaries, see `source control log.md`. For architecture
 | **When** | Jun 3, 2026 (`ae82eac`) |
 | **Symptom** | Pair button stayed disabled while polling; user had to wait for Mac deny/timeout. |
 | **Cause** | No companion cancel path; only Mac could deny. |
-| **Fix** | Outlined **Cancel** on host row; `PairingCancellation` + `POST /playnite/v1/pair/cancel`; Mac `cancelPending(deviceID:)`. |
+| **Fix** | Outlined **Cancel** on host row; `PairingCancellation` + `POST /gbear/v1/pair/cancel`; Mac `cancelPending(deviceID:)`. |
 | **Commit** | `ae82eac` |
 
 ### BJ-052 — Host action buttons wrong style (filled vs outlined)
@@ -279,7 +297,7 @@ For release notes style summaries, see `source control log.md`. For architecture
 |---|---|
 | **When** | Sep 22, 2026 (**in progress**) |
 | **Symptom** | Two phones could pair, but starting a second Desktop stream dropped the first phone’s video/audio (single TCP client + `beginVideoStream` always ended prior capture). |
-| **Cause** | `PlayniteVideoStreamServer` / audio kept one client; companion `startStream` stopped Mac capture whenever `videoStreaming` was already true. |
+| **Cause** | `GBearVideoStreamServer` / audio kept one client; companion `startStream` stopped Mac capture whenever `videoStreaming` was already true. |
 | **Fix** | Fan-out to 2 video/audio clients; co-op session seats; attach without restarting capture; companion no longer stops an active multi-viewer session when joining. |
 | **Commit** | *Not committed yet* |
 
@@ -293,7 +311,7 @@ For release notes style summaries, see `source control log.md`. For architecture
 | **When** | Jun 3, 2026 (`b4933a8`, `ae82eac`) |
 | **Symptom** | Ongoing stream notification collapsed to a single line on Samsung/One UI. |
 | **Cause** | `DecoratedCustomViewStyle` + low-importance channel; OEM ignores custom RemoteViews layout. |
-| **Fix** | Channel `playnite_stream_session_v2` (HIGH); custom `playnite_stream_notification.xml`; **no** `DecoratedCustomViewStyle`; duplicate `NotificationCompat.addAction` fallback buttons. |
+| **Fix** | Channel `gbear_stream_session_v2` (HIGH); custom `gbear_stream_notification.xml`; **no** `DecoratedCustomViewStyle`; duplicate `NotificationCompat.addAction` fallback buttons. |
 | **Commit** | `b4933a8`, `ae82eac` |
 
 ### BJ-061 — App crashed when tapping notification Shortcuts
@@ -320,7 +338,7 @@ For release notes style summaries, see `source control log.md`. For architecture
 | **When** | Jun 3, 2026 (logs + **in progress** fix) |
 | **Symptom** | After stop, new session immediately failed connect to `192.168.1.14:28766`. |
 | **Cause** | (1) `NWListener.start()` returned before `.ready`. (2) Fast Session Stop posted Mac `stream/stop` in the background; a late stop could kill the next stream after `stream/start`. (3) Stale TCP listener if `stopListener` had not finished. |
-| **Fix** | `PlayniteNWListenerAwait`; deferred native connect result; `macStopGeneration` cancels stale Android background stops on new start; Mac restarts listener if still bound; preemptive `endVideoStream` when listener active. |
+| **Fix** | `GBearNWListenerAwait`; deferred native connect result; `macStopGeneration` cancels stale Android background stops on new start; Mac restarts listener if still bound; preemptive `endVideoStream` when listener active. |
 | **Commit** | *In progress* |
 
 ---
@@ -332,8 +350,8 @@ For release notes style summaries, see `source control log.md`. For architecture
 |---|---|
 | **When** | Jun 3, 2026 (**in progress**) |
 | **Symptom** | Connect failed but app behaved as if stream still active; **Start** disabled. |
-| **Cause** | `PlayniteVideoActivity` called `finish()` on connect error without clearing `PlayniteStreamSession` or stopping Mac. |
-| **Fix** | `handleConnectFailure()` → `PlayniteStreamStopper.stopAll`; `launchStreamActivity` returns `false` to Flutter when connect fails (no immediate `result.success(true)`). |
+| **Cause** | `GBearVideoActivity` called `finish()` on connect error without clearing `GBearStreamSession` or stopping Mac. |
+| **Fix** | `handleConnectFailure()` → `GBearStreamStopper.stopAll`; `launchStreamActivity` returns `false` to Flutter when connect fails (no immediate `result.success(true)`). |
 | **Commit** | *In progress (with BJ-063)* |
 
 ### BJ-071 — **Resume stream view** failed after Back from video
@@ -341,8 +359,8 @@ For release notes style summaries, see `source control log.md`. For architecture
 |---|---|
 | **When** | Jun 3, 2026 (regression after Mac-stop-on-destroy work; **fixed**, verified) |
 | **Symptom** | **Resume stream view** did not reopen video; Mac had stopped even though user only pressed **Back**. |
-| **Cause** | `PlayniteVideoActivity.onDestroy` posted **`stream/stop`** whenever `hostStreamActive` was true, including viewer-only exit via **Back** (`leaveViewerOnly`). |
-| **Fix** | **`PlayniteStreamSession.leaveViewerWithoutMacStop`**: set on Back path, cleared in `onDestroy`; Mac stop only when the activity ends for other reasons (force-quit, connect failure teardown, Session **Stop**). **`resumeStream`** clears the flag and relaunches **`PlayniteVideoActivity`**. |
+| **Cause** | `GBearVideoActivity.onDestroy` posted **`stream/stop`** whenever `hostStreamActive` was true, including viewer-only exit via **Back** (`leaveViewerOnly`). |
+| **Fix** | **`GBearStreamSession.leaveViewerWithoutMacStop`**: set on Back path, cleared in `onDestroy`; Mac stop only when the activity ends for other reasons (force-quit, connect failure teardown, Session **Stop**). **`resumeStream`** clears the flag and relaunches **`GBearVideoActivity`**. |
 | **Commit** | *Not committed yet* |
 
 ### BJ-072 — Swap on but left stick did not move cursor
@@ -350,7 +368,7 @@ For release notes style summaries, see `source control log.md`. For architecture
 |---|---|
 | **When** | Jun 3, 2026 (**fixed**, verified) |
 | **Symptom** | Notification **Swap** enabled; face buttons worked; left stick had no effect on Mac cursor. |
-| **Cause** | **`handleHatDpad`** returned “consumed” whenever any D-pad slot had a binding, even with hat centered—so **`PlayniteGamepadMouseSender`** never ran. Motion order ran mapping before Swap mouse. |
+| **Cause** | **`handleHatDpad`** returned “consumed” whenever any D-pad slot had a binding, even with hat centered—so **`GBearGamepadMouseSender`** never ran. Motion order ran mapping before Swap mouse. |
 | **Fix** | Hat handler only consumes when a direction actually presses/releases a chord; generic motion runs **Swap mouse first**, then triggers/hat/sticks. Left-stick read includes dead-zone fallback axes on some pads. |
 | **Commit** | *Not committed yet* |
 
@@ -359,7 +377,7 @@ For release notes style summaries, see `source control log.md`. For architecture
 |---|---|
 | **When** | Jun 3, 2026 (**fixed**, verified) |
 | **Symptom** | First Swap toggle worked; later presses did nothing until user relinked the button. |
-| **Cause** | **`swapToggleDown`** latch in **`PlayniteGamepadMapping`**; missed **KEY_UP** left latch set so further **ACTION_DOWN** was ignored. |
+| **Cause** | **`swapToggleDown`** latch in **`GBearGamepadMapping`**; missed **KEY_UP** left latch set so further **ACTION_DOWN** was ignored. |
 | **Fix** | Toggle Swap on each **ACTION_DOWN** (`repeatCount == 0`) without latch; **`releaseAllKeys`** on Swap off unchanged. |
 | **Commit** | *Not committed yet* |
 
@@ -369,7 +387,7 @@ For release notes style summaries, see `source control log.md`. For architecture
 | **When** | Jun 3, 2026 (**fixed**, verified for D-pad; stick directions added) |
 | **Symptom** | **Link gamepad** only detected face buttons and L3/R3; D-pad and stick pushes did nothing. |
 | **Cause** | Capture listened only to **`KeyEvent`**; Samsung and many pads emit D-pad as **`AXIS_HAT_X/Y`** and sticks as **`MotionEvent`**, not **`KEYCODE_DPAD_*`**. |
-| **Fix** | **`GamepadLinkCapture.tryConsumeMotion`** (hat + stick deflection); **`dispatchGenericMotionEvent`** on **`MainActivity`** and **`PlayniteVideoActivity`**. Link passes target **`elementId`** so the correct stick direction is learned. Eight stick-direction mapping slots + **`handleAnalogSticks`** at stream time. |
+| **Fix** | **`GamepadLinkCapture.tryConsumeMotion`** (hat + stick deflection); **`dispatchGenericMotionEvent`** on **`MainActivity`** and **`GBearVideoActivity`**. Link passes target **`elementId`** so the correct stick direction is learned. Eight stick-direction mapping slots + **`handleAnalogSticks`** at stream time. |
 | **Commit** | *Not committed yet* |
 
 ### BJ-075 — Phone volume buttons had no effect in companion
@@ -378,7 +396,7 @@ For release notes style summaries, see `source control log.md`. For architecture
 | **When** | Jun 3, 2026 (**fixed**, verified) |
 | **Symptom** | Hardware volume keys did not change loudness while the app was open (including during stream). |
 | **Cause** | Gamepad filter could interfere; stream notification **`CATEGORY_TRANSPORT`** on some OEMs tied volume to the wrong stream; no explicit **`volumeControlStream`**. |
-| **Fix** | **`GamepadInputFilter`**: never treat volume keys as gamepad; **`volumeControlStream = STREAM_MUSIC`** on **`MainActivity`** / **`PlayniteVideoActivity`**; notification category **service**. |
+| **Fix** | **`GamepadInputFilter`**: never treat volume keys as gamepad; **`volumeControlStream = STREAM_MUSIC`** on **`MainActivity`** / **`GBearVideoActivity`**; notification category **service**. |
 | **Commit** | *Not committed yet* |
 
 ### BJ-076 — Second **Start** / force-quit left Mac session stuck
@@ -394,9 +412,9 @@ For release notes style summaries, see `source control log.md`. For architecture
 | | |
 |---|---|
 | **When** | Sep 22, 2026 (**in progress**) |
-| **Symptom** | Remote couch co-op only allowed two companion phones; player order followed join order; host Mac and a second computer could not occupy slots; co-op PNG1 ignored button remaps. |
-| **Cause** | `maxSeats` / video-audio `maxClients` / HID pads hardcoded to 2; seats were phone-device identity with no `joinSeat` remap; no host-local or computer-guest client kinds; PNG1 used a fixed Android keycode table. |
-| **Fix** | 8 slots (`PlayniteCoopSession`); this Mac counts as a player (**7 remotes**); **8 remotes** only if a companion plays as host; join-order default with Player 1 reserved for the host; `joinSeat` frozen + host translation for **Move to**; virtual pads per occupied seat; computer guests; companion auto-map + overrides. WAN relay remains 2-peer. |
+| **Symptom** | Remote couch co-op only allowed two companion phones; player order followed join order; host Mac and a second computer could not occupy slots; co-op GBG1 ignored button remaps. |
+| **Cause** | `maxSeats` / video-audio `maxClients` / HID pads hardcoded to 2; seats were phone-device identity with no `joinSeat` remap; no host-local or computer-guest client kinds; GBG1 used a fixed Android keycode table. |
+| **Fix** | 8 slots (`GBearCoopSession`); this Mac counts as a player (**7 remotes**); **8 remotes** only if a companion plays as host; join-order default with Player 1 reserved for the host; `joinSeat` frozen + host translation for **Move to**; virtual pads per occupied seat; computer guests; companion auto-map + overrides. WAN relay remains 2-peer. |
 | **Commit** | *in progress* |
 
 ---

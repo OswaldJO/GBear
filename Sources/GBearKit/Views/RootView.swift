@@ -95,6 +95,7 @@ public struct RootView: View {
             HStack(spacing: 0) {
                 LibraryGamesGridView(
                     games: filteredGames,
+                    coverAspects: Dictionary(uniqueKeysWithValues: emulators.map { ($0.id, $0.coverAspectRatio) }),
                     actionOverlayGameID: $actionOverlayGameID,
                     inspectorGameID: $inspectorGameID,
                     onPlay: { play($0) },
@@ -107,7 +108,13 @@ public struct RootView: View {
                    let game = filteredGames.first(where: { $0.id == id }) {
                     Divider()
                     NavigationStack {
-                        LibraryGameInspectorView(game: game, allGames: games) {
+                        LibraryGameInspectorView(
+                            game: game,
+                            allGames: games,
+                            coverAspect: game.emulatorUUID.flatMap { id in
+                                emulators.first(where: { $0.id == id })?.coverAspectRatio
+                            } ?? .default
+                        ) {
                             inspectorGameID = nil
                         }
                     }
@@ -344,6 +351,9 @@ public struct RootView: View {
                 if summary.removedMissing > 0 {
                     parts.append("Removed \(summary.removedMissing) missing game(s)")
                 }
+                if summary.removedNested > 0 {
+                    parts.append("Removed \(summary.removedNested) extra file(s) inside game folders")
+                }
                 if epicSummary.added > 0 {
                     parts.append("Imported \(epicSummary.added) Epic game(s)")
                 }
@@ -544,6 +554,7 @@ public struct RootView: View {
 
 private struct LibraryGamesGridView: View {
     let games: [LibraryGame]
+    let coverAspects: [UUID: CoverAspectRatio]
     @Binding var actionOverlayGameID: UUID?
     @Binding var inspectorGameID: UUID?
     let onPlay: (LibraryGame) -> Void
@@ -567,6 +578,7 @@ private struct LibraryGamesGridView: View {
                         ForEach(games) { game in
                             GameLibraryTile(
                                 game: game,
+                                coverAspect: game.emulatorUUID.flatMap { coverAspects[$0] } ?? .default,
                                 showsActionOverlay: actionOverlayGameID == game.id,
                                 onCardTap: {
                                     if actionOverlayGameID == game.id {
@@ -606,7 +618,6 @@ private struct LibraryGamesGridView: View {
 
 private enum LibraryGridMetrics {
     static let cardWidth: CGFloat = 160
-    static let coverHeight: CGFloat = 214
     static let titleHeight: CGFloat = 52 // reserve up to ~3 lines so rows align
     static let horizontalSpacing: CGFloat = 16
     static let verticalSpacing: CGFloat = 20
@@ -615,17 +626,22 @@ private enum LibraryGridMetrics {
 
 private struct GameLibraryTile: View {
     let game: LibraryGame
+    let coverAspect: CoverAspectRatio
     let showsActionOverlay: Bool
     let onCardTap: () -> Void
     let onPlay: () -> Void
     let onInfo: () -> Void
 
+    private var coverHeight: CGFloat {
+        coverAspect.height(forWidth: LibraryGridMetrics.cardWidth)
+    }
+
     var body: some View {
-        ZStack {
-            VStack(alignment: .leading, spacing: 8) {
+        VStack(alignment: .leading, spacing: 8) {
+            ZStack {
                 CachedCoverThumbnail(urlString: game.coverImageURLString)
-                    .aspectRatio(3 / 4, contentMode: .fill)
-                    .frame(width: LibraryGridMetrics.cardWidth, height: LibraryGridMetrics.coverHeight)
+                    .frame(width: LibraryGridMetrics.cardWidth, height: coverHeight)
+                    .clipped()
                     .clipShape(RoundedRectangle(cornerRadius: 8))
                     .overlay {
                         RoundedRectangle(cornerRadius: 8)
@@ -643,47 +659,48 @@ private struct GameLibraryTile: View {
                         }
                     }
 
-                Text(game.libraryListTitle)
-                    .font(.subheadline.weight(.medium))
-                    .foregroundStyle(.primary)
-                    .multilineTextAlignment(.center)
-                    .lineLimit(3)
-                    .frame(width: LibraryGridMetrics.cardWidth, height: LibraryGridMetrics.titleHeight, alignment: .top)
-            }
-            .contentShape(Rectangle())
-            .onTapGesture(perform: onCardTap)
+                if showsActionOverlay {
+                    RoundedRectangle(cornerRadius: 8)
+                        .fill(Color.black.opacity(0.45))
+                        .allowsHitTesting(false)
 
-            if showsActionOverlay {
-                RoundedRectangle(cornerRadius: 8)
-                    .fill(Color.black.opacity(0.45))
-                    .onTapGesture(perform: onCardTap)
+                    HStack(spacing: 28) {
+                        Button {
+                            onPlay()
+                        } label: {
+                            Image(systemName: "play.circle.fill")
+                                .font(.system(size: 40))
+                                .symbolRenderingMode(.palette)
+                                .foregroundStyle(.white, Color.accentColor.opacity(0.95))
+                        }
+                        .buttonStyle(.plain)
+                        .help("Play")
 
-                HStack(spacing: 28) {
-                    Button {
-                        onPlay()
-                    } label: {
-                        Image(systemName: "play.circle.fill")
-                            .font(.system(size: 40))
-                            .symbolRenderingMode(.palette)
-                            .foregroundStyle(.white, Color.accentColor.opacity(0.95))
+                        Button {
+                            onInfo()
+                        } label: {
+                            Image(systemName: "info.circle.fill")
+                                .font(.system(size: 40))
+                                .symbolRenderingMode(.palette)
+                                .foregroundStyle(.white, .secondary)
+                        }
+                        .buttonStyle(.plain)
+                        .help("Game details and cover")
                     }
-                    .buttonStyle(.plain)
-                    .help("Play")
-
-                    Button {
-                        onInfo()
-                    } label: {
-                        Image(systemName: "info.circle.fill")
-                            .font(.system(size: 40))
-                            .symbolRenderingMode(.palette)
-                            .foregroundStyle(.white, .secondary)
-                    }
-                    .buttonStyle(.plain)
-                    .help("Game details and cover")
                 }
             }
+            .frame(width: LibraryGridMetrics.cardWidth, height: coverHeight)
+
+            Text(game.libraryListTitle)
+                .font(.subheadline.weight(.medium))
+                .foregroundStyle(.primary)
+                .multilineTextAlignment(.center)
+                .lineLimit(3)
+                .frame(width: LibraryGridMetrics.cardWidth, height: LibraryGridMetrics.titleHeight, alignment: .top)
         }
         .frame(width: LibraryGridMetrics.cardWidth, alignment: .leading)
+        .contentShape(Rectangle())
+        .onTapGesture(perform: onCardTap)
         .help("Show actions for \(game.libraryListTitle)")
     }
 }
@@ -694,6 +711,7 @@ private struct LibraryGameInspectorView: View {
     @Environment(\.modelContext) private var modelContext
     @Bindable var game: LibraryGame
     let allGames: [LibraryGame]
+    var coverAspect: CoverAspectRatio
     var onDismiss: () -> Void
 
     @State private var showScreenScraperSearch = false
@@ -822,7 +840,11 @@ private struct LibraryGameInspectorView: View {
             Section("Cover art") {
                 HStack(alignment: .top, spacing: 16) {
                     CachedCoverThumbnail(urlString: game.coverImageURLString)
-                        .frame(width: 120, height: 160)
+                        .frame(
+                            width: 120,
+                            height: coverAspect.height(forWidth: 120)
+                        )
+                        .clipped()
                         .clipShape(RoundedRectangle(cornerRadius: 8))
                         .overlay {
                             RoundedRectangle(cornerRadius: 8)

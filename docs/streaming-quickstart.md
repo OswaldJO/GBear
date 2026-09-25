@@ -1,4 +1,4 @@
-# Streaming quickstart (Playnite native)
+# Streaming quickstart (GBear native)
 
 ## Mac
 
@@ -23,8 +23,8 @@ flutter run
 
 | Port | Use |
 |------|-----|
-| 28765 | HTTP control (`playnite-stream/1`) |
-| 28766 | H.264 video (`PNV1` framed TCP) |
+| 28765 | HTTP control (`gbear-stream/1`) |
+| 28766 | H.264 video (`GBV1` framed TCP) |
 
 ## Reset
 

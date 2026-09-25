@@ -3,8 +3,8 @@ import SwiftUI
 
 struct StreamingView: View {
     @State private var session: StreamingPairingSession
-    @State private var hostManager = PlayniteStreamHostManager.shared
-    @State private var guestManager = PlayniteStreamGuestManager.shared
+    @State private var hostManager = GBearStreamHostManager.shared
+    @State private var guestManager = GBearStreamGuestManager.shared
     @State private var confirmDisconnect = false
     @State private var streamLogSavedPath: String?
     @State private var showGuestVideo = false
@@ -113,14 +113,14 @@ struct StreamingView: View {
                 }
             }
             LabeledContent("Protocol") {
-                Text(PlayniteStreamPorts.protocolVersion)
+                Text(GBearStreamPorts.protocolVersion)
                     .font(.caption.monospaced())
                     .foregroundStyle(.secondary)
             }
             LabeledContent("Ports") {
                 Text(
-                    "control \(PlayniteStreamPorts.controlHTTP), video \(PlayniteStreamPorts.videoTCP), " +
-                        "audio \(PlayniteStreamPorts.audioUDP), input \(PlayniteStreamPorts.inputUDP)"
+                    "control \(GBearStreamPorts.controlHTTP), video \(GBearStreamPorts.videoTCP), " +
+                        "audio \(GBearStreamPorts.audioUDP), input \(GBearStreamPorts.inputUDP)"
                 )
                 .font(.caption.monospaced())
                 .foregroundStyle(.secondary)
@@ -133,7 +133,7 @@ struct StreamingView: View {
                     Task {
                         let logURL = await hostManager.stopActiveVideoStream()
                         session.refreshHostStatus()
-                        if let logURL, let saved = PlayniteStreamSessionLog.saveCopyToDownloads(from: logURL) {
+                        if let logURL, let saved = GBearStreamSessionLog.saveCopyToDownloads(from: logURL) {
                             streamLogSavedPath = saved.path
                             NSWorkspace.shared.activateFileViewerSelecting([saved])
                         } else {
@@ -276,7 +276,7 @@ struct StreamingView: View {
             .foregroundStyle(.secondary)
             .fixedSize(horizontal: false, vertical: true)
             Picker("Host plays on", selection: hostPlayerBinding) {
-                Text("This Mac").tag(PlayniteCoopSessionState.localHostDeviceID)
+                Text("This Mac").tag(GBearCoopSessionState.localHostDeviceID)
                 ForEach(hostManager.pairedDevices) { device in
                     Text(device.name).tag(device.deviceID)
                 }
@@ -284,10 +284,10 @@ struct StreamingView: View {
                     Text("Selected companion").tag(hostManager.hostPlayerDeviceID)
                 }
             }
-            if let local = hostManager.coopSession?.seat(for: PlayniteCoopSessionState.localHostDeviceID) {
+            if let local = hostManager.coopSession?.seat(for: GBearCoopSessionState.localHostDeviceID) {
                 Label("This Mac is playing as Player \(local.seat)", systemImage: "desktopcomputer")
                     .foregroundStyle(.green)
-            } else if hostManager.hostPlayerDeviceID == PlayniteCoopSessionState.localHostDeviceID {
+            } else if hostManager.hostPlayerDeviceID == GBearCoopSessionState.localHostDeviceID {
                 Text("This Mac will take Player 1 when the session starts.")
                     .font(.caption)
                     .foregroundStyle(.secondary)
@@ -316,13 +316,13 @@ struct StreamingView: View {
 
     private var hostPlayerIsMissingFromPairedList: Bool {
         let id = hostManager.hostPlayerDeviceID
-        if id == PlayniteCoopSessionState.localHostDeviceID { return false }
+        if id == GBearCoopSessionState.localHostDeviceID { return false }
         return !hostManager.pairedDevices.contains(where: { $0.deviceID == id })
     }
 
     private var hostPlayerDisplayName: String {
         let id = hostManager.hostPlayerDeviceID
-        if id == PlayniteCoopSessionState.localHostDeviceID {
+        if id == GBearCoopSessionState.localHostDeviceID {
             return "this Mac"
         }
         return hostManager.pairedDevices.first(where: { $0.deviceID == id })?.name
@@ -340,7 +340,7 @@ struct StreamingView: View {
             TextField("Host LAN IP", text: $guestManager.hostAddress)
             Picker("Join as", selection: $guestManager.preferredSeat) {
                 Text("Join in order").tag(0)
-                ForEach(1 ... PlayniteStreamPorts.maxCoopViewers, id: \.self) { seat in
+                ForEach(1 ... GBearStreamPorts.maxCoopViewers, id: \.self) { seat in
                     Text("Player \(seat)").tag(seat)
                 }
             }
@@ -375,7 +375,7 @@ struct StreamingView: View {
                 }
             }
             .padding()
-            PlayniteGuestVideoView(sample: guestManager.latestSample)
+            GBearGuestVideoView(sample: guestManager.latestSample)
                 .frame(minWidth: 640, minHeight: 360)
                 .background(.black)
         }
@@ -384,7 +384,7 @@ struct StreamingView: View {
 
     @ViewBuilder
     private var coopSeatsSection: some View {
-        Section("Players (up to \(PlayniteStreamPorts.maxCoopViewers))") {
+        Section("Players (up to \(GBearStreamPorts.maxCoopViewers))") {
             if let coop = hostManager.coopSession {
                 LabeledContent("Session") {
                     Text(String(coop.sessionID.prefix(8)) + "…")
@@ -402,7 +402,7 @@ struct StreamingView: View {
                             : "\(coop.remotePlayerCount) of 8 devices"
                     )
                 }
-                ForEach(1 ... PlayniteStreamPorts.maxCoopViewers, id: \.self) { number in
+                ForEach(1 ... GBearStreamPorts.maxCoopViewers, id: \.self) { number in
                     if let occupant = coop.occupant(seat: number) {
                         VStack(alignment: .leading, spacing: 6) {
                             Label(
@@ -412,7 +412,7 @@ struct StreamingView: View {
                                     : (occupant.kind == .computerGuest ? "laptopcomputer" : "iphone")
                             )
                             .font(.headline)
-                            Text("\(occupant.kind.displayLabel) • PNG1 join seat \(occupant.joinSeat)")
+                            Text("\(occupant.kind.displayLabel) • GBG1 join seat \(occupant.joinSeat)")
                                 .font(.caption)
                                 .foregroundStyle(.secondary)
                             Text(occupant.deviceID)
@@ -421,7 +421,7 @@ struct StreamingView: View {
                                 .textSelection(.enabled)
                             HStack {
                                 Menu("Move to") {
-                                    ForEach(1 ... PlayniteStreamPorts.maxCoopViewers, id: \.self) { target in
+                                    ForEach(1 ... GBearStreamPorts.maxCoopViewers, id: \.self) { target in
                                         Button("Player \(target)") {
                                             Task { _ = await hostManager.reassignSeat(deviceID: occupant.deviceID, seat: target) }
                                         }
@@ -504,7 +504,7 @@ struct StreamingView: View {
                         .fixedSize(horizontal: false, vertical: true)
                 }
                 Button("Open Screen Recording settings") {
-                    PlayniteScreenCapturePipeline.openScreenRecordingSettings()
+                    GBearScreenCapturePipeline.openScreenRecordingSettings()
                 }
                 .font(.caption)
             }
@@ -565,7 +565,7 @@ struct StreamingView: View {
                 Label("Accessibility enabled", systemImage: "checkmark.circle.fill")
                     .foregroundStyle(.green)
                 Button("Test cursor on streamed display") {
-                    PlayniteRemoteInputPlayback.wigglePointerForTest()
+                    GBearRemoteInputPlayback.wigglePointerForTest()
                 }
                 Text("If the Mac cursor jumps, touch injection works. Restart the Mac app after changing Accessibility.")
                     .font(.caption)
@@ -597,10 +597,10 @@ struct StreamingView: View {
             )
             Label("Phone: Session → Start Desktop stream", systemImage: "play.circle")
             Label(
-                "Video TCP \(PlayniteStreamPorts.videoTCP), audio TCP \(PlayniteStreamPorts.audioTCP)",
+                "Video TCP \(GBearStreamPorts.videoTCP), audio TCP \(GBearStreamPorts.audioTCP)",
                 systemImage: "film"
             )
-            Label("Co-op pads via PNG1 → virtual Mac gamepads; touch moves pointer (UDP \(PlayniteStreamPorts.inputUDP))", systemImage: "gamecontroller")
+            Label("Co-op pads via GBG1 → virtual Mac gamepads; touch moves pointer (UDP \(GBearStreamPorts.inputUDP))", systemImage: "gamecontroller")
             Text(
                 "Capture, audio routing, and Mac speaker mute apply only while a companion stream is active " +
                     "(Session → Start Desktop stream). Use phone media volume during a stream."

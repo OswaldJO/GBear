@@ -27,6 +27,7 @@ private struct EmulatorTransferRecord: Codable {
     var executablePath: String
     var launchArgumentTemplate: String
     var supportedFileTypesCSV: String?
+    var coverAspectRatioRaw: String?
 }
 
 private struct EmulatorImportConflict: Identifiable {
@@ -56,6 +57,7 @@ struct EmulatorsView: View {
     @State private var executablePath: String = ""
     @State private var argumentTemplate: String = "\"{ImagePath}\""
     @State private var supportedFileTypesInput: String = ""
+    @State private var coverAspectRatio: CoverAspectRatio = .default
     /// Filter for the “Add emulator” catalog list only (independent from Default Launch Arguments).
     @State private var addEmulatorLibrarySearch: String = ""
     /// Filter for the Default Launch Arguments list.
@@ -172,6 +174,7 @@ struct EmulatorsView: View {
             || !executablePath.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty
             || argumentTemplate.trimmingCharacters(in: .whitespacesAndNewlines) != "\"{ImagePath}\""
             || !supportedFileTypesInput.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty
+            || coverAspectRatio != .default
             || !addEmulatorLibrarySearch.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty
     }
 
@@ -246,8 +249,9 @@ struct EmulatorsView: View {
                     }
 
                     TextField("Path to .app or executable", text: $executablePath)
-                    TextField("Launch arguments (Playnite: {ImagePath} for game file; {ROM} and {rom} also work)", text: $argumentTemplate)
+                    TextField("Launch arguments (GBear: {ImagePath} for game file; {ROM} and {rom} also work)", text: $argumentTemplate)
                     TextField("Supported File Types (comma-separated: iso, cso, chd)", text: $supportedFileTypesInput)
+                    CoverAspectRatioPicker(selection: $coverAspectRatio)
                     HStack {
                         Button("Reset") { resetAddEmulatorForm() }
                             .disabled(!hasUnsavedAddEmulatorChanges)
@@ -290,6 +294,9 @@ struct EmulatorsView: View {
                                         .foregroundStyle(.tertiary)
                                         .textSelection(.enabled)
                                 }
+                                Text("Cover art: \(emu.coverAspectRatio.pickerLabel)")
+                                    .font(.caption2)
+                                    .foregroundStyle(.tertiary)
                             }
                             Spacer(minLength: 8)
                             HStack(spacing: 2) {
@@ -529,6 +536,7 @@ struct EmulatorsView: View {
             }
             argumentTemplate = entry.startupArguments
             supportedFileTypesInput = entry.supportedFileTypesCSV
+            coverAspectRatio = CoverAspectRatio.inferred(platforms: [], name: entry.displayTitle)
             addEmulatorLibrarySearch = ""
         }
     }
@@ -539,6 +547,7 @@ struct EmulatorsView: View {
         }
         argumentTemplate = CatalogLaunchArgumentOverrides.effectiveStartupArguments(for: record)
         supportedFileTypesInput = record.supportedFileTypesCSV
+        coverAspectRatio = CoverAspectRatio.inferred(platforms: record.platforms, name: record.displayTitle)
         addEmulatorLibrarySearch = ""
     }
 
@@ -550,6 +559,7 @@ struct EmulatorsView: View {
                 LaunchArgumentTemplate.normalizeHomePaths(argumentTemplate)
             ),
             supportedFileTypesCSV: normalizeFileTypesCSV(supportedFileTypesInput),
+            coverAspectRatioRaw: coverAspectRatio.rawValue,
             sortOrder: emulators.count
         )
         modelContext.insert(profile)
@@ -561,6 +571,7 @@ struct EmulatorsView: View {
         executablePath = ""
         argumentTemplate = "\"{ImagePath}\""
         supportedFileTypesInput = ""
+        coverAspectRatio = .default
         addEmulatorLibrarySearch = ""
     }
 
@@ -578,7 +589,8 @@ struct EmulatorsView: View {
                     name: emulator.name,
                     executablePath: emulator.executablePath,
                     launchArgumentTemplate: emulator.launchArgumentTemplate,
-                    supportedFileTypesCSV: emulator.supportedFileTypesCSV
+                    supportedFileTypesCSV: emulator.supportedFileTypesCSV,
+                    coverAspectRatioRaw: emulator.coverAspectRatio.rawValue
                 )
             }
 
@@ -630,6 +642,7 @@ struct EmulatorsView: View {
                         record.launchArgumentTemplate.trimmingCharacters(in: .whitespacesAndNewlines)
                     ),
                     supportedFileTypesCSV: cleanOptionalCSV(record.supportedFileTypesCSV),
+                    coverAspectRatioRaw: CoverAspectRatio.parse(record.coverAspectRatioRaw).rawValue,
                     sortOrder: emulators.count + insertedCount
                 )
                 modelContext.insert(profile)
@@ -741,6 +754,9 @@ struct EmulatorsView: View {
             record.launchArgumentTemplate.trimmingCharacters(in: .whitespacesAndNewlines)
         )
         existing.supportedFileTypesCSV = cleanOptionalCSV(record.supportedFileTypesCSV)
+        if let raw = record.coverAspectRatioRaw {
+            existing.coverAspectRatioRaw = CoverAspectRatio.parse(raw).rawValue
+        }
     }
 
     private func cleanOptionalCSV(_ value: String?) -> String? {
@@ -784,7 +800,8 @@ struct EmulatorsView: View {
             name: template.0 == .current ? currentName : imported.name,
             executablePath: template.1 == .current ? currentExecutable : imported.executablePath,
             launchArgumentTemplate: template.2 == .current ? currentArguments : imported.launchArgumentTemplate,
-            supportedFileTypesCSV: template.3 == .current ? currentFileTypes : imported.supportedFileTypesCSV
+            supportedFileTypesCSV: template.3 == .current ? currentFileTypes : imported.supportedFileTypesCSV,
+            coverAspectRatioRaw: current?.coverAspectRatio.rawValue ?? imported.coverAspectRatioRaw
         )
     }
 
@@ -1126,6 +1143,7 @@ private struct EditEmulatorSheet: View {
     @State private var executablePath: String = ""
     @State private var launchArgumentTemplate: String = ""
     @State private var supportedFileTypesCSV: String = ""
+    @State private var coverAspectRatio: CoverAspectRatio = .default
     @State private var loadFailed = false
 
     var body: some View {
@@ -1142,8 +1160,9 @@ private struct EditEmulatorSheet: View {
                         Section("Emulator") {
                             TextField("Display name", text: $name)
                             TextField("Path to .app or executable", text: $executablePath)
-                            TextField("Launch arguments (Playnite: {ImagePath}; {ROM} and {rom} also work)", text: $launchArgumentTemplate)
+                            TextField("Launch arguments (GBear: {ImagePath}; {ROM} and {rom} also work)", text: $launchArgumentTemplate)
                             TextField("Supported File Types (comma-separated)", text: $supportedFileTypesCSV)
+                            CoverAspectRatioPicker(selection: $coverAspectRatio)
                         }
                     }
                     .formStyle(.grouped)
@@ -1170,7 +1189,7 @@ private struct EditEmulatorSheet: View {
                 }
             }
         }
-        .frame(minWidth: 440, minHeight: 260)
+        .frame(minWidth: 440, minHeight: 340)
     }
 
     @MainActor
@@ -1187,6 +1206,7 @@ private struct EditEmulatorSheet: View {
         executablePath = profile.executablePath
         launchArgumentTemplate = profile.launchArgumentTemplate
         supportedFileTypesCSV = profile.supportedFileTypesCSV ?? ""
+        coverAspectRatio = profile.coverAspectRatio
         loadFailed = false
     }
 
@@ -1207,6 +1227,7 @@ private struct EditEmulatorSheet: View {
         )
         let normalized = supportedFileTypesCSV.trimmingCharacters(in: .whitespacesAndNewlines)
         profile.supportedFileTypesCSV = normalized.isEmpty ? nil : normalized
+        profile.coverAspectRatio = coverAspectRatio
         try? modelContext.save()
         onFinished()
         dismiss()

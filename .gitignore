@@ -13,7 +13,7 @@ Vendor/streaming-repos/moonlight-ios/
 Vendor/streaming-repos/moonlight-android/
 
 # Staged streaming host (see Scripts/stage-sunshine-for-mac-app.sh)
-GBear/Host/PlayniteSunshine
+GBear/Host/GBearSunshine
 GBear/Resources/Sunshine/sunshine
 
 # Generated Moonlight companion iOS pod artifacts

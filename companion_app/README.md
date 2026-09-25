@@ -1,4 +1,4 @@
-# Playnite companion app
+# GBear companion app
 
 Flutter app (iOS + Android) for LAN pairing with Mac Game Library’s native stream host.
 
@@ -13,7 +13,7 @@ flutter run
 
 **Pairing:** phone starts pairing first; Mac confirms the same PIN in Streaming.
 
-**Video:** not wired yet — pairing and discovery work over `playnite-stream/1`.
+**Video:** not wired yet — pairing and discovery work over `gbear-stream/1`.
 
 ## iOS
 

@@ -159,8 +159,12 @@ final class MetadataBackgroundFetcher {
         let now = Date()
         let retryInterval: TimeInterval = 24 * 3600
 
+        let onlyScanMissing = forceAll && MetadataCredentials.screenScraperOnlyScanMissing
         let candidates = games.filter { g in
-            if forceAll { return true }
+            if forceAll {
+                if onlyScanMissing, g.hasScreenScraperCover { return false }
+                return true
+            }
             if let t = g.metadataLastFetchAt {
                 return now.timeIntervalSince(t) > retryInterval
             }
@@ -183,6 +187,14 @@ final class MetadataBackgroundFetcher {
                 totalGames: selectedCandidates.count,
                 preferredRegion: MetadataCredentials.screenScraperPreferredRegion
             )
+            if onlyScanMissing {
+                let skipped = games.count - selectedCandidates.count
+                if skipped > 0 {
+                    MetadataScrapeSessionLog.i(
+                        "only_scan_missing skipped=\(skipped) remaining=\(selectedCandidates.count)"
+                    )
+                }
+            }
         }
 
         var processed = 0

@@ -14,9 +14,9 @@
 
 /* Begin PBXFileReference section */
 		10C3AA2557B37272C7FDB562 /* Assets.xcassets */ = {isa = PBXFileReference; lastKnownFileType = folder.assetcatalog; path = Assets.xcassets; sourceTree = "<group>"; };
-		32C85FB0A33055460574C629 /* PlayniteSunshine */ = {isa = PBXFileReference; path = PlayniteSunshine; sourceTree = "<group>"; };
 		450C297B863D8802D1A78F26 /* GBear */ = {isa = PBXFileReference; lastKnownFileType = folder; name = GBear; path = .; sourceTree = SOURCE_ROOT; };
 		B089173BCBB61DA76080BAF5 /* GBear.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = GBear.swift; sourceTree = "<group>"; };
+		D4122335ACA00C60727D4545 /* GBearSunshine */ = {isa = PBXFileReference; path = GBearSunshine; sourceTree = "<group>"; };
 		D470DD124A24174A6D6EC1D2 /* GBear.app */ = {isa = PBXFileReference; explicitFileType = wrapper.application; includeInIndex = 0; path = GBear.app; sourceTree = BUILT_PRODUCTS_DIR; };
 /* End PBXFileReference section */
 
@@ -35,7 +35,7 @@
 		44D9817E29570973C8AF21D6 /* Host */ = {
 			isa = PBXGroup;
 			children = (
-				32C85FB0A33055460574C629 /* PlayniteSunshine */,
+				D4122335ACA00C60727D4545 /* GBearSunshine */,
 			);
 			path = Host;
 			sourceTree = "<group>";

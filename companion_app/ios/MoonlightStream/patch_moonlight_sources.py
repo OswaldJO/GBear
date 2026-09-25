@@ -1,5 +1,5 @@
 #!/usr/bin/env python3
-"""Apply Playnite companion patches to synced moonlight-ios Limelight sources."""
+"""Apply GBear companion patches to synced moonlight-ios Limelight sources."""
 
 from __future__ import annotations
 
@@ -21,7 +21,7 @@ def patch_crypto_manager_h(limelight: Path) -> None:
         "@interface CryptoManager : NSObject\n",
         "@interface CryptoManager : NSObject\n\n"
         "+ (void)writeCryptoObject:(NSString *)item data:(NSData *)data;\n"
-        "+ (void)playniteResetCachedCredentials;\n",
+        "+ (void)gbearResetCachedCredentials;\n",
         "CryptoManager.h",
     )
 
@@ -31,7 +31,7 @@ def patch_crypto_manager_m(limelight: Path) -> None:
     patch_file(
         path,
         "@end\n",
-        "+ (void)playniteResetCachedCredentials {\n"
+        "+ (void)gbearResetCachedCredentials {\n"
         "    key = nil;\n"
         "    cert = nil;\n"
         "    p12 = nil;\n"
@@ -51,22 +51,22 @@ def patch_stream_frame(limelight: Path) -> None:
         ),
         (
             '#import "DataManager.h"\n',
-            '#import "PlayniteStreamContext.h"\n#import "PlayniteStreamSettings.h"\n',
+            '#import "GBearStreamContext.h"\n#import "GBearStreamSettings.h"\n',
         ),
         (
             "    TemporarySettings *_settings;\n",
-            "    PlayniteStreamSettings *_settings;\n",
+            "    GBearStreamSettings *_settings;\n",
         ),
         (
             "    _settings = [[[DataManager alloc] init] getSettings];\n",
-            "    _settings = [PlayniteStreamContext shared].streamSettings;\n"
-            "    NSAssert(_settings != nil, @\"Playnite stream settings were not configured\");\n",
+            "    _settings = [GBearStreamContext shared].streamSettings;\n"
+            "    NSAssert(_settings != nil, @\"GBear stream settings were not configured\");\n",
         ),
         (
             "#if !TARGET_OS_TV\n"
             "    [[self revealViewController] setPrimaryViewController:self];\n"
             "#endif\n",
-            "#if !TARGET_OS_TV && !defined(PLAYNITE_COMPANION)\n"
+            "#if !TARGET_OS_TV && !defined(GBEAR_COMPANION)\n"
             "    [[self revealViewController] setPrimaryViewController:self];\n"
             "#endif\n",
         ),
@@ -87,7 +87,7 @@ def patch_stream_frame(limelight: Path) -> None:
             "    _statsUpdateTimer = nil;\n"
             "    \n"
             "    [[NSNotificationCenter defaultCenter] postNotificationName:"
-            "PlayniteMoonlightStreamDidEndNotification object:nil];\n"
+            "GBearMoonlightStreamDidEndNotification object:nil];\n"
             "    if (self.navigationController.presentingViewController) {\n"
             "        [self.navigationController.presentingViewController "
             "dismissViewControllerAnimated:YES completion:nil];\n"
@@ -106,7 +106,7 @@ def patch_stream_frame(limelight: Path) -> None:
         path,
         '#import "StreamFrameViewController.h"\n',
         '#import "StreamFrameViewController.h"\n'
-        '#import "PlayniteStreamLaunchHelper.h"\n'
+        '#import "GBearStreamLaunchHelper.h"\n'
         '#import "Utils.h"\n',
         "StreamFrame import launch helper",
     )
@@ -117,21 +117,21 @@ def patch_controller_support(limelight: Path) -> None:
     patch_file(
         path,
         '#import "DataManager.h"\n',
-            '#import "PlayniteStreamContext.h"\n#import "PlayniteStreamSettings.h"\n',
+            '#import "GBearStreamContext.h"\n#import "GBearStreamSettings.h"\n',
         "ControllerSupport import",
     )
     patch_file(
         path,
         "    DataManager* dataMan = [[DataManager alloc] init];\n"
         "    TemporarySettings* settings = [dataMan getSettings];\n",
-        "    PlayniteStreamSettings* settings = [PlayniteStreamContext shared].streamSettings;\n",
+        "    GBearStreamSettings* settings = [GBearStreamContext shared].streamSettings;\n",
         "ControllerSupport mask settings",
     )
     patch_file(
         path,
         "    DataManager* dataMan = [[DataManager alloc] init];\n"
         "    _oscEnabled = (OnScreenControlsLevel)[[dataMan getSettings].onscreenControls integerValue] != OnScreenControlsLevelOff;\n",
-        "    PlayniteStreamSettings* settings = [PlayniteStreamContext shared].streamSettings;\n"
+        "    GBearStreamSettings* settings = [GBearStreamContext shared].streamSettings;\n"
         "    _oscEnabled = (OnScreenControlsLevel)[settings.onscreenControls integerValue] != OnScreenControlsLevelOff;\n",
         "ControllerSupport osc",
     )
@@ -152,7 +152,7 @@ def patch_stream_view_header(limelight: Path) -> None:
         "#else\n"
         "@interface StreamView : UIView <X1KitMouseDelegate, UITextFieldDelegate, UIPointerInteractionDelegate>\n"
         "#endif\n",
-        "#if !defined(PLAYNITE_COMPANION)\n"
+        "#if !defined(GBEAR_COMPANION)\n"
         "#if TARGET_OS_TV\n"
         "@interface StreamView : UIView <X1KitMouseDelegate, UITextFieldDelegate>\n"
         "#else\n"
@@ -180,20 +180,20 @@ def patch_stream_view(limelight: Path) -> None:
     patch_file(
         path,
         '#import "DataManager.h"\n',
-        '#import "PlayniteStreamContext.h"\n#import "PlayniteStreamSettings.h"\n',
+        '#import "GBearStreamContext.h"\n#import "GBearStreamSettings.h"\n',
         "StreamView import",
     )
     patch_file(
         path,
         "    TemporarySettings* settings = [[[DataManager alloc] init] getSettings];\n",
-        "    PlayniteStreamSettings* settings = [PlayniteStreamContext shared].streamSettings;\n",
+        "    GBearStreamSettings* settings = [GBearStreamContext shared].streamSettings;\n",
         "StreamView settings",
     )
     patch_file(
         path,
         "    // Citrix X1 mouse support\n"
         "    X1Mouse* x1mouse;\n",
-        "#if !defined(PLAYNITE_COMPANION)\n"
+        "#if !defined(GBEAR_COMPANION)\n"
         "    // Citrix X1 mouse support\n"
         "    X1Mouse* x1mouse;\n"
         "#endif\n",
@@ -208,7 +208,7 @@ def patch_stream_view(limelight: Path) -> None:
         "        [x1mouse start];\n"
         "    }\n"
         "    \n",
-        "#if !defined(PLAYNITE_COMPANION)\n"
+        "#if !defined(GBEAR_COMPANION)\n"
         "    x1mouse = [[X1Mouse alloc] init];\n"
         "    x1mouse.delegate = self;\n"
         "    \n"
@@ -263,7 +263,7 @@ def patch_stream_view(limelight: Path) -> None:
         "- (void)wheelDidScrollWithIdentifier:(NSUUID * _Nonnull)identifier deltaZ:(int8_t)deltaZ {\n"
         "    LiSendScrollEvent(deltaZ);\n"
         "}\n\n",
-        "#if !defined(PLAYNITE_COMPANION)\n"
+        "#if !defined(GBEAR_COMPANION)\n"
         "- (void)connectedStateDidChangeWithIdentifier:(NSUUID * _Nonnull)identifier isConnected:(BOOL)isConnected {\n"
         "    NSLog(@\"Citrix X1 mouse state change: %@ -> %s\",\n"
         "          identifier, isConnected ? \"connected\" : \"disconnected\");\n"

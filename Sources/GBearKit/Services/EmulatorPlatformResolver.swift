@@ -5,12 +5,12 @@ enum EmulatorPlatformResolver {
     private static nonisolated(unsafe) var resolutionCache: [UUID: (key: String, resolution: Resolution)] = [:]
 
     struct Resolution: Sendable {
-        var playnitePlatformSlugs: [String]
+        var gbearPlatformSlugs: [String]
         var primarySystemId: Int?
         var catalogRecord: BuiltinEmulatorProfileRecord?
 
         var primaryPlatformHint: String? {
-            playnitePlatformSlugs.first.map { ScreenScraperPlatformMap.displayName(forPlayniteSlug: $0) }
+            gbearPlatformSlugs.first.map { ScreenScraperPlatformMap.displayName(forGBearSlug: $0) }
         }
     }
 
@@ -33,9 +33,9 @@ enum EmulatorPlatformResolver {
 
     private static func resolveUncached(emulator: EmulatorProfile) -> Resolution? {
         if let record = matchingCatalogRecord(for: emulator) {
-            let systemId = record.platforms.first.flatMap { ScreenScraperPlatformMap.systemId(forPlayniteSlug: $0) }
+            let systemId = record.platforms.first.flatMap { ScreenScraperPlatformMap.systemId(forGBearSlug: $0) }
             return Resolution(
-                playnitePlatformSlugs: record.platforms,
+                gbearPlatformSlugs: record.platforms,
                 primarySystemId: systemId,
                 catalogRecord: record
             )
@@ -106,8 +106,8 @@ enum EmulatorPlatformResolver {
         if lower.contains("dolphin") {
             for pair in dolphinPairs where lower.contains(pair.needle) {
                 return Resolution(
-                    playnitePlatformSlugs: [pair.slug],
-                    primarySystemId: ScreenScraperPlatformMap.systemId(forPlayniteSlug: pair.slug),
+                    gbearPlatformSlugs: [pair.slug],
+                    primarySystemId: ScreenScraperPlatformMap.systemId(forGBearSlug: pair.slug),
                     catalogRecord: nil
                 )
             }

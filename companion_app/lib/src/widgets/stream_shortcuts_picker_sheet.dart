@@ -1,6 +1,6 @@
 import 'package:flutter/material.dart';
 
-import '../services/playnite_stream_foreground.dart';
+import '../services/gbear_stream_foreground.dart';
 import '../services/stream_shortcuts_store.dart';
 import 'companion_insets.dart';
 
@@ -48,7 +48,7 @@ Future<void> showStreamShortcutsPickerSheet(BuildContext context) async {
                       title: Text(shortcut.name),
                       subtitle: Text(shortcut.keyLabel),
                       onTap: () async {
-                        final ok = await PlayniteStreamNotification.fireStreamShortcut(
+                        final ok = await GBearStreamNotification.fireStreamShortcut(
                           shortcut.moonlightKeyCodes,
                         );
                         if (sheetContext.mounted) {

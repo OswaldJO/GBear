@@ -1,9 +1,9 @@
 # Streaming setup
 
-Playnite Mac uses a **native** LAN streaming host built into GBear.
+GBear Mac uses a **native** LAN streaming host built into GBear.
 
 - **No Sunshine / Moonlight / Homebrew / vendor clones**
-- Control plane: HTTP port **28765**, protocol `playnite-stream/1`
+- Control plane: HTTP port **28765**, protocol `gbear-stream/1`
 
 ## Docs
 

@@ -1,4 +1,4 @@
-/// Signals [PlayniteHostClient.requestPair] to stop polling and withdraw the Mac request.
+/// Signals [GBearHostClient.requestPair] to stop polling and withdraw the Mac request.
 class PairingCancellation {
   bool _cancelled = false;
 

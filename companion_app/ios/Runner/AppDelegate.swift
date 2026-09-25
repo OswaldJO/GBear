@@ -4,11 +4,11 @@ import UIKit
 
 @main
 @objc class AppDelegate: FlutterAppDelegate {
-  private let channelName = "com.playnite.companion/streaming_bridge"
-  private let pluginId = "PlayniteStreamingBridge"
+  private let channelName = "com.gbear.companion/streaming_bridge"
+  private let pluginId = "GBearStreamingBridge"
   private var streamingChannelRegistered = false
   private var streamingChannel: FlutterMethodChannel?
-  private weak var videoController: PlayniteVideoViewController?
+  private weak var videoController: GBearVideoViewController?
 
   override func application(
     _ application: UIApplication,
@@ -118,9 +118,9 @@ import UIKit
       let height = args["height"] as? Int ?? 1080
       let videoHost = Self.videoTCPHost(settingsHost: host)
       if videoHost != host {
-        PlayniteStreamLog.i("Video TCP using \(videoHost) (control plane host was \(host))")
+        GBearStreamLog.i("Video TCP using \(videoHost) (control plane host was \(host))")
       }
-      let player = PlayniteVideoViewController(host: videoHost, port: UInt16(port), width: width, height: height)
+      let player = GBearVideoViewController(host: videoHost, port: UInt16(port), width: width, height: height)
       player.modalPresentationStyle = .fullScreen
       player.onStreamEnded = { [weak self] logPath in
         self?.videoController = nil
@@ -132,7 +132,7 @@ import UIKit
       // "Starting Desktop stream…" while the Mac kept encoding with no TCP viewer.
       result(true)
       DispatchQueue.global(qos: .userInitiated).async {
-        PlayniteStreamLog.startSession(host: videoHost, port: port, width: width, height: height)
+        GBearStreamLog.startSession(host: videoHost, port: port, width: width, height: height)
       }
       DispatchQueue.main.async {
         Self.attachStreamPlayer(player, to: flutterVC)
@@ -144,7 +144,7 @@ import UIKit
         videoController = nil
         result(logPath.map { ["logPath": $0] } ?? [:])
       } else {
-        let logPath = PlayniteStreamLog.endSession(reason: "stop requested (no video open)")
+        let logPath = GBearStreamLog.endSession(reason: "stop requested (no video open)")
         result(logPath.map { ["logPath": $0] } ?? [:])
       }
 
@@ -169,7 +169,7 @@ import UIKit
 
   /// Modal `present` from Flutter often crashes on the iOS Simulator; embed full-screen instead.
   private static func attachStreamPlayer(
-    _ player: PlayniteVideoViewController,
+    _ player: GBearVideoViewController,
     to flutterVC: FlutterViewController
   ) {
     #if targetEnvironment(simulator)

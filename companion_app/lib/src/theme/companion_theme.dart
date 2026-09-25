@@ -2,7 +2,7 @@ import 'package:flutter/material.dart';
 
 import '../services/companion_appearance_settings.dart';
 
-/// Dark-first Material 3 theme for Playnite Companion.
+/// Dark-first Material 3 theme for GBear Companion.
 abstract final class CompanionTheme {
   static const Color _background = Color(0xFF0E1014);
   static const Color _surface = Color(0xFF161920);

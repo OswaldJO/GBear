@@ -11,8 +11,8 @@ let package = Package(
     ],
     targets: [
         .target(
-            name: "PlayniteHID",
-            path: "Sources/PlayniteHID",
+            name: "GBearHID",
+            path: "Sources/GBearHID",
             publicHeadersPath: "include",
             linkerSettings: [
                 .linkedFramework("IOKit"),
@@ -20,7 +20,7 @@ let package = Package(
         ),
         .target(
             name: "GBearKit",
-            dependencies: ["PlayniteHID"],
+            dependencies: ["GBearHID"],
             path: "Sources/GBearKit",
             resources: [
                 .copy("Resources/BuiltinEmulatorCatalog.json")

@@ -35,7 +35,7 @@
             </intent-filter>
         </activity>
         <activity
-            android:name=".PlayniteVideoActivity"
+            android:name=".GBearVideoActivity"
             android:exported="false"
             android:launchMode="singleTop"
             android:theme="@android:style/Theme.Black.NoTitleBar.Fullscreen"
@@ -52,7 +52,7 @@
             android:exported="false"
             android:stopWithTask="true" />
         <receiver
-            android:name=".PlayniteStreamNotificationReceiver"
+            android:name=".GBearStreamNotificationReceiver"
             android:exported="false" />
     </application>
     <!-- Required to query activities that can process text, see:

@@ -23,5 +23,5 @@ for sdk in iOS iOS-Sim; do
   copy_lib avutil FFmpeg libavutil.a "$sdk"
 done
 
-bash "$SCRIPT_DIR/stage_sdl2_playnite.sh"
+bash "$SCRIPT_DIR/stage_sdl2_gbear.sh"
 echo "Staged Moonlight prebuilt libraries in $OUT"

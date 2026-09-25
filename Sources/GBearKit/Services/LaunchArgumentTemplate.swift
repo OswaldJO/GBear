@@ -4,7 +4,7 @@ import SwiftData
 /// Helpers for emulator launch-argument templates.
 ///
 /// Supported placeholders:
-/// - `{ImagePath}` / `{rom}` / `{ROM}` — game file path (Playnite-compatible)
+/// - `{ImagePath}` / `{rom}` / `{ROM}` — game file path (GBear-compatible)
 /// - `{user_name}` — current macOS account short name (`NSUserName()`), for paths like
 ///   `/Users/{user_name}/Library/Application Support/RetroArch/cores/...`
 ///
@@ -42,7 +42,7 @@ public enum LaunchArgumentTemplate {
         return template
     }
 
-    /// Expands `{user_name}` and Playnite path tokens. Call `expandTildeInArgument` on each argv token after parsing.
+    /// Expands `{user_name}` and GBear path tokens. Call `expandTildeInArgument` on each argv token after parsing.
     public static func expandPlaceholders(_ template: String, gameFilePath: String) -> String {
         var text = template.trimmingCharacters(in: .whitespacesAndNewlines)
         text = text.replacingOccurrences(of: "{user_name}", with: NSUserName())

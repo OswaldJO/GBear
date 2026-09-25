@@ -13,7 +13,7 @@ subprojects {
     if (project.name == "moonlight-stream") {
         project.layout.buildDirectory.set(
             project.file(
-                "${System.getProperty("user.home")}/.cache/playnite-companion-native/moonlight-stream",
+                "${System.getProperty("user.home")}/.cache/gbear-companion-native/moonlight-stream",
             ),
         )
     } else {

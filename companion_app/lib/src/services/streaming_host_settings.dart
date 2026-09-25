@@ -1,13 +1,13 @@
 import 'package:shared_preferences/shared_preferences.dart';
 
-/// Persisted Playnite stream host address (native protocol — no Sunshine).
+/// Persisted GBear stream host address (native protocol — no Sunshine).
 class StreamingHostSettings {
   static const _hostKey = 'streaming.host.address';
   static const _httpPortKey = 'streaming.host.httpPort';
   static const _httpsPortKey = 'streaming.host.httpsPort';
   static const _controlPortKey = 'streaming.host.controlPort';
 
-  /// Playnite-native control plane (see PlayniteStreamPorts.swift).
+  /// GBear-native control plane (see GBearStreamPorts.swift).
   static const defaultControlPort = 28765;
   static const defaultVideoPort = 28766;
   static const defaultAudioPort = 28767;

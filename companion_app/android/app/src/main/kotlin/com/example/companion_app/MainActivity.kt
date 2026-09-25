@@ -17,11 +17,11 @@ import io.flutter.embedding.engine.FlutterEngine
 import io.flutter.plugin.common.MethodChannel
 
 class MainActivity : FlutterActivity() {
-    private val channelName = "com.playnite.companion/streaming_bridge"
+    private val channelName = "com.gbear.companion/streaming_bridge"
     private val mainHandler = Handler(Looper.getMainLooper())
 
     companion object {
-        const val EXTRA_STREAM_STOPPED_EXTERNAL = "playnite_stream_stopped_external"
+        const val EXTRA_STREAM_STOPPED_EXTERNAL = "gbear_stream_stopped_external"
 
         @Volatile
         var pendingOpenMapping: Boolean = false
@@ -58,7 +58,7 @@ class MainActivity : FlutterActivity() {
         }
 
         private fun dispatchFlutterStreamStoppedExternally() {
-            if (PlayniteStreamSession.hostStreamActive) return
+            if (GBearStreamSession.hostStreamActive) return
             val channel = streamChannel
             if (channel == null) {
                 pendingNotifyFlutterStreamStopped = true
@@ -66,7 +66,7 @@ class MainActivity : FlutterActivity() {
             }
             pendingNotifyFlutterStreamStopped = false
             val ctx = appContext
-            val logPath = ctx?.let { PlayniteStreamLog.logFilePath(it) }
+            val logPath = ctx?.let { GBearStreamLog.logFilePath(it) }
             val payload: Map<String, String>? =
                 if (logPath != null) hashMapOf("logPath" to logPath) else null
             channel.invokeMethod("onStreamStoppedExternally", payload)
@@ -85,9 +85,9 @@ class MainActivity : FlutterActivity() {
     }
 
     override fun onDestroy() {
-        val host = PlayniteStreamSession.host
-        if (host.isNotEmpty() && PlayniteStreamSession.hostStreamActive) {
-            Thread { PlayniteHostControlClient.stopStreamOnHost(host) }.start()
+        val host = GBearStreamSession.host
+        if (host.isNotEmpty() && GBearStreamSession.hostStreamActive) {
+            Thread { GBearHostControlClient.stopStreamOnHost(host) }.start()
         }
         super.onDestroy()
     }
@@ -102,10 +102,10 @@ class MainActivity : FlutterActivity() {
 
                 "pairWithPin" -> result.success(true)
 
-                "getStreamSession" -> result.success(PlayniteStreamSession.toMap())
+                "getStreamSession" -> result.success(GBearStreamSession.toMap())
 
                 "clearPendingExternalStopLog" -> {
-                    PlayniteStreamSession.clearPendingExternalStopLog()
+                    GBearStreamSession.clearPendingExternalStopLog()
                     result.success(null)
                 }
 
@@ -122,7 +122,7 @@ class MainActivity : FlutterActivity() {
                         (call.argument<Double>("swapStickSensitivity") ?: 0.05).toFloat()
                     val tapSlopPercent = call.argument<Int>("tapSlopPercent") ?: 100
                     val tapTimeoutMs = call.argument<Int>("tapTimeoutMs")?.toLong()
-                        ?: PlayniteInputSender.TAP_TIMEOUT_MS
+                        ?: GBearInputSender.TAP_TIMEOUT_MS
                     val tapPressure = (call.argument<Double>("tapPressure") ?: 0.35).toFloat()
                     val bindingsJson = call.argument<String>("controllerBindingsJson").orEmpty()
                     val seat = (call.argument<Int>("seat") ?: 1).coerceIn(1, 8)
@@ -133,57 +133,57 @@ class MainActivity : FlutterActivity() {
                         result.error("invalid_args", "Missing host", null)
                         return@setMethodCallHandler
                     }
-                    PlayniteStreamSession.host = host
-                    PlayniteStreamSession.videoPort = port
-                    PlayniteStreamSession.audioPort = audioPort
-                    PlayniteStreamSession.audioTcpPort = audioTcpPort
-                    PlayniteStreamSession.inputPort = inputPort
-                    PlayniteStreamSession.width = width
-                    PlayniteStreamSession.height = height
-                    PlayniteStreamSession.cursorSpeed = cursorSpeed
-                    PlayniteStreamSession.swapStickSensitivity = swapStickSensitivity
-                    PlayniteStreamSession.tapSlopPercent = tapSlopPercent
-                    PlayniteStreamSession.tapTimeoutMs = tapTimeoutMs
-                    PlayniteStreamSession.tapPressure = tapPressure
-                    PlayniteStreamSession.controllerBindingsJson = bindingsJson
-                    PlayniteStreamSession.seat = seat
-                    PlayniteStreamSession.coopPadMode = coopPadMode
-                    PlayniteStreamSession.swapFaceButtons = swapFaceButtons
-                    PlayniteStreamSession.deadZonePercent = deadZonePercent
-                    PlayniteStreamSession.appContext = applicationContext
-                    PlayniteStreamSession.releaseGamepadSender()
+                    GBearStreamSession.host = host
+                    GBearStreamSession.videoPort = port
+                    GBearStreamSession.audioPort = audioPort
+                    GBearStreamSession.audioTcpPort = audioTcpPort
+                    GBearStreamSession.inputPort = inputPort
+                    GBearStreamSession.width = width
+                    GBearStreamSession.height = height
+                    GBearStreamSession.cursorSpeed = cursorSpeed
+                    GBearStreamSession.swapStickSensitivity = swapStickSensitivity
+                    GBearStreamSession.tapSlopPercent = tapSlopPercent
+                    GBearStreamSession.tapTimeoutMs = tapTimeoutMs
+                    GBearStreamSession.tapPressure = tapPressure
+                    GBearStreamSession.controllerBindingsJson = bindingsJson
+                    GBearStreamSession.seat = seat
+                    GBearStreamSession.coopPadMode = coopPadMode
+                    GBearStreamSession.swapFaceButtons = swapFaceButtons
+                    GBearStreamSession.deadZonePercent = deadZonePercent
+                    GBearStreamSession.appContext = applicationContext
+                    GBearStreamSession.releaseGamepadSender()
                     cancelPendingFlutterStreamStoppedNotify()
-                    PlayniteStreamSession.clearPendingExternalStopLog()
-                    PlayniteStreamSession.cancelPendingMacStop()
-                    PlayniteStreamSession.hostStreamActive = true
+                    GBearStreamSession.clearPendingExternalStopLog()
+                    GBearStreamSession.cancelPendingMacStop()
+                    GBearStreamSession.hostStreamActive = true
                     launchStreamActivity(result)
                 }
 
                 "resumeStream" -> {
-                    if (!PlayniteStreamSession.hostStreamActive || PlayniteStreamSession.host.isEmpty()) {
+                    if (!GBearStreamSession.hostStreamActive || GBearStreamSession.host.isEmpty()) {
                         result.success(false)
                         return@setMethodCallHandler
                     }
-                    if (PlayniteVideoActivity.current != null) {
+                    if (GBearVideoActivity.current != null) {
                         result.success(true)
                         return@setMethodCallHandler
                     }
-                    PlayniteStreamSession.cancelPendingMacStop()
-                    PlayniteStreamSession.leaveViewerWithoutMacStop = false
-                    PlayniteStreamSession.hostStreamActive = true
+                    GBearStreamSession.cancelPendingMacStop()
+                    GBearStreamSession.leaveViewerWithoutMacStop = false
+                    GBearStreamSession.hostStreamActive = true
                     launchStreamActivity(result)
                 }
 
                 "prepareForNewStream" -> {
-                    PlayniteStreamSession.cancelPendingMacStop()
-                    PlayniteStreamSession.swapMouseModeActive = false
-                    PlayniteStreamSession.keyboardSender()?.releaseAllKeys()
-                    val video = PlayniteVideoActivity.current
+                    GBearStreamSession.cancelPendingMacStop()
+                    GBearStreamSession.swapMouseModeActive = false
+                    GBearStreamSession.keyboardSender()?.releaseAllKeys()
+                    val video = GBearVideoActivity.current
                     if (video != null) {
                         video.runOnUiThread { video.finishFromHost() }
-                    } else if (PlayniteStreamSession.hostStreamActive) {
-                        PlayniteStreamSession.deactivate()
-                        PlayniteStreamNotificationHelper.dismiss(applicationContext)
+                    } else if (GBearStreamSession.hostStreamActive) {
+                        GBearStreamSession.deactivate()
+                        GBearStreamNotificationHelper.dismiss(applicationContext)
                     }
                     result.success(null)
                 }
@@ -194,13 +194,13 @@ class MainActivity : FlutterActivity() {
                     val value =
                         (call.argument<Double>("swapStickSensitivity") ?: 0.05).toFloat()
                             .coerceIn(0.05f, 1f)
-                    PlayniteStreamSession.swapStickSensitivity = value
-                    PlayniteVideoActivity.current?.updateSwapStickSensitivity(value)
+                    GBearStreamSession.swapStickSensitivity = value
+                    GBearVideoActivity.current?.updateSwapStickSensitivity(value)
                     result.success(null)
                 }
 
                 "showStreamMappingOverlay" -> {
-                    val video = PlayniteVideoActivity.current
+                    val video = GBearVideoActivity.current
                     if (video != null) {
                         video.runOnUiThread { video.showControllerMappingOverlay() }
                         result.success(true)
@@ -216,7 +216,7 @@ class MainActivity : FlutterActivity() {
                 }
 
                 "showStreamShortcutsOverlay" -> {
-                    val video = PlayniteVideoActivity.current
+                    val video = GBearVideoActivity.current
                     if (video != null) {
                         video.runOnUiThread { video.showStreamShortcutsOverlay() }
                         result.success(true)
@@ -233,13 +233,13 @@ class MainActivity : FlutterActivity() {
 
                 "fireStreamShortcut" -> {
                     val codes = call.argument<List<Int>>("moonlightKeyCodes")?.filter { it != 0 }.orEmpty()
-                    val sender = PlayniteStreamSession.keyboardSender()
-                    if (!PlayniteStreamSession.hostStreamActive || codes.isEmpty() || sender == null) {
+                    val sender = GBearStreamSession.keyboardSender()
+                    if (!GBearStreamSession.hostStreamActive || codes.isEmpty() || sender == null) {
                         result.success(false)
                         return@setMethodCallHandler
                     }
-                    PlayniteStreamLog.i(
-                        "Shortcut fire ${codes.size} keys → ${PlayniteStreamSession.host}:${PlayniteStreamSession.inputPort}",
+                    GBearStreamLog.i(
+                        "Shortcut fire ${codes.size} keys → ${GBearStreamSession.host}:${GBearStreamSession.inputPort}",
                     )
                     sender.sendChord(codes, down = true)
                     mainHandler.postDelayed({
@@ -253,12 +253,12 @@ class MainActivity : FlutterActivity() {
                     val host = call.argument<String>("host").orEmpty()
                     if (active) {
                         ensureNotificationPermissionForStream()
-                        PlayniteStreamNotificationHelper.show(
+                        GBearStreamNotificationHelper.show(
                             this,
-                            host.ifEmpty { PlayniteStreamSession.host },
+                            host.ifEmpty { GBearStreamSession.host },
                         )
                     } else {
-                        PlayniteStreamNotificationHelper.dismiss(this)
+                        GBearStreamNotificationHelper.dismiss(this)
                     }
                     result.success(null)
                 }
@@ -269,17 +269,17 @@ class MainActivity : FlutterActivity() {
 
                 "autoMapCoopPads" -> {
                     val swap = call.argument<Boolean>("swapFaceButtons") ?: false
-                    result.success(PlayniteCoopPadMappingStore.autoMapAndSave(this, swap))
+                    result.success(GBearCoopPadMappingStore.autoMapAndSave(this, swap))
                 }
 
                 "listCoopPadMappings" -> {
-                    result.success(PlayniteCoopPadMappingStore.all(this))
+                    result.success(GBearCoopPadMappingStore.all(this))
                 }
 
                 "resetCoopPadMapping" -> {
                     val guid = call.argument<String>("guid").orEmpty()
                     if (guid.isNotEmpty()) {
-                        PlayniteCoopPadMappingStore.reset(this, guid)
+                        GBearCoopPadMappingStore.reset(this, guid)
                     }
                     result.success(null)
                 }
@@ -295,7 +295,7 @@ class MainActivity : FlutterActivity() {
                         result.error("invalid_args", "guid and logical required", null)
                         return@setMethodCallHandler
                     }
-                    val mapping = PlayniteCoopPadMappingStore.applyOverride(
+                    val mapping = GBearCoopPadMappingStore.applyOverride(
                         this,
                         guid,
                         logical,
@@ -358,10 +358,10 @@ class MainActivity : FlutterActivity() {
     override fun onNewIntent(intent: Intent) {
         super.onNewIntent(intent)
         setIntent(intent)
-        if (intent.getBooleanExtra(PlayniteStreamMappingActions.EXTRA_OPEN_MAPPING, false)) {
+        if (intent.getBooleanExtra(GBearStreamMappingActions.EXTRA_OPEN_MAPPING, false)) {
             pendingOpenMapping = true
         }
-        if (intent.getBooleanExtra(PlayniteStreamShortcutActions.EXTRA_OPEN_SHORTCUTS, false)) {
+        if (intent.getBooleanExtra(GBearStreamShortcutActions.EXTRA_OPEN_SHORTCUTS, false)) {
             pendingOpenShortcuts = true
         }
         deliverPendingExternalStreamStop()
@@ -374,23 +374,23 @@ class MainActivity : FlutterActivity() {
         // Flutter syncs session + log offer on resume via getStreamSession (MainActivity was stopped during video).
     }
 
-    /** Session-tab Stop — same teardown as notification Stop ([PlayniteStreamStopCoordinator]). */
+    /** Session-tab Stop — same teardown as notification Stop ([GBearStreamStopCoordinator]). */
     private fun completeStopStreamFromSession(result: MethodChannel.Result) {
-        val stop = PlayniteStreamStopCoordinator.stopSession(applicationContext, notifyFlutter = false)
+        val stop = GBearStreamStopCoordinator.stopSession(applicationContext, notifyFlutter = false)
         result.success(hashMapOf("logPath" to (stop.logPath ?: "")))
     }
 
     private fun launchStreamActivity(result: MethodChannel.Result) {
         ensureNotificationPermissionForStream()
-        PlayniteStreamNotificationHelper.show(this, PlayniteStreamSession.host)
-        val intent = Intent(this, PlayniteVideoActivity::class.java)
-        PlayniteStreamSession.toIntentFlags(intent)
+        GBearStreamNotificationHelper.show(this, GBearStreamSession.host)
+        val intent = Intent(this, GBearVideoActivity::class.java)
+        GBearStreamSession.toIntentFlags(intent)
         val resultDelivered = java.util.concurrent.atomic.AtomicBoolean(false)
         val connectTimeoutMs = 22_000L
         val timeoutRunnable = Runnable {
             if (!resultDelivered.compareAndSet(false, true)) return@Runnable
-            PlayniteStreamSession.pendingVideoConnectCallback = null
-            PlayniteStreamStopper.stopAll(
+            GBearStreamSession.pendingVideoConnectCallback = null
+            GBearStreamStopper.stopAll(
                 applicationContext,
                 "video connect timed out waiting for Mac TCP",
                 recordPendingLogForResume = true,
@@ -398,10 +398,10 @@ class MainActivity : FlutterActivity() {
             runOnUiThread { result.success(false) }
         }
         mainHandler.postDelayed(timeoutRunnable, connectTimeoutMs)
-        PlayniteStreamSession.pendingVideoConnectCallback = connect@{ ok ->
+        GBearStreamSession.pendingVideoConnectCallback = connect@{ ok ->
             mainHandler.removeCallbacks(timeoutRunnable)
             if (!resultDelivered.compareAndSet(false, true)) return@connect
-            // On failure, [PlayniteVideoActivity.handleConnectFailure] already called [stopAll].
+            // On failure, [GBearVideoActivity.handleConnectFailure] already called [stopAll].
             runOnUiThread { result.success(ok) }
         }
         startActivity(intent)

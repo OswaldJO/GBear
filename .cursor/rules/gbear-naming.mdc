@@ -1,0 +1,37 @@
+---
+description: Use GBear naming only — never Playnite — for product, types, files, APIs, and docs
+alwaysApply: true
+---
+
+# GBear naming (not Playnite)
+
+This product is **GBear**. Do not introduce **Playnite**, **playnite**, or **PLAYNITE** in new or edited code, comments, docs, identifiers, filenames, URLs, logs, preferences, or user-visible copy.
+
+## Use
+
+| Kind | Pattern |
+|------|---------|
+| Types / files | `GBearStreamHostManager`, `GBearVideoActivity`, `GBearHID` |
+| HTTP | `/gbear/v1/…` |
+| Protocol | `gbear-stream/1` |
+| Frames | `GBV1` video, `GBA1` / `GBAS` audio, `GBI1` touch, `GBK1` keyboard, `GBG1` gamepad |
+| Dart / Kotlin | `GBearHostClient`, `gbearStreamDebug`, `com.gbear.companion` |
+
+```swift
+// ❌ BAD
+PlayniteStreamControlServer()
+POST "/playnite/v1/stream/start"
+
+// ✅ GOOD
+GBearStreamControlServer()
+POST "/gbear/v1/stream/start"
+```
+
+## Allowed leftovers
+
+Only when migrating data that already shipped to devices:
+
+- Android `deleteNotificationChannel` IDs
+- Moving `~/Library/Application Support/GBear/playnite-stream` → `gbear-stream`
+
+Do not add new Playnite names for those migrations. Moonlight and Sunshine may appear only as **third-party** vendored projects, never as GBear’s product name.

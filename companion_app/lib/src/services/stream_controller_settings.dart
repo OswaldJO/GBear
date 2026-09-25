@@ -35,7 +35,7 @@ class StreamControllerSettings {
   /// Android: claim USB devices Moonlight does not recognize by default.
   bool get bindAllUsb => _prefs.getBool(_bindAllUsbKey) ?? false;
 
-  /// When true, stream sends PNG1 gamepad state to Mac virtual pads (co-op).
+  /// When true, stream sends GBG1 gamepad state to Mac virtual pads (co-op).
   /// When false, use keyboard-chord mappings (single-player / OS shortcuts).
   bool get coopPadMode => _prefs.getBool(_coopPadModeKey) ?? true;
 

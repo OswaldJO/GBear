@@ -8,7 +8,7 @@ enum MetadataSystemResolver {
             return id
         }
         if game.librarySourceID == "epic" {
-            return ScreenScraperPlatformMap.systemId(forPlayniteSlug: "pc_windows")
+            return ScreenScraperPlatformMap.systemId(forGBearSlug: "pc_windows")
         }
         if let hint = game.platformHint?.trimmingCharacters(in: .whitespacesAndNewlines),
            !hint.isEmpty,

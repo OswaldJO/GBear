@@ -9,7 +9,7 @@ import '../services/stream_controller_mapping_store.dart';
 import '../services/stream_controller_settings.dart';
 import '../services/stream_touch_settings.dart';
 import '../services/stream_log_share.dart';
-import '../services/playnite_stream_foreground.dart' show PlayniteStreamNotification;
+import '../services/gbear_stream_foreground.dart' show GBearStreamNotification;
 import '../services/pairing_cancellation.dart';
 import '../services/stream_debug_log.dart';
 import '../services/streaming_bridge.dart';
@@ -73,7 +73,7 @@ class _HomePageState extends State<HomePage> with WidgetsBindingObserver {
       unawaited(_loadControllerSettings());
       unawaited(_loadTouchSettings());
       if (Platform.isAndroid) {
-        unawaited(PlayniteStreamNotification.ensureNotificationPermission());
+        unawaited(GBearStreamNotification.ensureNotificationPermission());
       }
       unawaited(StreamShortcutsStore.migrateCloseAppDefaultIfNeeded());
       unawaited(_refreshStreamSessionState());
@@ -274,7 +274,7 @@ class _HomePageState extends State<HomePage> with WidgetsBindingObserver {
     final viewerOpen = session['viewerOpen'] == true;
     final wasActive = _streamActive;
     final host = _hosts.where((h) => h.id == _selectedHostId).firstOrNull;
-    await PlayniteStreamNotification.syncSession(
+    await GBearStreamNotification.syncSession(
       active: active,
       hostLabel: host?.name ?? (session['host'] as String?),
     );
@@ -293,7 +293,7 @@ class _HomePageState extends State<HomePage> with WidgetsBindingObserver {
       }
     });
     if (!active && wasActive) {
-      await PlayniteStreamNotification.syncSession(active: false);
+      await GBearStreamNotification.syncSession(active: false);
     }
     await _offerPendingStreamLog(session);
   }
@@ -322,18 +322,18 @@ class _HomePageState extends State<HomePage> with WidgetsBindingObserver {
 
   Future<void> _checkPendingMappingOverlay() async {
     if (!Platform.isAndroid || !mounted) return;
-    final pending = await PlayniteStreamNotification.consumePendingOpenMapping();
+    final pending = await GBearStreamNotification.consumePendingOpenMapping();
     if (!pending || !mounted) return;
-    final shown = await PlayniteStreamNotification.showStreamMappingOverlay();
+    final shown = await GBearStreamNotification.showStreamMappingOverlay();
     if (shown || !mounted) return;
     await _showMappingOverlaySheet();
   }
 
   Future<void> _checkPendingShortcutsOverlay() async {
     if (!Platform.isAndroid || !mounted) return;
-    final pending = await PlayniteStreamNotification.consumePendingOpenShortcuts();
+    final pending = await GBearStreamNotification.consumePendingOpenShortcuts();
     if (!pending || !mounted) return;
-    final shown = await PlayniteStreamNotification.showStreamShortcutsOverlay();
+    final shown = await GBearStreamNotification.showStreamShortcutsOverlay();
     if (shown || !mounted) return;
     await showStreamShortcutsPickerSheet(context);
   }
@@ -530,10 +530,10 @@ class _HomePageState extends State<HomePage> with WidgetsBindingObserver {
 
     _startingStream = true;
     setState(() => _sessionStatus = 'Starting Desktop stream…');
-    playniteStreamDebug('Start Desktop stream tapped');
+    gbearStreamDebug('Start Desktop stream tapped');
     try {
       if (Platform.isAndroid) {
-        await PlayniteStreamNotification.ensureNotificationPermission();
+        await GBearStreamNotification.ensureNotificationPermission();
       }
       final mappingStore = await StreamControllerMappingStore.load();
       final (streamWidth, streamHeight, streamFps) = _defaultStreamCapture();
@@ -546,7 +546,7 @@ class _HomePageState extends State<HomePage> with WidgetsBindingObserver {
         controllerBindingsJson: mappingStore.bindingsJson(),
       );
       if (!mounted) return;
-      playniteStreamDebug('startStream done ok=${outcome.ok} msg=${outcome.message}');
+      gbearStreamDebug('startStream done ok=${outcome.ok} msg=${outcome.message}');
       setState(() {
         _streamActive = outcome.ok;
         _streamViewerOpen = outcome.ok;
@@ -557,17 +557,17 @@ class _HomePageState extends State<HomePage> with WidgetsBindingObserver {
       if (outcome.ok) {
         await _refreshStreamSessionState();
       } else {
-        await PlayniteStreamNotification.syncSession(active: false);
+        await GBearStreamNotification.syncSession(active: false);
       }
     } catch (e) {
-      playniteStreamDebug('startStream exception: $e');
+      gbearStreamDebug('startStream exception: $e');
       if (!mounted) return;
       setState(() {
         _streamActive = false;
         _streamViewerOpen = false;
         _sessionStatus = 'Start stream error: $e';
       });
-      await PlayniteStreamNotification.syncSession(active: false);
+      await GBearStreamNotification.syncSession(active: false);
     } finally {
       if (mounted) {
         setState(() => _startingStream = false);
@@ -609,7 +609,7 @@ class _HomePageState extends State<HomePage> with WidgetsBindingObserver {
         _sessionStatus = 'Stream stopped';
       }
     });
-    await PlayniteStreamNotification.syncSession(active: false);
+    await GBearStreamNotification.syncSession(active: false);
     await _refreshStreamSessionState();
     if (logPath != null && logPath.isNotEmpty && mounted) {
       _lastOfferedStreamLogPath = logPath;
@@ -634,11 +634,11 @@ class _HomePageState extends State<HomePage> with WidgetsBindingObserver {
         await offerStreamLogShare(context, logPath);
         await _bridge.clearPendingExternalStopLog();
       }
-      await PlayniteStreamNotification.syncSession(active: false);
+      await GBearStreamNotification.syncSession(active: false);
       await _refreshStreamSessionState();
     } catch (e) {
       setState(() => _sessionStatus = 'Stop stream error: $e');
-      await PlayniteStreamNotification.syncSession(active: false);
+      await GBearStreamNotification.syncSession(active: false);
     }
   }
 
@@ -772,7 +772,7 @@ class _HomePageState extends State<HomePage> with WidgetsBindingObserver {
             'If the host Mac is playing, 7 devices can join. An 8th device can join '
             'only if it plays as the host instead of that Mac (this Mac then leaves the pad list). '
             'Join order is the default. Connect a gamepad (Controller tab), then start Desktop stream. '
-            'Co-op pad mode auto-maps the controller (Eden-style) and sends PNG1 to Mac virtual pads.',
+            'Co-op pad mode auto-maps the controller (Eden-style) and sends GBG1 to Mac virtual pads.',
           ),
           if (_sessionStatus.isNotEmpty) ...[
             const SizedBox(height: 12),
@@ -873,7 +873,7 @@ class _HomePageState extends State<HomePage> with WidgetsBindingObserver {
         const SizedBox(height: 8),
         const Text(
           'Pair a telescopic or Bluetooth gamepad to this phone (not the Mac). '
-          'In co-op pad mode the phone sends PNG1 to Mac virtual pads (Player 1 / 2). '
+          'In co-op pad mode the phone sends GBG1 to Mac virtual pads (Player 1 / 2). '
           'Keyboard-chord mappings and Swap mouse mode remain available when co-op pad mode is off.',
         ),
         const SizedBox(height: 12),
@@ -1034,7 +1034,7 @@ class _HomePageState extends State<HomePage> with WidgetsBindingObserver {
             )
           else ...[
             SwitchListTile(
-              title: const Text('Co-op pad mode (PNG1)'),
+              title: const Text('Co-op pad mode (GBG1)'),
               subtitle: const Text(
                 'Send structured gamepad state to Mac virtual Player 1–8 pads. '
                 'Turn off to use keyboard-chord mappings instead.',

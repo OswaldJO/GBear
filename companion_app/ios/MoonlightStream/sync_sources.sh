@@ -4,7 +4,7 @@ set -euo pipefail
 SCRIPT_DIR="$(cd "$(dirname "$0")" && pwd)"
 ROOT="$(cd "$SCRIPT_DIR/../../.." && pwd)"
 MOONLIGHT_IOS="${MOONLIGHT_IOS:-$ROOT/Vendor/streaming-repos/moonlight-ios}"
-CACHE="${PLAYNITE_MOONLIGHT_SOURCES_CACHE:-$HOME/.cache/playnite-moonlight-ios/sources}"
+CACHE="${GBEAR_MOONLIGHT_SOURCES_CACHE:-$HOME/.cache/gbear-moonlight-ios/sources}"
 DEST="$SCRIPT_DIR/Sources"
 
 if [[ ! -d "$MOONLIGHT_IOS/Limelight" ]]; then
@@ -55,8 +55,8 @@ rsync -a --delete \
   --exclude '*.xcdatamodeld' \
   "$MOONLIGHT_IOS/Limelight/" "$CACHE/Limelight/"
 
-cp "$SCRIPT_DIR/PlayniteSupport/PlayniteTemporaryHost.h" "$CACHE/Limelight/Database/TemporaryHost.h"
-cp "$SCRIPT_DIR/PlayniteSupport/PlayniteTemporaryHost.m" "$CACHE/Limelight/Database/TemporaryHost.m"
+cp "$SCRIPT_DIR/GBearSupport/GBearTemporaryHost.h" "$CACHE/Limelight/Database/TemporaryHost.h"
+cp "$SCRIPT_DIR/GBearSupport/GBearTemporaryHost.m" "$CACHE/Limelight/Database/TemporaryHost.m"
 
 COMMON_SRC="$MOONLIGHT_IOS/moonlight-common/moonlight-common-c/src"
 mkdir -p "$CACHE/moonlight-common-c"

@@ -69,6 +69,9 @@ struct PathsView: View {
                     }
 
                     Section("Game folders for this emulator") {
+                        Text("Scan looks only at this folder’s files and immediate subfolders. Each file and each subfolder is one game (bin/cue sets in a folder stay one title). Nested folders inside a game folder are not scanned.")
+                            .font(.caption)
+                            .foregroundStyle(.secondary)
                         if gameFoldersForSelection.isEmpty {
                             Text("No folders yet. Use “Add folder…” to pick a directory to scan.")
                                 .foregroundStyle(.secondary)
@@ -242,7 +245,7 @@ struct PathsView: View {
                 pendingDeleteSectionTitle = ""
             }
         } message: {
-            Text("This only removes the saved path from Playnite Mac. Files on disk are not deleted.")
+            Text("This only removes the saved path from GBear Mac. Files on disk are not deleted.")
         }
         .alert("Paste path", isPresented: Binding(
             get: { pasteFeedback != nil },

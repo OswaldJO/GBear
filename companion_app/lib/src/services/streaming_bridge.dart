@@ -6,19 +6,19 @@ import 'package:flutter/services.dart';
 import '../models/host_info.dart';
 import 'companion_device_identity.dart';
 import 'pairing_cancellation.dart';
-import 'playnite_host_client.dart';
+import 'gbear_host_client.dart';
 import 'stream_controller_settings.dart';
 import 'stream_touch_settings.dart';
 import 'stream_debug_log.dart';
 import 'streaming_host_settings.dart';
 
-/// Discovery, consent pairing, and native video via Playnite protocol.
+/// Discovery, consent pairing, and native video via GBear protocol.
 class StreamingBridge {
-  static const String channelName = 'com.playnite.companion/streaming_bridge';
+  static const String channelName = 'com.gbear.companion/streaming_bridge';
 
   StreamingBridge({
     MethodChannel? channel,
-    PlayniteHostClient? hostClient,
+    GBearHostClient? hostClient,
     StreamingHostSettings? settings,
   })  : _channel = channel ?? const MethodChannel(channelName),
         _settingsFuture = settings != null
@@ -28,7 +28,7 @@ class StreamingBridge {
 
   final MethodChannel _channel;
   final Future<StreamingHostSettings> _settingsFuture;
-  final PlayniteHostClient? _hostClientOverride;
+  final GBearHostClient? _hostClientOverride;
 
   static const Duration _nativeCallTimeout = Duration(seconds: 15);
 
@@ -58,11 +58,11 @@ class StreamingBridge {
     });
   }
 
-  Future<PlayniteHostClient> _client() async {
+  Future<GBearHostClient> _client() async {
     final override = _hostClientOverride;
     if (override != null) return override;
     final settings = await _settingsFuture;
-    return PlayniteHostClient(settings);
+    return GBearHostClient(settings);
   }
 
   Future<List<HostInfo>> discoverHosts() async {
@@ -223,11 +223,11 @@ class StreamingBridge {
     int? preferredSeat,
     bool? playAsHost,
   }) async {
-    playniteStreamDebug('prepareForNewStream…');
+    gbearStreamDebug('prepareForNewStream…');
     await prepareForNewStream();
     final client = await _client();
     final settings = controllerSettings ?? await StreamControllerSettings.load();
-    playniteStreamDebug('POST Mac stream/start ${width}x$height @ ${fps}fps…');
+    gbearStreamDebug('POST Mac stream/start ${width}x$height @ ${fps}fps…');
     final asHost = playAsHost ?? settings.playAsHost;
     final outcome = await client.startStream(
       width: width,
@@ -240,18 +240,18 @@ class StreamingBridge {
       playAsHost: asHost,
     );
     if (!outcome.ok || outcome.host == null || outcome.videoPort == null) {
-      playniteStreamDebug('Mac stream/start failed: ${outcome.message}');
+      gbearStreamDebug('Mac stream/start failed: ${outcome.message}');
       return outcome;
     }
     final videoHost = await _resolveVideoHost(outcome);
-    playniteStreamDebug(
+    gbearStreamDebug(
       'Mac capture started; opening native player $videoHost:${outcome.videoPort} seat=${outcome.seat}'
       '${videoHost != outcome.host ? " (LAN ${outcome.host})" : ""}',
     );
 
     try {
       final touch = touchSettings ?? await StreamTouchSettings.load();
-      playniteStreamDebug('native startStream…');
+      gbearStreamDebug('native startStream…');
       final started = await _invokeNative<bool>('startStream', {
         'host': videoHost,
         'videoPort': outcome.videoPort,
@@ -268,14 +268,14 @@ class StreamingBridge {
         ...touch.toMethodChannelMap(),
       });
       if (started == true) {
-        playniteStreamDebug('native startStream ok');
+        gbearStreamDebug('native startStream ok');
         return outcome;
       }
-      playniteStreamDebug('native startStream returned false');
+      gbearStreamDebug('native startStream returned false');
       await client.stopStreamOnHost();
       return StreamStartOutcome.failed('Native video player failed to start.');
     } on PlatformException catch (e) {
-      playniteStreamDebug('native startStream error: ${e.code} ${e.message}');
+      gbearStreamDebug('native startStream error: ${e.code} ${e.message}');
       await client.stopStreamOnHost();
       return StreamStartOutcome.failed(e.message ?? 'Native stream error');
     }

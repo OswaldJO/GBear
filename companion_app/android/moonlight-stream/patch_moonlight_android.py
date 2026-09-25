@@ -1,5 +1,5 @@
 #!/usr/bin/env python3
-"""Apply Playnite companion patches to synced moonlight-android sources."""
+"""Apply GBear companion patches to synced moonlight-android sources."""
 
 from __future__ import annotations
 
@@ -22,14 +22,14 @@ def patch_game_java(java_root: Path) -> None:
         path,
         "import com.limelight.utils.UiHelper;\n",
         "import com.limelight.utils.UiHelper;\n"
-        "import com.playnite.companion.input.PlayniteControllerMapping;\n",
-        "Game import PlayniteControllerMapping",
+        "import com.gbear.companion.input.GBearControllerMapping;\n",
+        "Game import GBearControllerMapping",
     )
     patch_file(
         path,
         "        prefConfig = PreferenceConfiguration.readPreferences(this);\n",
         "        prefConfig = PreferenceConfiguration.readPreferences(this);\n"
-        "        PlayniteControllerMapping.configure(getIntent());\n",
+        "        GBearControllerMapping.configure(getIntent());\n",
         "Game configure mapping",
     )
     patch_file(
@@ -38,8 +38,8 @@ def patch_game_java(java_root: Path) -> None:
         "                connecting = false;\n",
         "                connected = true;\n"
         "                connecting = false;\n"
-        "                if (PlayniteControllerMapping.shouldAutoEnableMouseEmulation()) {\n"
-        "                    controllerHandler.enablePlayniteAutoMouseEmulation();\n"
+        "                if (GBearControllerMapping.shouldAutoEnableMouseEmulation()) {\n"
+        "                    controllerHandler.enableGBearAutoMouseEmulation();\n"
         "                }\n",
         "Game auto mouse emulation",
     )
@@ -51,8 +51,8 @@ def patch_controller_handler(java_root: Path) -> None:
         path,
         "import com.limelight.preferences.PreferenceConfiguration;\n",
         "import com.limelight.preferences.PreferenceConfiguration;\n"
-        "import com.playnite.companion.input.PlayniteControllerMapping;\n",
-        "ControllerHandler import PlayniteControllerMapping",
+        "import com.gbear.companion.input.GBearControllerMapping;\n",
+        "ControllerHandler import GBearControllerMapping",
     )
     patch_file(
         path,
@@ -65,7 +65,7 @@ def patch_controller_handler(java_root: Path) -> None:
         "        if (prefConfig.flipFaceButtons) {\n"
         "            keyCode = handleFlipFaceButtons(keyCode);\n"
         "        }\n\n"
-        "        if (PlayniteControllerMapping.trySendKeyboardForKeyCode(conn, keyCode, true)) {\n"
+        "        if (GBearControllerMapping.trySendKeyboardForKeyCode(conn, keyCode, true)) {\n"
         "            return true;\n"
         "        }\n\n"
         "        switch (keyCode) {\n"
@@ -82,7 +82,7 @@ def patch_controller_handler(java_root: Path) -> None:
         "        if (prefConfig.flipFaceButtons) {\n"
         "            keyCode = handleFlipFaceButtons(keyCode);\n"
         "        }\n\n"
-        "        if (PlayniteControllerMapping.trySendKeyboardForKeyCode(conn, keyCode, false)) {\n"
+        "        if (GBearControllerMapping.trySendKeyboardForKeyCode(conn, keyCode, false)) {\n"
         "            return true;\n"
         "        }\n\n"
         "        // If the button hasn't been down long enough, sleep for a bit before sending the up event\n",
@@ -93,7 +93,7 @@ def patch_controller_handler(java_root: Path) -> None:
         "                // Send mouse events from analog sticks\n"
         "                if (prefConfig.analogStickForScrolling == PreferenceConfiguration.AnalogStickForScrolling.RIGHT) {\n",
         "                // Send mouse events from analog sticks\n"
-        "                if (PlayniteControllerMapping.isAutoMouseEmulation()) {\n"
+        "                if (GBearControllerMapping.isAutoMouseEmulation()) {\n"
         "                    sendEmulatedMouseMove(leftStickX, leftStickY);\n"
         "                }\n"
         "                else if (prefConfig.analogStickForScrolling == PreferenceConfiguration.AnalogStickForScrolling.RIGHT) {\n",
@@ -107,12 +107,12 @@ def patch_controller_handler(java_root: Path) -> None:
         "        if (context.hatXAxis != -1 && context.hatYAxis != -1) {\n",
         "            context.leftTrigger = (byte)(lt * 0xFF);\n"
         "            context.rightTrigger = (byte)(rt * 0xFF);\n"
-        "            PlayniteControllerMapping.trySendKeyboardForTrigger(conn, \"leftTrigger\", lt);\n"
-        "            PlayniteControllerMapping.trySendKeyboardForTrigger(conn, \"rightTrigger\", rt);\n"
-        "            if (PlayniteControllerMapping.isMapped(\"leftTrigger\")) {\n"
+        "            GBearControllerMapping.trySendKeyboardForTrigger(conn, \"leftTrigger\", lt);\n"
+        "            GBearControllerMapping.trySendKeyboardForTrigger(conn, \"rightTrigger\", rt);\n"
+        "            if (GBearControllerMapping.isMapped(\"leftTrigger\")) {\n"
         "                context.leftTrigger = 0;\n"
         "            }\n"
-        "            if (PlayniteControllerMapping.isMapped(\"rightTrigger\")) {\n"
+        "            if (GBearControllerMapping.isMapped(\"rightTrigger\")) {\n"
         "                context.rightTrigger = 0;\n"
         "            }\n"
         "        }\n\n"
@@ -125,7 +125,7 @@ def patch_controller_handler(java_root: Path) -> None:
         "            if (hatY < -0.5) {\n"
         "                context.inputMap |= ControllerPacket.UP_FLAG;\n",
         "            context.inputMap &= ~(ControllerPacket.UP_FLAG | ControllerPacket.DOWN_FLAG);\n"
-        "            if (hatY < -0.5 && !PlayniteControllerMapping.isMapped(\"dpadUp\")) {\n"
+        "            if (hatY < -0.5 && !GBearControllerMapping.isMapped(\"dpadUp\")) {\n"
         "                context.inputMap |= ControllerPacket.UP_FLAG;\n",
         "ControllerHandler dpad up mapping",
     )
@@ -133,7 +133,7 @@ def patch_controller_handler(java_root: Path) -> None:
         path,
         "            else if (hatY > 0.5) {\n"
         "                context.inputMap |= ControllerPacket.DOWN_FLAG;\n",
-        "            else if (hatY > 0.5 && !PlayniteControllerMapping.isMapped(\"dpadDown\")) {\n"
+        "            else if (hatY > 0.5 && !GBearControllerMapping.isMapped(\"dpadDown\")) {\n"
         "                context.inputMap |= ControllerPacket.DOWN_FLAG;\n",
         "ControllerHandler dpad down mapping",
     )
@@ -143,7 +143,7 @@ def patch_controller_handler(java_root: Path) -> None:
         "            if (hatX < -0.5) {\n"
         "                context.inputMap |= ControllerPacket.LEFT_FLAG;\n",
         "            context.inputMap &= ~(ControllerPacket.LEFT_FLAG | ControllerPacket.RIGHT_FLAG);\n"
-        "            if (hatX < -0.5 && !PlayniteControllerMapping.isMapped(\"dpadLeft\")) {\n"
+        "            if (hatX < -0.5 && !GBearControllerMapping.isMapped(\"dpadLeft\")) {\n"
         "                context.inputMap |= ControllerPacket.LEFT_FLAG;\n",
         "ControllerHandler dpad left mapping",
     )
@@ -151,7 +151,7 @@ def patch_controller_handler(java_root: Path) -> None:
         path,
         "            else if (hatX > 0.5) {\n"
         "                context.inputMap |= ControllerPacket.RIGHT_FLAG;\n",
-        "            else if (hatX > 0.5 && !PlayniteControllerMapping.isMapped(\"dpadRight\")) {\n"
+        "            else if (hatX > 0.5 && !GBearControllerMapping.isMapped(\"dpadRight\")) {\n"
         "                context.inputMap |= ControllerPacket.RIGHT_FLAG;\n",
         "ControllerHandler dpad right mapping",
     )
@@ -159,19 +159,19 @@ def patch_controller_handler(java_root: Path) -> None:
         path,
         "    @Override\n"
         "    public void reportControllerState(int controllerId, int buttonFlags,\n",
-        "    public void enablePlayniteAutoMouseEmulation() {\n"
-        "        if (!prefConfig.mouseEmulation || !PlayniteControllerMapping.shouldAutoEnableMouseEmulation()) {\n"
+        "    public void enableGBearAutoMouseEmulation() {\n"
+        "        if (!prefConfig.mouseEmulation || !GBearControllerMapping.shouldAutoEnableMouseEmulation()) {\n"
         "            return;\n"
         "        }\n"
-        "        enablePlayniteMouseEmulationForContext(defaultContext);\n"
+        "        enableGBearMouseEmulationForContext(defaultContext);\n"
         "        for (int i = 0; i < inputDeviceContexts.size(); i++) {\n"
-        "            enablePlayniteMouseEmulationForContext(inputDeviceContexts.valueAt(i));\n"
+        "            enableGBearMouseEmulationForContext(inputDeviceContexts.valueAt(i));\n"
         "        }\n"
         "        for (int i = 0; i < usbDeviceContexts.size(); i++) {\n"
-        "            enablePlayniteMouseEmulationForContext(usbDeviceContexts.valueAt(i));\n"
+        "            enableGBearMouseEmulationForContext(usbDeviceContexts.valueAt(i));\n"
         "        }\n"
         "    }\n\n"
-        "    private void enablePlayniteMouseEmulationForContext(GenericControllerContext context) {\n"
+        "    private void enableGBearMouseEmulationForContext(GenericControllerContext context) {\n"
         "        if (context == null || context.mouseEmulationActive) {\n"
         "            return;\n"
         "        }\n"

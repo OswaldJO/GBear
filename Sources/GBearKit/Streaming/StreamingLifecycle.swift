@@ -1,8 +1,8 @@
 import Foundation
 
-/// App-level hooks for the native Playnite stream host.
+/// App-level hooks for the native GBear stream host.
 public enum StreamingLifecycle {
     public static func stopManagedHostOnQuit() {
-        Task { await PlayniteStreamHostManager.shared.stop() }
+        Task { await GBearStreamHostManager.shared.stop() }
     }
 }

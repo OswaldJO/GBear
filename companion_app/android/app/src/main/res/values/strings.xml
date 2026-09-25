@@ -1,10 +1,10 @@
 <?xml version="1.0" encoding="utf-8"?>
 <resources>
     <string name="app_name">GBear</string>
-    <string name="playnite_stream_notification_title">GBear stream</string>
-    <string name="playnite_stream_action_stop">Stop</string>
-    <string name="playnite_stream_action_swap">Swap</string>
-    <string name="playnite_stream_action_swap_on">Swap on</string>
-    <string name="playnite_stream_action_controller">Controller</string>
-    <string name="playnite_stream_action_shortcuts">Shortcuts</string>
+    <string name="gbear_stream_notification_title">GBear stream</string>
+    <string name="gbear_stream_action_stop">Stop</string>
+    <string name="gbear_stream_action_swap">Swap</string>
+    <string name="gbear_stream_action_swap_on">Swap on</string>
+    <string name="gbear_stream_action_controller">Controller</string>
+    <string name="gbear_stream_action_shortcuts">Shortcuts</string>
 </resources>

@@ -1,6 +1,6 @@
 import Foundation
 
-/// Derives a cleaner search string from a ROM filename (similar in spirit to Playnite’s name cleanup before metadata lookup).
+/// Derives a cleaner search string from a ROM filename (similar in spirit to GBear’s name cleanup before metadata lookup).
 enum RomTitleNormalizer {
     private static let romanToArabic: [String: String] = [
         "i": "1", "ii": "2", "iii": "3", "iv": "4", "v": "5",

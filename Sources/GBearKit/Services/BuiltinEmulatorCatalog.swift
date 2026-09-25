@@ -1,7 +1,7 @@
 import Foundation
 
-/// One emulator profile from Playnite’s built-in `emulator.yaml` definitions.
-/// Source data: [Playnite](https://github.com/JosefNemec/Playnite) (MIT). Startup arguments use Playnite’s `{ImagePath}` placeholder for the game file.
+/// One emulator profile from GBear’s built-in `emulator.yaml` definitions.
+/// Source data: [GBear](https://github.com/JosefNemec/GBear) (MIT). Startup arguments use GBear’s `{ImagePath}` placeholder for the game file.
 public struct BuiltinEmulatorProfileRecord: Codable, Sendable, Hashable, Identifiable {
     public let catalogId: Int
     public let emulatorId: String

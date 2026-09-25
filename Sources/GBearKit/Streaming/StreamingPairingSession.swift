@@ -14,9 +14,9 @@ final class StreamingPairingSession {
     var statusMessage = ""
     var lastError: String?
 
-    private let hostManager: PlayniteStreamHostManager
+    private let hostManager: GBearStreamHostManager
 
-    init(hostManager: PlayniteStreamHostManager = .shared) {
+    init(hostManager: GBearStreamHostManager = .shared) {
         self.hostManager = hostManager
     }
 
@@ -47,7 +47,7 @@ final class StreamingPairingSession {
         hostManager.stopWatchingPairingRequests()
     }
 
-    func approve(_ request: PlayniteStreamControlServer.PendingPairRequest) {
+    func approve(_ request: GBearStreamControlServer.PendingPairRequest) {
         Task { @MainActor in
             let ok = await hostManager.approvePairing(deviceID: request.deviceID)
             await hostManager.refreshPendingPairRequests()
@@ -60,7 +60,7 @@ final class StreamingPairingSession {
         }
     }
 
-    func deny(_ request: PlayniteStreamControlServer.PendingPairRequest) {
+    func deny(_ request: GBearStreamControlServer.PendingPairRequest) {
         Task { @MainActor in
             _ = await hostManager.denyPairing(deviceID: request.deviceID)
             await hostManager.refreshPendingPairRequests()

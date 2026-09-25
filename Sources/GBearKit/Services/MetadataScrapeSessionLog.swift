@@ -85,7 +85,7 @@ enum MetadataScrapeSessionLog {
         }
         let stamp = ISO8601DateFormatter().string(from: Date())
             .replacingOccurrences(of: ":", with: "-")
-        let name = "playnite-scrape-\(stamp).log"
+        let name = "gbear-scrape-\(stamp).log"
         let destination = downloads.appendingPathComponent(name)
         do {
             if FileManager.default.fileExists(atPath: destination.path) {

@@ -1,5 +1,5 @@
 #!/usr/bin/env bash
-# Reset Playnite native streaming host data (pairing + legacy Sunshine folders).
+# Reset GBear native streaming host data (pairing + legacy Sunshine folders).
 #
 # Usage:
 #   ./Scripts/reset-streaming-state.sh
@@ -10,14 +10,14 @@ DERIVED=0
 [[ "${1:-}" == "--derived-data" ]] && DERIVED=1
 
 echo "Stopping legacy Sunshine processes (if any)…"
-pkill -f "MacOS/PlayniteSunshine" 2>/dev/null || true
+pkill -f "MacOS/GBearSunshine" 2>/dev/null || true
 pkill -f "/sunshine" 2>/dev/null || true
 sleep 0.5
 
 APP_SUPPORT="${HOME}/Library/Application Support/GBear"
 if [[ -d "${APP_SUPPORT}" ]]; then
   rm -rf "${APP_SUPPORT}/sunshine" "${APP_SUPPORT}/Sunshine"
-  rm -rf "${APP_SUPPORT}/playnite-stream"
+  rm -rf "${APP_SUPPORT}/gbear-stream" "${APP_SUPPORT}/playnite-stream"
   echo "Cleared GBear streaming data under Application Support"
 fi
 
@@ -49,6 +49,6 @@ Next steps:
   4. Mac → Streaming → Restart streaming host
   5. Companion → Settings → Mac LAN IP → pair again
 
-Control plane: HTTP port 28765 (playnite-stream/1)
+Control plane: HTTP port 28765 (gbear-stream/1)
 
 EOF

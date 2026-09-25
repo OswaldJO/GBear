@@ -90,6 +90,20 @@ public final class LibraryGame {
         return title
     }
 
+    /// True when this game already has ScreenScraper-sourced box art (cached file or pinned match + cover).
+    public var hasScreenScraperCover: Bool {
+        let cover = coverImageURLString?.trimmingCharacters(in: .whitespacesAndNewlines) ?? ""
+        let options = coverImageOptions
+        let looksLikeRemoteCover: (String) -> Bool = { value in
+            let lowered = value.lowercased()
+            return lowered.contains("/cover-cache/") || lowered.contains("screenscraper.fr")
+        }
+        if !cover.isEmpty, looksLikeRemoteCover(cover) { return true }
+        if options.contains(where: looksLikeRemoteCover) { return true }
+        if screenScraperGameId != nil, !cover.isEmpty { return true }
+        return false
+    }
+
     public var emulatorUUID: UUID? {
         guard let emulatorIDString, let uuid = UUID(uuidString: emulatorIDString) else { return nil }
         return uuid

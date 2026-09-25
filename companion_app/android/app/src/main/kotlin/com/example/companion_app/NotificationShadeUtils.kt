@@ -5,7 +5,7 @@ import android.util.Log
 
 /** Best-effort notification shade collapse; never throws (system APIs are restricted on modern Android). */
 object NotificationShadeUtils {
-    private const val TAG = "PlayniteNotification"
+    private const val TAG = "GBearNotification"
 
     fun collapse(context: Context) {
         try {

@@ -18,8 +18,8 @@ enum GameLaunchError: LocalizedError {
 }
 
 /// Launches a ROM using the emulator’s argument template.
-/// Playnite uses **`{ImagePath}`** for the game/disc file in profiles ([cmdline arguments](https://github.com/JosefNemec/Playnite/wiki/Cmdline-arguments)).
-/// We accept `{ImagePath}` (same as Playnite), `{rom}`, and `{ROM}` interchangeably.
+/// GBear uses **`{ImagePath}`** for the game/disc file in profiles ([cmdline arguments](https://github.com/JosefNemec/GBear/wiki/Cmdline-arguments)).
+/// We accept `{ImagePath}` (same as GBear), `{rom}`, and `{ROM}` interchangeably.
 /// `{user_name}` expands to the current macOS account short name; leading `~` in argv tokens is expanded.
 @MainActor
 enum GameLauncher {

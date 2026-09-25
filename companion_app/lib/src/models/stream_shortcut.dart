@@ -1,6 +1,6 @@
 import '../data/moonlight_key_codes.dart';
 
-/// Named keyboard chord fired to the Mac during a stream (via `PNK1`).
+/// Named keyboard chord fired to the Mac during a stream (via `GBK1`).
 class StreamShortcut {
   const StreamShortcut({
     required this.id,
