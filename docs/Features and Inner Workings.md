@@ -18,12 +18,13 @@ This document describes **how the app behaves today** and **where implementation
 - **All** — every visible game (emulator-linked + standalone Mac/Epic-style entries that pass filters).
 - **Mac Games** — games with **no** `emulatorUUID` (native Mac adds, Epic imports, etc.). Context menu can clear only these entries.
 - **Per-emulator** — games linked to that `EmulatorProfile`.
-- **Cover Art and Metadata → Screen Scrapper** — detail pane for ScreenScraper: open credentials sheet, run a **full-library** metadata/cover scrape (not the game grid). **Automatic matching** includes **Only Scan Missing** (default on): skip games that already have ScreenScraper cover art; uncheck to scrape the whole library again.
+- **Count** — footer under the sidebar shows how many games are in the selected list (All, Mac Games, Flycast, …). Hidden on Screen Scrapper.
+- **Cover Art and Metadata → Screen Scrapper** — detail pane for ScreenScraper in this order: **login**, **Actions** (full-library scrape), **Automatic matching**, **Region priority** at the bottom (reorderable list; first available cover/title region is used). **Only Scan Missing** (default on) skips games that already have ScreenScraper cover art; uncheck to scrape the whole library again.
 
 ### Toolbar (Library)
 
 - **Add Game** — `NSOpenPanel` for app/executable/directory; creates `LibraryGame` with no emulator.
-- **Scan Paths** — `GamePathScanner.scan` plus `EpicInstalledGamesImporter.importInstalledGames`; may schedule metadata pass. Scan is **one level deep** (files + immediate subfolders). After scanning, **prunes** emulator-linked games under a **reachable** Paths game folder when the ROM/file is missing (`ScanSummary.removedMissing`). Also removes leftover per-file rows inside folders now treated as one game (`removedNested`). Games under an offline/unmounted Paths root are kept. Startup still removes games whose **emulator** no longer exists.
+- **Scan Paths** — `GamePathScanner.scan` plus `EpicInstalledGamesImporter.importInstalledGames`; may schedule metadata pass. Scan is **one level deep** (files + immediate subfolders). After scanning, **prunes** emulator-linked games whose ROM/file is missing when that location is **reachable** (`ScanSummary.removedMissing`) — including leftovers from a Paths folder that was later removed. Also removes leftover per-file rows inside folders now treated as one game (`removedNested`). Games under an offline/unmounted volume are kept. Startup still removes games whose **emulator** no longer exists.
 - **Import Epic Installed Games** — Epic-only import.
 - **Metadata Settings** — presents `ScreenScraperSettingsSheet`.
 
@@ -35,7 +36,7 @@ This document describes **how the app behaves today** and **where implementation
 
 - `LibraryGameInspectorView`: display name; for emulator-linked games — **File** (basename) and **Path** (full `romPath`, link-styled; tap opens **Finder** via `NSWorkspace.activateFileViewerSelecting`); for **Mac** entries with no emulator — editable game path + **Choose Game…**.
 - **Multi-disc set:** link with suggestions or **Link with other discs…** sheet (`DiscGroupLinkSheet`); list linked discs with ▲/▼ reorder; **Reset order from filenames**; **Unlink this disc**. Linked discs share cover art and ScreenScraper `gameid`/`systemeid`; changes propagate via `DiscGroupService.propagateSharedState`.
-- Cover art: choose file, ScreenScraper manual search, reorder detected covers, set primary, clear. Inspector preview uses the same per-emulator crop as the grid.
+- Cover art: choose file, ScreenScraper manual search (title drops trailing `(USA)` / `(Disc 1)` tags; **Platform** defaults from the emulator profile), reorder detected covers, set primary, clear. Inspector preview uses the same per-emulator crop as the grid.
 
 Grid tiles show a **Disc N** badge when the game is in a linked set and a disc number is parsed from the path/title.
 
@@ -47,13 +48,14 @@ Grid tiles show a **Disc N** badge when the game is in a linked set and a disc n
 
 - Add/configure `EmulatorProfile`: executable path, GBear-style `{ImagePath}` / `{rom}` template, optional per-emulator ROM extensions.
 - **Cover art size** — picker on create and edit (`CoverAspectRatio`): **2:3 (SteamGridDB)**, **4:3 (SNES)**, **1:1 (GBA, PSX)**, **3:4 (PS2, GC, WII, NES)**, **8:7 (NDS, 3DS)**, **3:5 (PSP, SWITCH)**, **16:9 (Screen / Banner)**. Stored as `coverAspectRatioRaw` (default `"2:3"` for SwiftData migration). Catalog/custom row fill infers a starting ratio from platforms/name; the user can change it before Add / Save.
+- **Platform** — picker on create and edit (`screenScraperSystemId`, same ScreenScraper console list as manual cover search). Catalog/custom row fill infers a starting console; **Not set** falls back to catalog/name inference. Stored id is used for scrape `systemeid` and as the default **Platform** in inspector Search ScreenScraper.
 - **`{user_name}`** expands to the current macOS account short name at launch (for paths under `/Users/{user_name}/Library/...`). Leading **`~`** in an argv token is expanded. Absolute home paths in stored templates are normalized to `/Users/{user_name}/...` on save/startup (`LaunchArgumentTemplate`).
-- Export/import configured profiles (optional `coverAspectRatioRaw`; older JSON keeps the current ratio on conflict overwrite). Bundled catalog + custom launch-argument presets live in `BuiltinEmulatorCatalog` / `CustomEmulatorLibraryStore`.
+- Export/import configured profiles (optional `coverAspectRatioRaw` and `screenScraperSystemId`; older JSON keeps the current values on conflict overwrite). Bundled catalog + custom launch-argument presets live in `BuiltinEmulatorCatalog` / `CustomEmulatorLibraryStore`.
 - **PS2:** catalog preset **ARMSX2** (`emulatorId: armsx2`); default startup **`-fastboot -- "{ImagePath}"`**. **AetherSX2** is not in the catalog; startup may retarget existing `AetherSX2.app` profiles to `/Applications/ARMSX2.app`.
-- **Add emulator:** choosing a catalog/custom row fills launch args, file types, and a starting **cover art size**; **display name** is filled only when that field is empty.
+- **Add emulator:** choosing a catalog/custom row fills launch args, file types, a starting **platform**, and a starting **cover art size**; **display name** is filled only when that field is empty.
 - **App Sandbox is off** for the Mac app (`GBear.entitlements`). Sandboxed callers cannot pass `NSWorkspace.OpenConfiguration.arguments` (system ignores them).
 
-**Key types:** `EmulatorsView.swift`, `EmulatorProfile.swift`, `CoverAspectRatio.swift`, `LaunchArgumentTemplate.swift`, `BuiltinEmulatorCatalog.json`.
+**Key types:** `EmulatorsView.swift`, `EmulatorProfile.swift`, `CoverAspectRatio.swift`, `ScreenScraperPlatformPicker.swift`, `LaunchArgumentTemplate.swift`, `BuiltinEmulatorCatalog.json`.
 
 ---
 
@@ -103,12 +105,14 @@ When a configured **game folder** belongs to an RPCS3 (or PS3-style) emulator, `
   3. **`jeuInfos.php`** exact filename (`romnom` + size + `romtype`).
   4. **`jeuRecherche.php`** fuzzy search with query variants (`RomTitleNormalizer`, `.hack` `//` forms, roman → arabic numerals).
   5. Auto-select from ambiguous set (user toggle) or `ScreenScraperDisambiguationCoordinator` sheet.
-- **Platform resolution** before scrape: `EmulatorProfileLookup` (SwiftData relationship or `emulatorIDString`) → `EmulatorPlatformResolver`; fallback `MetadataSystemResolver` (`platformHint`, Epic → PC **135**); fallback **`RomPathPlatformResolver`** (longest matching **Paths** game-folder root). Scrape logs include `emulatorSystemeid=`.
+- **Platform resolution** before scrape: stored `EmulatorProfile.screenScraperSystemId` if set; else `EmulatorProfileLookup` → `EmulatorPlatformResolver` (catalog/name); fallback `MetadataSystemResolver` (`platformHint`, Epic → PC **135**); fallback **`RomPathPlatformResolver`** (longest matching **Paths** game-folder root). Scrape logs include `emulatorSystemeid=`.
+- **Region priority:** Screen Scrapper **Region priority** list (`MetadataCredentials.screenScraperRegionPriority`) ranks ScreenScraper locales. Cover and title picks walk that order (optional filename/manual-search region is tried first). Default rank is US → Europe → World → Japan → France → Germany → Spain → Korea, then Italy / Portugal / Australia / ScreenScraper default. Older single **PreferredRegion** values migrate to the top of the list.
+- **Manual search** (`ScreenScraperManualSearchSheet`): pre-fills the emulator’s platform and strips dump tags from the title (`Vandal Hearts II (USA)` → `Vandal Hearts II`; `Off the Game [0100F5201B452000][v0] (1.33 GB)` → `Off the Game`) because ScreenScraper `jeuRecherche` misses region/title-ID/size suffixes. Cover region picker boosts one locale for that search, then the rest of the priority list.
 - **Title safety:** `pickTitleIsCompatible` blocks wrong-platform fuzzy picks; Part/Vol numbers optional when subtitle matches (`.hack Part 1` ↔ `.hack//Infection`). Scraped title applied only when compatible (hash/exact always apply).
 - **Background fetcher:** `MetadataBackgroundFetcher` — periodic batches; **schedule extra** after scans; full library scrape from Screen Scrapper sidebar (`scrapeAllNow`). **Only Scan Missing** (default on) filters that full scrape to games without ScreenScraper covers (`LibraryGame.hasScreenScraperCover`). Session logs: `gbear-scrape-*.log` in Downloads. **`clearAllScrapedMetadata`** wipes covers, ScreenScraper IDs, disambiguation queue.
 - **Covers:** `CoverImageCache` disk cache; validates decoded `NSImage` before save. Local folder discovery first; remote appended to `coverImageOptions`; primary respects `preferScreenScraperCovers`. **Library crop** is per-emulator (`CoverAspectRatio`); files on disk are not rewritten. **Multi-disc:** cover + ScreenScraper IDs propagate to siblings in the same `discGroupIDString`.
 
-**Key types:** `MetadataService.swift`, `ScreenScraperClient.swift`, `RomFingerprint.swift`, `RomTitleNormalizer.swift`, `MetadataSystemResolver.swift`, `RomPathPlatformResolver.swift`, `MetadataBackgroundFetcher.swift`, `ScreenScraperLibraryView.swift`, `ScreenScraperDisambiguationCoordinator.swift`, `CoverImageCache.swift`.
+**Key types:** `MetadataService.swift`, `ScreenScraperClient.swift`, `RomFingerprint.swift`, `RomTitleNormalizer.swift`, `MetadataSystemResolver.swift`, `RomPathPlatformResolver.swift`, `MetadataBackgroundFetcher.swift`, `ScreenScraperLibraryView.swift`, `ScreenScraperRegionPriorityList.swift`, `ScreenScraperDisambiguationCoordinator.swift`, `CoverImageCache.swift`.
 
 ---
 
@@ -243,7 +247,7 @@ Legacy bindings that used **Alt** (`0x12`) still map to left Option on the Mac.
 
 ## Data model (SwiftData)
 
-- **`EmulatorProfile`** — name, paths, launch template, extensions, `preferScreenScraperCovers`, `autoLinkMultiDiscGames` (both default `false` for migration), `coverAspectRatioRaw` (default `"2:3"`).
+- **`EmulatorProfile`** — name, paths, launch template, extensions, `preferScreenScraperCovers`, `autoLinkMultiDiscGames` (both default `false` for migration), `coverAspectRatioRaw` (default `"2:3"`), `screenScraperSystemId` (optional ScreenScraper console).
 - **`LibraryGame`** — title, `libraryDisplayName`, `romPath`, optional emulator link (`emulatorIDString` + relationship), cover URLs/options JSON, `platformHint`, `screenScraperGameId` / `screenScraperSystemId`, `screenScraperSelectionSkipped`, `discGroupIDString`, `discGroupOrder`, `librarySourceID`, `epicAppName`, `sortOrder`, play/metadata timestamps.
 - **`GameFolderPath`** — folder path, purpose (games / covers / excludes), linked emulator.
 
@@ -263,7 +267,7 @@ Legacy bindings that used **Alt** (`0x12`) still map to left Option on the Mac.
 - **RPCS3 `dev_hdd0/game`:** Assign the folder to the **RPCS3** emulator profile (not a generic multi-system profile) so folder import and ISO-only file rules apply. After scanner fixes, run **Scan Paths** to rename stale **EBOOT** entries. PSN/HDD (**HG**) installs need `USRDIR/EBOOT.BIN`; disc **GD** data folders without EBOOT are not launchable from this path alone.
 - **ScreenScraper** quotas, threading, and API shape can change. Without resolved **`systemeid`**, hash lookup is skipped and fuzzy search may pick wrong consoles (DS/Xbox/NES) or return `no_match`. Run **Scan Paths** so `RomPathPlatformResolver` can infer platform from folder roots; check scrape log for `emulatorSystemeid=nil`.
 - **Multi-disc auto-link** uses normalized base titles — enable per emulator on **Paths**; manual link/unlink still available in inspector.
-- **SwiftData migration:** new non-optional attributes need defaults or optional types; a prior crash on `preferScreenScraperCovers` was fixed with `= false` on the property. `coverAspectRatioRaw` defaults to `"2:3"`.
+- **SwiftData migration:** new non-optional attributes need defaults or optional types; a prior crash on `preferScreenScraperCovers` was fixed with `= false` on the property. `coverAspectRatioRaw` defaults to `"2:3"`. `screenScraperSystemId` is optional (`nil` = infer).
 - **Full-library scrape** is synchronous per game with delays; large libraries take time and network.
 - **Native streaming (Android)** is verified: video over TCP **28766** (~99% rendered vs. received); audio over TCP **28769** with Mac output muted during stream; touch over UDP **28768** with Accessibility granted.
 - **Audio troubleshooting:** expect `Audio TCP connected`, then `Audio packet #1` and `AudioTrack started` with a modest buffer size. Mac console: `[GBearAudio] phone connected (TCP audio)`, `muted Mac default output`, `sent TCP audio frame #N`. If silent, check phone **media** volume and Mac firewall for **28767** / **28769**.

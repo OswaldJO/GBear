@@ -12,7 +12,7 @@ struct ScreenScraperLibrarySettingsView: View {
     let onResolveAmbiguous: () -> Void
     let onClearScrapedCovers: () -> Int
 
-    @State private var preferredRegion: String = MetadataCredentials.screenScraperPreferredRegion
+    @State private var regionPriority: [String] = MetadataCredentials.screenScraperRegionPriority
     @State private var autoSelectAmbiguous = MetadataCredentials.screenScraperAutoSelectAmbiguousMatches
     @State private var onlyScanMissing = MetadataCredentials.screenScraperOnlyScanMissing
     @State private var showClearCoversConfirmation = false
@@ -29,18 +29,18 @@ struct ScreenScraperLibrarySettingsView: View {
                     disambiguationCard
                 }
                 loginStatusCard
-                defaultRegionCard
-                autoSelectCard
+                actionsCard
                 if fetcher.libraryScrapeInProgress {
                     scrapeProgressCard
                 } else if let summary = fetcher.lastLibraryScrapeSummary,
                           let finished = fetcher.lastLibraryScrapeFinishedAt {
                     lastScrapeResultCard(summary: summary, finishedAt: finished)
                 }
-                actionsCard
                 if fetcher.backgroundPassInProgress && !fetcher.libraryScrapeInProgress {
                     backgroundPassBanner
                 }
+                autoSelectCard
+                defaultRegionCard
                 helpText
             }
             .padding(20)
@@ -283,25 +283,13 @@ struct ScreenScraperLibrarySettingsView: View {
 
     private var defaultRegionCard: some View {
         GroupBox {
-            VStack(alignment: .leading, spacing: 10) {
-                Picker("Default cover region", selection: $preferredRegion) {
-                    ForEach(ScreenScraperRegionPreference.selectableRegions, id: \.code) { region in
-                        Text(region.label).tag(region.code)
-                    }
+            ScreenScraperRegionPriorityList(order: $regionPriority)
+                .onChange(of: regionPriority) { _, newValue in
+                    MetadataCredentials.screenScraperRegionPriority = newValue
                 }
-                .onChange(of: preferredRegion) { _, newValue in
-                    MetadataCredentials.screenScraperPreferredRegion = newValue
-                }
-
-                Text(
-                    "Library scrapes prefer box art from this region. If a game has no art for that region, other regions are used as fallback."
-                )
-                .font(.subheadline)
-                .foregroundStyle(.secondary)
-            }
-            .padding(.vertical, 4)
+                .padding(.vertical, 4)
         } label: {
-            Label("Default region", systemImage: "globe")
+            Label("Region priority", systemImage: "globe")
         }
     }
 

@@ -17,7 +17,7 @@ enum MetadataScrapeSessionLog {
                 writer = try FileHandle(forWritingTo: url)
                 writeLocked("I", "=== ScreenScraper library scrape started ===")
                 writeLocked("I", "host=\(ProcessInfo.processInfo.hostName)")
-                writeLocked("I", "games=\(totalGames) preferredRegion=\(preferredRegion)")
+                writeLocked("I", "games=\(totalGames) regionPriority=\(preferredRegion)")
                 writeLocked("I", "credentialsConfigured=\(MetadataCredentials.isConfigured) userLogin=\(MetadataCredentials.hasUserCredentials)")
             } catch {
                 writer = nil

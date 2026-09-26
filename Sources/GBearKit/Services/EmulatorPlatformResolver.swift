@@ -10,7 +10,13 @@ enum EmulatorPlatformResolver {
         var catalogRecord: BuiltinEmulatorProfileRecord?
 
         var primaryPlatformHint: String? {
-            gbearPlatformSlugs.first.map { ScreenScraperPlatformMap.displayName(forGBearSlug: $0) }
+            if let slug = gbearPlatformSlugs.first {
+                return ScreenScraperPlatformMap.displayName(forGBearSlug: slug)
+            }
+            if let id = primarySystemId {
+                return ScreenScraperPlatformMap.displayName(forSystemId: id)
+            }
+            return nil
         }
     }
 
@@ -28,20 +34,44 @@ enum EmulatorPlatformResolver {
     }
 
     private static func cacheKey(for emulator: EmulatorProfile) -> String {
-        "\(emulator.name)|\(emulator.launchArgumentTemplate)|\(emulator.supportedFileTypesCSV ?? "")"
+        let stored = emulator.screenScraperSystemId.map(String.init) ?? ""
+        return "\(emulator.name)|\(emulator.launchArgumentTemplate)|\(emulator.supportedFileTypesCSV ?? "")|\(stored)"
     }
 
     private static func resolveUncached(emulator: EmulatorProfile) -> Resolution? {
+        let storedSystemId = emulator.screenScraperSystemId.flatMap { id in
+            ScreenScraperPlatformMap.isKnownSystemId(id) ? id : nil
+        }
+
         if let record = matchingCatalogRecord(for: emulator) {
-            let systemId = record.platforms.first.flatMap { ScreenScraperPlatformMap.systemId(forGBearSlug: $0) }
+            let catalogId = record.platforms.first.flatMap { ScreenScraperPlatformMap.systemId(forGBearSlug: $0) }
+            let nameId = ScreenScraperPlatformMap.inferredSystemId(platforms: [], name: emulator.name)
             return Resolution(
                 gbearPlatformSlugs: record.platforms,
-                primarySystemId: systemId,
+                primarySystemId: storedSystemId ?? nameId ?? catalogId,
                 catalogRecord: record
             )
         }
         if let inferred = inferFromProfileName(emulator.name) {
-            return inferred
+            return Resolution(
+                gbearPlatformSlugs: inferred.gbearPlatformSlugs,
+                primarySystemId: storedSystemId ?? inferred.primarySystemId,
+                catalogRecord: inferred.catalogRecord
+            )
+        }
+        if let storedSystemId {
+            return Resolution(
+                gbearPlatformSlugs: [],
+                primarySystemId: storedSystemId,
+                catalogRecord: nil
+            )
+        }
+        if let inferredId = ScreenScraperPlatformMap.inferredSystemId(platforms: [], name: emulator.name) {
+            return Resolution(
+                gbearPlatformSlugs: [],
+                primarySystemId: inferredId,
+                catalogRecord: nil
+            )
         }
         return nil
     }

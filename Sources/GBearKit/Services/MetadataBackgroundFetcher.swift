@@ -185,7 +185,7 @@ final class MetadataBackgroundFetcher {
             libraryScrapeUpdated = 0
             MetadataScrapeSessionLog.startSession(
                 totalGames: selectedCandidates.count,
-                preferredRegion: MetadataCredentials.screenScraperPreferredRegion
+                preferredRegion: MetadataCredentials.screenScraperRegionPriority.joined(separator: ",")
             )
             if onlyScanMissing {
                 let skipped = games.count - selectedCandidates.count

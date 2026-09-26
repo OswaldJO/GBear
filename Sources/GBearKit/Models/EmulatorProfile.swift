@@ -19,6 +19,8 @@ public final class EmulatorProfile {
     public var autoLinkMultiDiscGames: Bool = false
     /// Cover crop for this emulator’s library tiles (`2:3`, `4:3`, `1:1`, `3:4`, `8:7`, `3:5`, `16:9`).
     public var coverAspectRatioRaw: String = CoverAspectRatio.default.rawValue
+    /// ScreenScraper `systemeid` for this emulator’s library (manual cover search + scrape). `nil` = infer from catalog/name.
+    public var screenScraperSystemId: Int? = nil
     public var sortOrder: Int
     public var dateCreated: Date
 
@@ -34,6 +36,7 @@ public final class EmulatorProfile {
         preferScreenScraperCovers: Bool = false,
         autoLinkMultiDiscGames: Bool = false,
         coverAspectRatioRaw: String = CoverAspectRatio.default.rawValue,
+        screenScraperSystemId: Int? = nil,
         sortOrder: Int = 0,
         dateCreated: Date = Date()
     ) {
@@ -45,6 +48,7 @@ public final class EmulatorProfile {
         self.preferScreenScraperCovers = preferScreenScraperCovers
         self.autoLinkMultiDiscGames = autoLinkMultiDiscGames
         self.coverAspectRatioRaw = CoverAspectRatio.parse(coverAspectRatioRaw).rawValue
+        self.screenScraperSystemId = screenScraperSystemId
         self.sortOrder = sortOrder
         self.dateCreated = dateCreated
     }

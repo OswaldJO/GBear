@@ -28,6 +28,7 @@ private struct EmulatorTransferRecord: Codable {
     var launchArgumentTemplate: String
     var supportedFileTypesCSV: String?
     var coverAspectRatioRaw: String?
+    var screenScraperSystemId: Int?
 }
 
 private struct EmulatorImportConflict: Identifiable {
@@ -58,6 +59,7 @@ struct EmulatorsView: View {
     @State private var argumentTemplate: String = "\"{ImagePath}\""
     @State private var supportedFileTypesInput: String = ""
     @State private var coverAspectRatio: CoverAspectRatio = .default
+    @State private var screenScraperSystemId: Int?
     /// Filter for the “Add emulator” catalog list only (independent from Default Launch Arguments).
     @State private var addEmulatorLibrarySearch: String = ""
     /// Filter for the Default Launch Arguments list.
@@ -160,6 +162,13 @@ struct EmulatorsView: View {
         }
     }
 
+    private func configuredPlatformLabel(for emulator: EmulatorProfile) -> String {
+        let systemId = emulator.screenScraperSystemId
+            ?? EmulatorPlatformResolver.resolve(emulator: emulator)?.primarySystemId
+        guard let systemId else { return "Not set" }
+        return ScreenScraperPlatformMap.displayName(forSystemId: systemId)
+    }
+
     private func normalizeFileTypesCSV(_ raw: String) -> String {
         raw
             .split(separator: ",")
@@ -175,6 +184,7 @@ struct EmulatorsView: View {
             || argumentTemplate.trimmingCharacters(in: .whitespacesAndNewlines) != "\"{ImagePath}\""
             || !supportedFileTypesInput.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty
             || coverAspectRatio != .default
+            || screenScraperSystemId != nil
             || !addEmulatorLibrarySearch.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty
     }
 
@@ -251,6 +261,7 @@ struct EmulatorsView: View {
                     TextField("Path to .app or executable", text: $executablePath)
                     TextField("Launch arguments (GBear: {ImagePath} for game file; {ROM} and {rom} also work)", text: $argumentTemplate)
                     TextField("Supported File Types (comma-separated: iso, cso, chd)", text: $supportedFileTypesInput)
+                    ScreenScraperPlatformPicker(selection: $screenScraperSystemId)
                     CoverAspectRatioPicker(selection: $coverAspectRatio)
                     HStack {
                         Button("Reset") { resetAddEmulatorForm() }
@@ -294,6 +305,9 @@ struct EmulatorsView: View {
                                         .foregroundStyle(.tertiary)
                                         .textSelection(.enabled)
                                 }
+                                Text("Platform: \(configuredPlatformLabel(for: emu))")
+                                    .font(.caption2)
+                                    .foregroundStyle(.tertiary)
                                 Text("Cover art: \(emu.coverAspectRatio.pickerLabel)")
                                     .font(.caption2)
                                     .foregroundStyle(.tertiary)
@@ -537,6 +551,7 @@ struct EmulatorsView: View {
             argumentTemplate = entry.startupArguments
             supportedFileTypesInput = entry.supportedFileTypesCSV
             coverAspectRatio = CoverAspectRatio.inferred(platforms: [], name: entry.displayTitle)
+            screenScraperSystemId = ScreenScraperPlatformMap.inferredSystemId(platforms: [], name: entry.displayTitle)
             addEmulatorLibrarySearch = ""
         }
     }
@@ -548,6 +563,7 @@ struct EmulatorsView: View {
         argumentTemplate = CatalogLaunchArgumentOverrides.effectiveStartupArguments(for: record)
         supportedFileTypesInput = record.supportedFileTypesCSV
         coverAspectRatio = CoverAspectRatio.inferred(platforms: record.platforms, name: record.displayTitle)
+        screenScraperSystemId = ScreenScraperPlatformMap.inferredSystemId(platforms: record.platforms, name: record.displayTitle)
         addEmulatorLibrarySearch = ""
     }
 
@@ -560,6 +576,7 @@ struct EmulatorsView: View {
             ),
             supportedFileTypesCSV: normalizeFileTypesCSV(supportedFileTypesInput),
             coverAspectRatioRaw: coverAspectRatio.rawValue,
+            screenScraperSystemId: screenScraperSystemId,
             sortOrder: emulators.count
         )
         modelContext.insert(profile)
@@ -572,6 +589,7 @@ struct EmulatorsView: View {
         argumentTemplate = "\"{ImagePath}\""
         supportedFileTypesInput = ""
         coverAspectRatio = .default
+        screenScraperSystemId = nil
         addEmulatorLibrarySearch = ""
     }
 
@@ -590,7 +608,8 @@ struct EmulatorsView: View {
                     executablePath: emulator.executablePath,
                     launchArgumentTemplate: emulator.launchArgumentTemplate,
                     supportedFileTypesCSV: emulator.supportedFileTypesCSV,
-                    coverAspectRatioRaw: emulator.coverAspectRatio.rawValue
+                    coverAspectRatioRaw: emulator.coverAspectRatio.rawValue,
+                    screenScraperSystemId: emulator.screenScraperSystemId
                 )
             }
 
@@ -643,6 +662,7 @@ struct EmulatorsView: View {
                     ),
                     supportedFileTypesCSV: cleanOptionalCSV(record.supportedFileTypesCSV),
                     coverAspectRatioRaw: CoverAspectRatio.parse(record.coverAspectRatioRaw).rawValue,
+                    screenScraperSystemId: record.screenScraperSystemId,
                     sortOrder: emulators.count + insertedCount
                 )
                 modelContext.insert(profile)
@@ -757,6 +777,9 @@ struct EmulatorsView: View {
         if let raw = record.coverAspectRatioRaw {
             existing.coverAspectRatioRaw = CoverAspectRatio.parse(raw).rawValue
         }
+        if let systemId = record.screenScraperSystemId {
+            existing.screenScraperSystemId = systemId
+        }
     }
 
     private func cleanOptionalCSV(_ value: String?) -> String? {
@@ -801,7 +824,8 @@ struct EmulatorsView: View {
             executablePath: template.1 == .current ? currentExecutable : imported.executablePath,
             launchArgumentTemplate: template.2 == .current ? currentArguments : imported.launchArgumentTemplate,
             supportedFileTypesCSV: template.3 == .current ? currentFileTypes : imported.supportedFileTypesCSV,
-            coverAspectRatioRaw: current?.coverAspectRatio.rawValue ?? imported.coverAspectRatioRaw
+            coverAspectRatioRaw: current?.coverAspectRatio.rawValue ?? imported.coverAspectRatioRaw,
+            screenScraperSystemId: current?.screenScraperSystemId ?? imported.screenScraperSystemId
         )
     }
 
@@ -1144,6 +1168,7 @@ private struct EditEmulatorSheet: View {
     @State private var launchArgumentTemplate: String = ""
     @State private var supportedFileTypesCSV: String = ""
     @State private var coverAspectRatio: CoverAspectRatio = .default
+    @State private var screenScraperSystemId: Int?
     @State private var loadFailed = false
 
     var body: some View {
@@ -1162,6 +1187,7 @@ private struct EditEmulatorSheet: View {
                             TextField("Path to .app or executable", text: $executablePath)
                             TextField("Launch arguments (GBear: {ImagePath}; {ROM} and {rom} also work)", text: $launchArgumentTemplate)
                             TextField("Supported File Types (comma-separated)", text: $supportedFileTypesCSV)
+                            ScreenScraperPlatformPicker(selection: $screenScraperSystemId)
                             CoverAspectRatioPicker(selection: $coverAspectRatio)
                         }
                     }
@@ -1189,7 +1215,7 @@ private struct EditEmulatorSheet: View {
                 }
             }
         }
-        .frame(minWidth: 440, minHeight: 340)
+        .frame(minWidth: 440, minHeight: 380)
     }
 
     @MainActor
@@ -1207,6 +1233,8 @@ private struct EditEmulatorSheet: View {
         launchArgumentTemplate = profile.launchArgumentTemplate
         supportedFileTypesCSV = profile.supportedFileTypesCSV ?? ""
         coverAspectRatio = profile.coverAspectRatio
+        screenScraperSystemId = profile.screenScraperSystemId
+            ?? EmulatorPlatformResolver.resolve(emulator: profile)?.primarySystemId
         loadFailed = false
     }
 
@@ -1228,6 +1256,7 @@ private struct EditEmulatorSheet: View {
         let normalized = supportedFileTypesCSV.trimmingCharacters(in: .whitespacesAndNewlines)
         profile.supportedFileTypesCSV = normalized.isEmpty ? nil : normalized
         profile.coverAspectRatio = coverAspectRatio
+        profile.screenScraperSystemId = screenScraperSystemId
         try? modelContext.save()
         onFinished()
         dismiss()

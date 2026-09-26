@@ -12,8 +12,38 @@ enum RomTitleNormalizer {
         "romslab", "hdd", "trial", "nsp", "eshop", "xci", "usa", "eur", "eu", "jpn", "wor",
     ]
 
+    /// Drops dump tags so ScreenScraper title search matches the game name.
+    /// `Off the Game [0100F5201B452000][v0] (1.33 GB)` → `Off the Game`; `Vandal Hearts II (USA)` → `Vandal Hearts II`.
+    static func strippingTrailingParentheticalTags(_ title: String) -> String {
+        var s = title.trimmingCharacters(in: .whitespacesAndNewlines)
+
+        let bracketPattern = #"\[[^\]]*\]"#
+        while let range = s.range(of: bracketPattern, options: .regularExpression) {
+            s.removeSubrange(range)
+        }
+
+        let sizePattern = #"\s*\(\s*[\d.,]+\s*(GB|MB|KB|GiB|MiB|KiB|TB)\s*\)"#
+        while let range = s.range(of: sizePattern, options: [.regularExpression, .caseInsensitive]) {
+            s.removeSubrange(range)
+        }
+
+        let switchTitleIdPattern = #"\s*\b0100[0-9A-Fa-f]{12}\b"#
+        while let range = s.range(of: switchTitleIdPattern, options: .regularExpression) {
+            s.removeSubrange(range)
+        }
+
+        let trailingPattern = #"\s*[\(\[][^\)\]]+[\)\]]\s*$"#
+        while let range = s.range(of: trailingPattern, options: .regularExpression) {
+            s.removeSubrange(range)
+            s = s.trimmingCharacters(in: .whitespacesAndNewlines)
+        }
+
+        return s.split(whereSeparator: \.isWhitespace).joined(separator: " ")
+            .trimmingCharacters(in: .whitespacesAndNewlines)
+    }
+
     static func searchQuery(fromFileNameStem stem: String) -> String {
-        var s = stem
+        var s = strippingTrailingParentheticalTags(stem)
         for ch in ["™", "®", "©"] {
             s = s.replacingOccurrences(of: ch, with: "")
         }

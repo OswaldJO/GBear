@@ -7,6 +7,7 @@ enum MetadataCredentials {
     private static let userIDKey = "Metadata.ScreenScraper.UserID"
     private static let userPasswordKey = "Metadata.ScreenScraper.UserPassword"
     private static let preferredRegionKey = "Metadata.ScreenScraper.PreferredRegion"
+    private static let regionPriorityKey = "Metadata.ScreenScraper.RegionPriority"
     private static let autoSelectAmbiguityKey = "Metadata.ScreenScraper.AutoSelectAmbiguity"
     private static let onlyScanMissingKey = "Metadata.ScreenScraper.OnlyScanMissing"
 
@@ -76,19 +77,36 @@ enum MetadataCredentials {
         }
     }
 
-    /// Preferred ScreenScraper region short code for covers/titles (`us`, `eu`, `jp`, `wor`, …).
-    static var screenScraperPreferredRegion: String {
+    /// Ranked ScreenScraper region codes for covers/titles. First entry is the primary preference.
+    static var screenScraperRegionPriority: [String] {
         get {
-            let stored = UserDefaults.standard.string(forKey: preferredRegionKey)?
+            if let stored = UserDefaults.standard.stringArray(forKey: regionPriorityKey), !stored.isEmpty {
+                return ScreenScraperRegionPreference.normalizedPriority(stored)
+            }
+            let legacy = UserDefaults.standard.string(forKey: preferredRegionKey)?
                 .trimmingCharacters(in: .whitespacesAndNewlines)
                 .lowercased()
-            if let stored, !stored.isEmpty {
-                return stored
+            if let legacy, !legacy.isEmpty {
+                return ScreenScraperRegionPreference.normalizedPriority([legacy])
             }
-            return ScreenScraperRegionPreference.defaultRegionCode
+            return ScreenScraperRegionPreference.defaultPriorityOrder
         }
         set {
-            UserDefaults.standard.set(newValue.lowercased(), forKey: preferredRegionKey)
+            let normalized = ScreenScraperRegionPreference.normalizedPriority(newValue)
+            UserDefaults.standard.set(normalized, forKey: regionPriorityKey)
+            if let first = normalized.first {
+                UserDefaults.standard.set(first, forKey: preferredRegionKey)
+            }
+        }
+    }
+
+    /// First region in `screenScraperRegionPriority` (manual search default, scrape log).
+    static var screenScraperPreferredRegion: String {
+        get {
+            screenScraperRegionPriority.first ?? ScreenScraperRegionPreference.defaultRegionCode
+        }
+        set {
+            screenScraperRegionPriority = ScreenScraperRegionPreference.normalizedPriority([newValue])
         }
     }
 

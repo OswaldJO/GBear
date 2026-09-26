@@ -23,7 +23,7 @@ struct ScreenScraperManualSearchSheet: View {
         self.libraryGameId = libraryGameId
         self.initialTitle = initialTitle
         self.initialSystemId = initialSystemId
-        _searchTitle = State(initialValue: initialTitle)
+        _searchTitle = State(initialValue: RomTitleNormalizer.strippingTrailingParentheticalTags(initialTitle))
         _selectedSystemId = State(initialValue: initialSystemId)
         _selectedCoverRegion = State(initialValue: MetadataCredentials.screenScraperPreferredRegion)
     }
@@ -64,7 +64,7 @@ struct ScreenScraperManualSearchSheet: View {
                     Button("Search") {
                         Task { await runSearch() }
                     }
-                    .disabled(isSearching || searchTitle.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty)
+                    .disabled(isSearching || RomTitleNormalizer.strippingTrailingParentheticalTags(searchTitle).isEmpty)
                 }
             }
         }
@@ -90,7 +90,7 @@ struct ScreenScraperManualSearchSheet: View {
                     }
                 }
 
-                Text("Region affects which box art is preferred in each result. Platform limits results to one console.")
+                Text("Results pick box art using this region first, then the rest of your Screen Scrapper region priority list. Platform limits results to one console.")
                     .font(.caption)
                     .foregroundStyle(.secondary)
             }
@@ -119,8 +119,13 @@ struct ScreenScraperManualSearchSheet: View {
         errorMessage = nil
         defer { isSearching = false }
 
-        let query = searchTitle.trimmingCharacters(in: .whitespacesAndNewlines)
+        let query = RomTitleNormalizer.strippingTrailingParentheticalTags(
+            searchTitle.trimmingCharacters(in: .whitespacesAndNewlines)
+        )
         guard !query.isEmpty else { return }
+        if query != searchTitle {
+            searchTitle = query
+        }
 
         do {
             candidates = try await ScreenScraperClient.searchGames(

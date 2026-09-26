@@ -8,6 +8,24 @@ For release notes style summaries, see `source control log.md`. For architecture
 
 ## Mac library — scanning & covers
 
+### BJ-090 — Manual ScreenScraper search missed region-tagged titles
+| | |
+|---|---|
+| **When** | Sep 25 2026 (**in progress**) |
+| **Symptom** | Inspector **Search ScreenScraper** for *Vandal Hearts II (USA)* returned no match (platform often wrong, e.g. PlayStation 2). The same title without `(USA)` on PlayStation matched. |
+| **Cause** | Manual search prefilled `libraryListTitle` including No-Intro region tags. ScreenScraper `jeuRecherche` does not match those. Platform was inferred from catalog/extension overlap, not an explicit emulator console. |
+| **Fix** | `EmulatorProfile.screenScraperSystemId` picker (same list as the search sheet) seeds manual search + scrape. `RomTitleNormalizer.strippingTrailingParentheticalTags` drops `[title IDs]` / `[v0]` / `(1.33 GB)` / trailing `(USA)` from the search title. |
+| **Commit** | *in progress* |
+
+### BJ-089 — Missing games stayed after Paths folder was removed
+| | |
+|---|---|
+| **When** | Sep 25 2026 (**in progress**) |
+| **Symptom** | PS1 titles from `/Users/…/Desktop/Games/PS1` remained in the library after the files were deleted and **Scan Paths**, even though Paths now only listed `/Volumes/PNY 512/PS1`. |
+| **Cause** | `pruneMissingPathScannedGames` only considered games **under a current Paths root**. Rows from a removed scan folder were skipped. |
+| **Fix** | Also delete emulator-linked games whose file is gone when that location is still reachable (local disk). Keep rows when `/Volumes/Name` is unmounted. |
+| **Commit** | *in progress* |
+
 ### BJ-088 — Bin/cue folders imported as one game per file
 | | |
 |---|---|

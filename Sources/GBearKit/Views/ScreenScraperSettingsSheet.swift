@@ -5,7 +5,6 @@ struct ScreenScraperSettingsSheet: View {
     @Environment(\.dismiss) private var dismiss
     @State private var userID: String = MetadataCredentials.screenScraperUserID ?? ""
     @State private var userPassword: String = MetadataCredentials.screenScraperUserPassword ?? ""
-    @State private var preferredRegion: String = MetadataCredentials.screenScraperPreferredRegion
 
     private var isLoggedIn: Bool { MetadataCredentials.hasUserCredentials }
 
@@ -45,19 +44,6 @@ struct ScreenScraperSettingsSheet: View {
                     SecureField("Password (sspassword)", text: $userPassword)
                         .textContentType(.password)
                 }
-
-                Section("Default game region") {
-                    Picker("Cover region", selection: $preferredRegion) {
-                        ForEach(ScreenScraperRegionPreference.selectableRegions, id: \.code) { region in
-                            Text(region.label).tag(region.code)
-                        }
-                    }
-                    Text(
-                        "ScreenScraper cover art prefers this region. If a game has no art for that region, the app falls back to World, then other regions."
-                    )
-                    .font(.subheadline)
-                    .foregroundStyle(.secondary)
-                }
             }
             .formStyle(.grouped)
             .navigationTitle("ScreenScraper Login")
@@ -69,13 +55,12 @@ struct ScreenScraperSettingsSheet: View {
                     Button("Save") {
                         MetadataCredentials.screenScraperUserID = userID.trimmingCharacters(in: .whitespacesAndNewlines)
                         MetadataCredentials.screenScraperUserPassword = userPassword.trimmingCharacters(in: .whitespacesAndNewlines)
-                        MetadataCredentials.screenScraperPreferredRegion = preferredRegion
                         dismiss()
                     }
                 }
             }
         }
-        .frame(minWidth: 420, minHeight: 360)
+        .frame(minWidth: 420, minHeight: 300)
     }
 }
 

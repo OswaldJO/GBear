@@ -782,11 +782,42 @@ public enum GamePathScanner {
         )
     }
 
-    /// Removes path-scanned games whose files are gone, without wiping entries when a whole drive/root is offline.
+    /// True when we can tell the file’s volume/folder is online (missing file ≠ unmounted disk).
+    private static func isRomLocationReachable(_ path: String) -> Bool {
+        let standardized = (path as NSString).standardizingPath
+        if FileManager.default.fileExists(atPath: standardized) { return true }
+
+        let url = URL(fileURLWithPath: standardized)
+        let parts = url.pathComponents
+        if parts.count >= 3, parts[1].lowercased() == "volumes" {
+            let volumeRoot = "/Volumes/\(parts[2])"
+            var isDir: ObjCBool = false
+            return FileManager.default.fileExists(atPath: volumeRoot, isDirectory: &isDir)
+        }
+
+        var current = url.deletingLastPathComponent()
+        while current.path != "/", !current.path.isEmpty {
+            var isDir: ObjCBool = false
+            if FileManager.default.fileExists(atPath: current.path, isDirectory: &isDir) {
+                return true
+            }
+            let parent = current.deletingLastPathComponent()
+            if parent.path == current.path { break }
+            current = parent
+        }
+        return false
+    }
+
+    private static func resolvedEmulatorID(for game: LibraryGame) -> UUID? {
+        game.emulator?.id ?? game.emulatorUUID
+    }
+
+    /// Removes path-scanned games whose files are gone, without wiping entries when a whole drive is offline.
     ///
-    /// Only considers emulator-linked games whose `romPath` sits under a configured **Paths** game folder.
-    /// If every matching root is missing (unmounted volume), the game is kept. If at least one matching
-    /// root is reachable and the file is absent, the library row is deleted.
+    /// Games under a configured **Paths** root: delete when that root is reachable and the file is gone;
+    /// keep if the root/volume is offline. Games **not** under any current Paths folder (old Desktop
+    /// location after the path was removed) are also deleted when the file is gone and that location
+    /// is still reachable.
     @discardableResult
     private static func pruneMissingPathScannedGames(
         modelContext: ModelContext,
@@ -810,27 +841,25 @@ public enum GamePathScanner {
             rootsByEmulator[emulatorID, default: []].append(info)
         }
 
-        guard !rootsByEmulator.isEmpty else { return 0 }
-
         let games = (try? modelContext.fetch(FetchDescriptor<LibraryGame>())) ?? []
         var removed = 0
         for game in games {
-            guard let emulatorID = game.emulatorUUID,
-                  let roots = rootsByEmulator[emulatorID],
-                  !roots.isEmpty else { continue }
+            guard resolvedEmulatorID(for: game) != nil else { continue }
+            if game.librarySourceID == "epic" { continue }
 
             let gamePath = normalizedPathForComparison(game.romPath)
-            let matching = roots.filter { isPath(gamePath, insideAny: [$0.normalized]) }
-            guard !matching.isEmpty else { continue }
-
-            let reachableMatches = matching.filter(\.reachable)
-            guard !reachableMatches.isEmpty else {
-                continue
-            }
-
             let standardized = (game.romPath as NSString).standardizingPath
             if FileManager.default.fileExists(atPath: standardized) {
                 continue
+            }
+
+            let roots = resolvedEmulatorID(for: game).flatMap { rootsByEmulator[$0] } ?? []
+            let matching = roots.filter { isPath(gamePath, insideAny: [$0.normalized]) }
+            if !matching.isEmpty {
+                let reachableMatches = matching.filter(\.reachable)
+                guard !reachableMatches.isEmpty else { continue }
+            } else {
+                guard isRomLocationReachable(standardized) else { continue }
             }
 
             DebugLog.log(

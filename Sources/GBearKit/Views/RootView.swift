@@ -66,6 +66,37 @@ public struct RootView: View {
         }
     }
 
+    private var selectedLibrarySidebarTitle: String? {
+        switch sidebarSelection {
+        case .all: return "All"
+        case .macGames: return "Mac Games"
+        case .emulator(let id): return emulators.first(where: { $0.id == id })?.name
+        case .screenScraper: return nil
+        }
+    }
+
+    @ViewBuilder
+    private var selectedLibraryCountFooter: some View {
+        if let title = selectedLibrarySidebarTitle {
+            let count = filteredGames.count
+            VStack(spacing: 0) {
+                Divider()
+                HStack {
+                    Text(title)
+                        .lineLimit(1)
+                    Spacer(minLength: 8)
+                    Text(count == 1 ? "1 game" : "\(count) games")
+                        .monospacedDigit()
+                }
+                .font(.caption)
+                .foregroundStyle(.secondary)
+                .padding(.horizontal, 12)
+                .padding(.vertical, 8)
+            }
+            .background(.bar)
+        }
+    }
+
     @ViewBuilder
     private var macGamesSidebarItem: some View {
         Text("Mac Games")
@@ -157,6 +188,9 @@ public struct RootView: View {
                 }
             }
             .navigationTitle("Games")
+            .safeAreaInset(edge: .bottom, spacing: 0) {
+                selectedLibraryCountFooter
+            }
             .toolbar {
                 ToolbarItemGroup(placement: .primaryAction) {
                     Button {

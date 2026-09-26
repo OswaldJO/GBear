@@ -174,6 +174,18 @@ enum ScreenScraperPlatformMap {
         return slug.replacingOccurrences(of: "_", with: " ").capitalized
     }
 
+    static func isKnownSystemId(_ systemId: Int) -> Bool {
+        systemIdToDisplayName[systemId] != nil
+    }
+
+    /// Best-effort ScreenScraper id when adding from the bundled catalog or a profile name.
+    static func inferredSystemId(platforms: [String], name: String) -> Int? {
+        for slug in platforms {
+            if let id = systemId(forGBearSlug: slug) { return id }
+        }
+        return systemId(forPlatformHint: name)
+    }
+
     /// Maps a stored platform hint (from scan) to a ScreenScraper system id.
     static func systemId(forPlatformHint hint: String) -> Int? {
         let normalized = hint.trimmingCharacters(in: .whitespacesAndNewlines).lowercased()
