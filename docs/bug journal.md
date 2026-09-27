@@ -205,6 +205,15 @@ For release notes style summaries, see `source control log.md`. For architecture
 | **Fix** | Host **Start remote co-op** starts `GBearLocalRelayServer` on localhost and an outbound tunnel, then shows a `GBEAR1` invite line. **Join with invite** connects outbound and carries video, audio, and `GBG1`. |
 | **Commit** | release **v1.1.0** |
 
+### BJ-092 — Host crashed on Start remote co-op
+| | |
+|---|---|
+| **When** | Sep 26 2026 |
+| **Symptom** | GBear quit right after **Start remote co-op**, before the invite line showed. Crash report: `EXC_BREAKPOINT` on queue `GBearRelay.server` in `GBearLocalRelayServer.nextFrame(in:)`. |
+| **Cause** | After a WebSocket frame was consumed, `removeFirst` left the buffer as a `Data` slice whose indices no longer start at 0. `nextFrame` read `buffer[0]`, which is out of range for a slice. |
+| **Fix** | Rebase the buffer to a fresh `Data` after each frame, and rebase inside `nextFrame` when handed a slice. Relay self-test now sends a 40-message burst; the old code traps on it. |
+| **Commit** | release **v1.1.1** |
+
 ### BJ-011 — Sunshine/Moonlight path fragile (ports, PIN, dual instances)
 | | |
 |---|---|

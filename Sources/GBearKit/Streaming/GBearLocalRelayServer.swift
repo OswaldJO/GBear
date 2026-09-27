@@ -242,7 +242,9 @@ final class GBearLocalRelayServer: @unchecked Sendable {
     private func consume(_ client: Client, data: Data) {
         client.buffer.append(data)
         while let parsed = Self.nextFrame(in: client.buffer) {
-            client.buffer.removeFirst(parsed.consumed)
+            client.buffer = client.buffer.count == parsed.consumed
+                ? Data()
+                : Data(client.buffer.dropFirst(parsed.consumed))
             let opcode = parsed.opcode
             let fin = parsed.fin
             let payload = parsed.payload
@@ -413,8 +415,9 @@ final class GBearLocalRelayServer: @unchecked Sendable {
         var consumed: Int
     }
 
-    private static func nextFrame(in buffer: Data) -> ParsedFrame? {
-        guard buffer.count >= 2 else { return nil }
+    private static func nextFrame(in input: Data) -> ParsedFrame? {
+        guard input.count >= 2 else { return nil }
+        let buffer = input.startIndex == 0 ? input : Data(input)
         let fin = (buffer[0] & 0x80) != 0
         let opcode = buffer[0] & 0x0F
         let masked = (buffer[1] & 0x80) != 0
