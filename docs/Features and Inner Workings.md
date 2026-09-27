@@ -149,7 +149,8 @@ The Mac app embeds its own **GBear stream host** (ScreenCaptureKit → H.264, HT
 - **`GBearVideoStreamServer`** / **`GBearAudioStreamServer`** — up to **8** TCP clients; framed **`GBV1`** / **`GBA1`**.
 - **`GBearDisplayCapture`** — SCK display + **system audio** (`capturesAudio`); PCM converted to s16le.
 - **`GBearStreamInputServer`** — **`GBI1`** touch, **`GBK1`** keyboard, **`GBG1`** gamepad. Incoming GBG1 `joinSeat` is translated to the current assigned seat so **Move to Player N** does not require clients to change packets.
-- **`GBearVirtualGamepadManager`** — IOHIDUserDevice pads named **GBear Virtual Pad N**, created only for **occupied** seats.
+- **`GBearVirtualGamepadManager`** — IOHIDUserDevice pads named **GBear Virtual Pad N**, created only for **occupied** seats. Without the Virtual HID entitlement every create fails, so remote seats fall back to **`GBearKeyboardPadStandIn`**.
+- **`GBearKeyboardPadStandIn`** — presses keys for a remote player's pad (needs Accessibility). The host binds them as that player in the emulator by clicking each slot while the friend presses the button. Map: A/B/X/Y = keypad 1/3/7/9, L1/R1 = keypad ÷/×, L2/R2 = keypad −/+, L3/R3 = keypad 0/5, Start = keypad Enter, Select = keypad ., Guide = keypad =, D-pad = keypad 8/2/4/6, left stick = F13 up / F16 down / F17 left / F18 right, right stick = F19 up / F20 down / F14 left / F15 right. Sticks and triggers are on/off (press above 0.5, release below 0.35). Only works well for one remote player; the host's own controller stays a normal controller in the emulator.
 - **`GBearHostLocalGamepad`** — host GCController → assigned virtual pad.
 - **`GBearStreamGuestManager`** — another Mac pairs as `computerGuest`, receives video/audio, sends local pads as GBG1.
 - **`windows-guest/`** — Windows couch-co-op app (`GBearGuest.exe`). **Join** is a `computerGuest` (TCP `GBV1` / `GBA1`, UDP `GBG1` from XInput, keyboard fallback). **Host this PC** is the same control ports as the Mac host so a Mac can **Join another computer**: DXGI capture, Media Foundation H.264 (capped at 1280×720), WASAPI loopback, and a ViGEm Xbox pad per remote seat (seat 1 stays the physical Windows controller). ViGEmBus must be installed on that PC for the remote pad. Direct IP only (LAN or a VPN such as Tailscale). The phone invite relay is not used.
@@ -163,7 +164,7 @@ The Mac app embeds its own **GBear stream host** (ScreenCaptureKit → H.264, HT
 |------------|---------|---------|
 | **Screen Recording** | Desktop video + system audio capture | GBear |
 | **Accessibility** | Synthetic mouse move/click from phone touch | GBear (same list entry; not a separate “touch” item) |
-| **Virtual HID** (`com.apple.developer.hid.virtual.device`) | Up to 8 co-op virtual gamepads | Entitlement on Mac target |
+| **Virtual HID** (`com.apple.developer.hid.virtual.device`) | Up to 8 co-op virtual gamepads | **Not granted.** Restricted entitlement that Apple must approve; it is not in `GBear.entitlements`, so pad creation fails and emulators see no **GBear Virtual Pad** (BJ-095). |
 
 Restart the Mac app after toggling Accessibility. Stream audio is **not** a separate item in **System Settings → Sound → Output**; it is captured and sent to the phone. While a stream is active, the Mac’s default output is **muted** so speakers stay quiet and the phone is the playback device (use phone **media** volume during a stream).
 

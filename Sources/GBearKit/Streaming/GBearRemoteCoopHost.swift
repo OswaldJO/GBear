@@ -74,7 +74,7 @@ final class GBearRemoteCoopHost {
             socket.connect(socketURL)
             inviteLine = "GBEAR1 \(code) \(publicURL.absoluteString)"
             isRunning = true
-            statusMessage = "Send the invite line to your friend. Leave this screen open. When they join, launch the game and bind GBear Virtual Pad 1 (you) and GBear Virtual Pad 2 (them)."
+            statusMessage = "Send the invite line to your friend. Leave this screen open. When they join, launch the game and set up both players in the emulator’s controller settings."
         } catch {
             await stop()
             statusMessage = error.localizedDescription
@@ -183,7 +183,12 @@ final class GBearRemoteCoopHost {
         admittedGuestID = deviceID
         admittedSeat = seat
         sendControl(["type": "welcome", "seat": seat])
-        statusMessage = "Your friend is Player \(seat). Launch the game and bind GBear Virtual Pad 1 to your controller and GBear Virtual Pad \(seat) to theirs. This Mac’s speakers stay quiet while they are connected."
+        if AccessibilityPermission.isGranted {
+            statusMessage = "Your friend is Player \(seat). Launch the game. In the emulator, set Player 1 to your controller. For Player \(seat), choose the keyboard, then click each button slot while your friend presses that button. This Mac’s speakers stay quiet while they are connected."
+        } else {
+            AccessibilityPermission.promptIfNeeded()
+            statusMessage = "Your friend is Player \(seat), but their controller can’t reach the game yet. Allow \(AccessibilityPermission.settingsAppName) in System Settings → Privacy & Security → Accessibility, then quit and reopen GBear."
+        }
     }
 
     private func dropGuest() async {

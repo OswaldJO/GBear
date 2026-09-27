@@ -238,7 +238,7 @@ final class GBearStreamGuestManager {
             assignedSeat = seat
             startRelayPad(seat: seat)
             phase = .streaming
-            remoteStatusMessage = "Playing as Player \(seat). On the host, your controller is GBear Virtual Pad \(seat)."
+            remoteStatusMessage = "Playing as Player \(seat). The host sets up your controller in the game while you press each button."
             statusMessage = remoteStatusMessage
         } else if type == "error" {
             let message = json["error"] as? String ?? "The host rejected the join."

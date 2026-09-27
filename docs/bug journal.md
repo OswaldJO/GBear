@@ -205,6 +205,15 @@ For release notes style summaries, see `source control log.md`. For architecture
 | **Fix** | Host **Start remote co-op** starts `GBearLocalRelayServer` on localhost and an outbound tunnel, then shows a `GBEAR1` invite line. **Join with invite** connects outbound and carries video, audio, and `GBG1`. |
 | **Commit** | release **v1.1.0** |
 
+### BJ-095 — Emulators never see GBear Virtual Pads
+| | |
+|---|---|
+| **When** | Sep 26 2026 |
+| **Symptom** | Remote friend joined and pressed buttons, but the host emulator's controller list showed only the host's physical pad. No **GBear Virtual Pad 1** or **2**. |
+| **Cause** | `IOHIDUserDeviceCreateWithProperties` needs `com.apple.developer.hid.virtual.device`. That entitlement was removed from `GBear.entitlements` in `45201c3`. It is restricted: Apple grants it through the System Extension / DriverKit request form ("Virtual HID"), and signing it without a matching provisioning profile makes AMFI kill the app at launch. The host log shows every create returning `IOHIDUserDeviceRef … id:0x0`, so `GBearVirtualGamepad` has no device and drops every report. |
+| **Fix** | Keyboard stand-in: when a seat's pad has no HID device, `GBearVirtualGamepadManager.apply` sends that remote player's `GBG1` to `GBearKeyboardPadStandIn`, which holds keypad and F13–F20 keys (Accessibility required). The host binds Player 2 to the keyboard in the emulator. Sticks and triggers become on/off keys; one remote player at a time. Held keys release on leave or reset. The real fix is Apple granting Virtual HID; the stand-in turns itself off once pads can be created. |
+| **Commit** | release **v1.1.4** |
+
 ### BJ-094 — Guest video stayed small when the pop-up was enlarged
 | | |
 |---|---|

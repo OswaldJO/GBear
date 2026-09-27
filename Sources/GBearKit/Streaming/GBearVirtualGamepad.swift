@@ -17,6 +17,9 @@ actor GBearVirtualGamepadManager {
     func syncPads(occupiedSeats: Set<Int>) {
         let valid = occupiedSeats.filter { GBearCoopSessionState.isValidSeat($0) }
         for seat in pads.keys where !valid.contains(seat) {
+            if pads[seat]?.isAvailable == false {
+                GBearKeyboardPadStandIn.shared.releaseAll()
+            }
             pads[seat]?.reset()
             pads.removeValue(forKey: seat)
         }
@@ -45,7 +48,12 @@ actor GBearVirtualGamepadManager {
             leftTrigger: event.leftTrigger,
             rightTrigger: event.rightTrigger
         )
-        pads[seat]?.update(routed)
+        guard let pad = pads[seat] else { return }
+        if pad.isAvailable {
+            pad.update(routed)
+        } else {
+            GBearKeyboardPadStandIn.shared.update(routed)
+        }
     }
 
     func applyToSeat(_ seat: Int, event: GBearGamepadEventFormat.Event) {
@@ -70,6 +78,7 @@ actor GBearVirtualGamepadManager {
         for pad in pads.values {
             pad.reset()
         }
+        GBearKeyboardPadStandIn.shared.releaseAll()
     }
 
     func removeAll() {
@@ -83,6 +92,8 @@ final class GBearVirtualGamepad: @unchecked Sendable {
     let seat: Int
     private var device: GBearHIDDeviceRef?
     private let queue = DispatchQueue(label: "com.gbear.virtualpad.\(UUID().uuidString)")
+
+    var isAvailable: Bool { device != nil }
 
     init(seat: Int) {
         self.seat = seat
