@@ -40,16 +40,16 @@ enum GBearGamepadEventFormat {
         guard data.count >= packetSize else { return nil }
         return data.withUnsafeBytes { raw -> Event? in
             guard let base = raw.baseAddress else { return nil }
-            let magic = base.load(as: UInt32.self).littleEndian
+            let magic = base.loadUnaligned(as: UInt32.self).littleEndian
             guard magic == Self.magic else { return nil }
-            let seat = base.load(fromByteOffset: 4, as: UInt8.self)
-            let buttons = base.load(fromByteOffset: 5, as: UInt32.self).littleEndian
-            let leftX = base.load(fromByteOffset: 9, as: Float.self)
-            let leftY = base.load(fromByteOffset: 13, as: Float.self)
-            let rightX = base.load(fromByteOffset: 17, as: Float.self)
-            let rightY = base.load(fromByteOffset: 21, as: Float.self)
-            let leftTrigger = base.load(fromByteOffset: 25, as: Float.self)
-            let rightTrigger = base.load(fromByteOffset: 29, as: Float.self)
+            let seat = base.loadUnaligned(fromByteOffset: 4, as: UInt8.self)
+            let buttons = base.loadUnaligned(fromByteOffset: 5, as: UInt32.self).littleEndian
+            let leftX = base.loadUnaligned(fromByteOffset: 9, as: Float.self)
+            let leftY = base.loadUnaligned(fromByteOffset: 13, as: Float.self)
+            let rightX = base.loadUnaligned(fromByteOffset: 17, as: Float.self)
+            let rightY = base.loadUnaligned(fromByteOffset: 21, as: Float.self)
+            let leftTrigger = base.loadUnaligned(fromByteOffset: 25, as: Float.self)
+            let rightTrigger = base.loadUnaligned(fromByteOffset: 29, as: Float.self)
             return Event(
                 seat: seat,
                 buttons: buttons,

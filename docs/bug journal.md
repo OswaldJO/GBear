@@ -205,6 +205,15 @@ For release notes style summaries, see `source control log.md`. For architecture
 | **Fix** | Host **Start remote co-op** starts `GBearLocalRelayServer` on localhost and an outbound tunnel, then shows a `GBEAR1` invite line. **Join with invite** connects outbound and carries video, audio, and `GBG1`. |
 | **Commit** | release **v1.1.0** |
 
+### BJ-093 — Host crashed when the remote friend joined
+| | |
+|---|---|
+| **When** | Sep 26 2026 |
+| **Symptom** | The friend pasted the invite and the host GBear quit. Crash report: `EXC_BREAKPOINT` on the main thread in `GBearGamepadEventFormat.parse` from `GBearRemoteCoopHost.handleIncoming`. |
+| **Cause** | `GBG1` puts `buttons` at byte 5 and the floats at 9–29. `parse` used `load(fromByteOffset:)`, which requires aligned memory. Debug builds trap with "load from misaligned raw pointer". |
+| **Fix** | Use `loadUnaligned` for every `GBG1` field. Test packs a pad packet, wraps it in `GBTL`, unwraps, and parses it in a `-Onone` build; the old code traps on the same test. |
+| **Commit** | release **v1.1.2** |
+
 ### BJ-092 — Host crashed on Start remote co-op
 | | |
 |---|---|
