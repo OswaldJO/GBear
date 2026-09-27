@@ -393,6 +393,8 @@ struct StreamingView: View {
                                 .foregroundStyle(.tertiary)
                                 .textSelection(.enabled)
                             HStack {
+                                ControllerReceiverMapButton(seat: number, playerName: occupant.deviceName)
+                                    .fixedSize()
                                 Menu("Move to") {
                                     ForEach(1 ... GBearStreamPorts.maxCoopViewers, id: \.self) { target in
                                         Button("Player \(target)") {

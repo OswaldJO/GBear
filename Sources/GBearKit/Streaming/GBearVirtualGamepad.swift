@@ -22,6 +22,7 @@ actor GBearVirtualGamepadManager {
             }
             pads[seat]?.reset()
             pads.removeValue(forKey: seat)
+            Task { @MainActor in GBearPadInputMonitor.shared.clear(seat: seat) }
         }
         for seat in valid where pads[seat] == nil {
             pads[seat] = GBearVirtualGamepad(seat: seat)
@@ -49,10 +50,16 @@ actor GBearVirtualGamepadManager {
             rightTrigger: event.rightTrigger
         )
         guard let pad = pads[seat] else { return }
+        let route: GBearPadInputMonitor.Route
         if pad.isAvailable {
             pad.update(routed)
+            route = .virtualPad
         } else {
             GBearKeyboardPadStandIn.shared.update(routed)
+            route = .keyboard
+        }
+        Task { @MainActor in
+            GBearPadInputMonitor.shared.record(seat: seat, event: routed, route: route)
         }
     }
 
@@ -71,7 +78,11 @@ actor GBearVirtualGamepadManager {
             leftTrigger: event.leftTrigger,
             rightTrigger: event.rightTrigger
         )
+        let route: GBearPadInputMonitor.Route = pads[seat]?.isAvailable == true ? .virtualPad : .hostController
         pads[seat]?.update(routed)
+        Task { @MainActor in
+            GBearPadInputMonitor.shared.record(seat: seat, event: routed, route: route)
+        }
     }
 
     func resetAll() {
@@ -84,6 +95,7 @@ actor GBearVirtualGamepadManager {
     func removeAll() {
         resetAll()
         pads.removeAll()
+        Task { @MainActor in GBearPadInputMonitor.shared.clearAll() }
     }
 }
 
