@@ -20,8 +20,15 @@ final class GBearStreamGuestManager {
     var hostAddress: String = ""
     var inviteLine: String = ""
     var preferredSeat: Int = 0
-    var phase: Phase = .idle
-    var statusMessage: String = "Enter a host LAN IP to join as a computer guest."
+    var phase: Phase = .idle {
+        didSet {
+            guard phase != oldValue else { return }
+            syncVideoWindow()
+        }
+    }
+    var statusMessage: String = "Enter a host LAN IP to join as a computer guest." {
+        didSet { GBearGuestVideoWindow.shared.updateTitle(statusMessage) }
+    }
     var remoteStatusMessage: String = "Paste the invite line from the host Mac."
     var assignedSeat: Int = 1
     var latestSample: CMSampleBuffer?
@@ -193,6 +200,20 @@ final class GBearStreamGuestManager {
             phase = .idle
             statusMessage = "Disconnected."
             remoteStatusMessage = "Disconnected."
+        }
+        GBearGuestVideoWindow.shared.close()
+    }
+
+    private func syncVideoWindow() {
+        switch phase {
+        case .streaming:
+            GBearGuestVideoWindow.shared.show(title: statusMessage) { [weak self] in
+                Task { await self?.stop() }
+            }
+        case .idle, .failed:
+            GBearGuestVideoWindow.shared.close()
+        case .pairing, .connected:
+            break
         }
     }
 

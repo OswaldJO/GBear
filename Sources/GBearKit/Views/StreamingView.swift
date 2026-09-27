@@ -8,8 +8,6 @@ struct StreamingView: View {
     @State private var remoteHost = GBearRemoteCoopHost.shared
     @State private var confirmDisconnect = false
     @State private var streamLogSavedPath: String?
-    @State private var showGuestVideo = false
-
     private let timer = Timer.publish(every: 1, on: .main, in: .common).autoconnect()
 
     init(session: StreamingPairingSession = StreamingPairingSession()) {
@@ -57,14 +55,6 @@ struct StreamingView: View {
                 await hostManager.refreshCapturePermission()
                 session.refreshHostStatus()
             }
-        }
-        .onChange(of: guestManager.phase) { _, phase in
-            if phase == .streaming {
-                showGuestVideo = true
-            }
-        }
-        .sheet(isPresented: $showGuestVideo) {
-            guestVideoSheet
         }
         .confirmationDialog(
             "Disconnect “\(pairedNameForDialog)” from streaming on this Mac?",
@@ -358,33 +348,11 @@ struct StreamingView: View {
                 }
                 .disabled(guestManager.phase == .pairing || guestManager.phase == .streaming)
                 Button("Leave", role: .destructive) {
-                    Task {
-                        showGuestVideo = false
-                        await guestManager.stop()
-                    }
+                    Task { await guestManager.stop() }
                 }
                 .disabled(guestManager.phase == .idle)
             }
         }
-    }
-
-    private var guestVideoSheet: some View {
-        VStack(spacing: 12) {
-            HStack {
-                Text(guestManager.statusMessage)
-                    .font(.headline)
-                Spacer()
-                Button("Close") {
-                    showGuestVideo = false
-                    Task { await guestManager.stop() }
-                }
-            }
-            .padding()
-            GBearGuestVideoView(sample: guestManager.latestSample)
-                .frame(minWidth: 640, minHeight: 360)
-                .background(.black)
-        }
-        .frame(minWidth: 720, minHeight: 480)
     }
 
     @ViewBuilder

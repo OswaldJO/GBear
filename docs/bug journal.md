@@ -205,6 +205,15 @@ For release notes style summaries, see `source control log.md`. For architecture
 | **Fix** | Host **Start remote co-op** starts `GBearLocalRelayServer` on localhost and an outbound tunnel, then shows a `GBEAR1` invite line. **Join with invite** connects outbound and carries video, audio, and `GBG1`. |
 | **Commit** | release **v1.1.0** |
 
+### BJ-094 — Guest video stayed small when the pop-up was enlarged
+| | |
+|---|---|
+| **When** | Sep 26 2026 |
+| **Symptom** | On the joining Mac, the stream opened in a small pop-up. Dragging it bigger grew an empty see-through border while the picture stayed the same size. |
+| **Cause** | The picture was a SwiftUI `.sheet` on the main window, with `GBearGuestVideoView` pinned at its minimum frame. A sheet cannot grow past its parent window, and the video view did not fill the extra space. |
+| **Fix** | `GBearGuestVideoWindow` opens the stream in its own resizable 16:9 window with full screen. `GBearGuestVideoView` fills the window. `GBearStreamGuestManager.phase` opens the window when streaming starts and closes it on leave or failure. Closing the window leaves the session. |
+| **Commit** | release **v1.1.3** |
+
 ### BJ-093 — Host crashed when the remote friend joined
 | | |
 |---|---|
