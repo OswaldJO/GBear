@@ -9,6 +9,19 @@ final class GBearHostLocalGamepad {
     private(set) var isActive = false
     private(set) var seat: Int = 1
     private var observers: [NSObjectProtocol] = []
+    /// While this Mac is a guest in someone else's game, `GBearGuestGamepadSender` owns the
+    /// controllers' `valueChangedHandler`; rebinding here would silently stop sending to the host.
+    private var yieldsToGuestSender = false
+
+    func yieldToGuestSender() {
+        yieldsToGuestSender = true
+    }
+
+    func reclaimFromGuestSender() {
+        guard yieldsToGuestSender else { return }
+        yieldsToGuestSender = false
+        bindAll()
+    }
 
     func start(seat: Int) {
         self.seat = seat
@@ -35,8 +48,10 @@ final class GBearHostLocalGamepad {
             NotificationCenter.default.removeObserver(observer)
         }
         observers.removeAll()
-        for controller in GCController.controllers() {
-            controller.extendedGamepad?.valueChangedHandler = nil
+        if !yieldsToGuestSender {
+            for controller in GCController.controllers() {
+                controller.extendedGamepad?.valueChangedHandler = nil
+            }
         }
         let empty = GBearGamepadEventFormat.Event(
             seat: UInt8(seat),
@@ -55,7 +70,7 @@ final class GBearHostLocalGamepad {
     }
 
     private func bindAll() {
-        guard isActive else { return }
+        guard isActive, !yieldsToGuestSender else { return }
         for controller in GCController.controllers() {
             bind(controller)
         }

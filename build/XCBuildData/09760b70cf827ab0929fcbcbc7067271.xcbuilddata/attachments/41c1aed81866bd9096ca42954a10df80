@@ -1,0 +1,29 @@
+{
+  "" : {
+    "diagnostics" : "/Users/oswald_joshua_olazabal/Desktop/GBear/build/GBear.build/Debug/GBear.build/Objects-normal/arm64/GBear-primary.dia",
+    "emit-module-dependencies" : "/Users/oswald_joshua_olazabal/Desktop/GBear/build/GBear.build/Debug/GBear.build/Objects-normal/arm64/GBear-primary-emit-module.d",
+    "emit-module-diagnostics" : "/Users/oswald_joshua_olazabal/Desktop/GBear/build/GBear.build/Debug/GBear.build/Objects-normal/arm64/GBear-primary-emit-module.dia",
+    "pch" : "/Users/oswald_joshua_olazabal/Desktop/GBear/build/GBear.build/Debug/GBear.build/Objects-normal/arm64/GBear-primary-Bridging-header.pch",
+    "swift-dependencies" : "/Users/oswald_joshua_olazabal/Desktop/GBear/build/GBear.build/Debug/GBear.build/Objects-normal/arm64/GBear-primary.swiftdeps"
+  },
+  "/Users/oswald_joshua_olazabal/Desktop/GBear/GBear/GBear.swift" : {
+    "const-values" : "/Users/oswald_joshua_olazabal/Desktop/GBear/build/GBear.build/Debug/GBear.build/Objects-normal/arm64/GBear.swiftconstvalues",
+    "dependencies" : "/Users/oswald_joshua_olazabal/Desktop/GBear/build/GBear.build/Debug/GBear.build/Objects-normal/arm64/GBear.d",
+    "diagnostics" : "/Users/oswald_joshua_olazabal/Desktop/GBear/build/GBear.build/Debug/GBear.build/Objects-normal/arm64/GBear.dia",
+    "index-unit-output-path" : "/GBear.build/Debug/GBear.build/Objects-normal/arm64/GBear.o",
+    "llvm-bc" : "/Users/oswald_joshua_olazabal/Desktop/GBear/build/GBear.build/Debug/GBear.build/Objects-normal/arm64/GBear.bc",
+    "object" : "/Users/oswald_joshua_olazabal/Desktop/GBear/build/GBear.build/Debug/GBear.build/Objects-normal/arm64/GBear.o",
+    "swift-dependencies" : "/Users/oswald_joshua_olazabal/Desktop/GBear/build/GBear.build/Debug/GBear.build/Objects-normal/arm64/GBear.swiftdeps",
+    "swiftmodule" : "/Users/oswald_joshua_olazabal/Desktop/GBear/build/GBear.build/Debug/GBear.build/Objects-normal/arm64/GBear~partial.swiftmodule"
+  },
+  "/Users/oswald_joshua_olazabal/Desktop/GBear/build/GBear.build/Debug/GBear.build/DerivedSources/GeneratedAssetSymbols.swift" : {
+    "const-values" : "/Users/oswald_joshua_olazabal/Desktop/GBear/build/GBear.build/Debug/GBear.build/Objects-normal/arm64/GeneratedAssetSymbols.swiftconstvalues",
+    "dependencies" : "/Users/oswald_joshua_olazabal/Desktop/GBear/build/GBear.build/Debug/GBear.build/Objects-normal/arm64/GeneratedAssetSymbols.d",
+    "diagnostics" : "/Users/oswald_joshua_olazabal/Desktop/GBear/build/GBear.build/Debug/GBear.build/Objects-normal/arm64/GeneratedAssetSymbols.dia",
+    "index-unit-output-path" : "/GBear.build/Debug/GBear.build/Objects-normal/arm64/GeneratedAssetSymbols.o",
+    "llvm-bc" : "/Users/oswald_joshua_olazabal/Desktop/GBear/build/GBear.build/Debug/GBear.build/Objects-normal/arm64/GeneratedAssetSymbols.bc",
+    "object" : "/Users/oswald_joshua_olazabal/Desktop/GBear/build/GBear.build/Debug/GBear.build/Objects-normal/arm64/GeneratedAssetSymbols.o",
+    "swift-dependencies" : "/Users/oswald_joshua_olazabal/Desktop/GBear/build/GBear.build/Debug/GBear.build/Objects-normal/arm64/GeneratedAssetSymbols.swiftdeps",
+    "swiftmodule" : "/Users/oswald_joshua_olazabal/Desktop/GBear/build/GBear.build/Debug/GBear.build/Objects-normal/arm64/GeneratedAssetSymbols~partial.swiftmodule"
+  }
+}

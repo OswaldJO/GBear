@@ -21,7 +21,17 @@ final class GBearRemoteCoopHost {
     private var admittedGuestID: String?
     private var admittedSeat: Int?
 
-    private init() {}
+    private init() {
+        NotificationCenter.default.addObserver(
+            forName: NSApplication.willTerminateNotification,
+            object: nil,
+            queue: .main
+        ) { _ in
+            MainActor.assumeIsolated {
+                GBearRemoteCoopHost.shared.tunnelProcess?.terminate()
+            }
+        }
+    }
 
     func start() async {
         guard !isStarting, !isRunning else { return }
@@ -212,7 +222,19 @@ final class GBearRemoteCoopHost {
         return json["type"] as? String
     }
 
+    /// Tunnels outlive GBear when it crashes or is force-quit; they would keep pointing at this relay port.
+    private static func terminateStaleTunnels(_ executable: URL) {
+        let path = executable.path.replacingOccurrences(of: ".", with: "\\.")
+        let pattern = path + " tunnel --url http://127\\.0\\.0\\.1:8787"
+        let pkill = Process()
+        pkill.executableURL = URL(fileURLWithPath: "/usr/bin/pkill")
+        pkill.arguments = ["-f", pattern]
+        try? pkill.run()
+        pkill.waitUntilExit()
+    }
+
     private func launchTunnel(_ executable: URL) async throws -> URL {
+        Self.terminateStaleTunnels(executable)
         let process = Process()
         process.executableURL = executable
         process.arguments = [

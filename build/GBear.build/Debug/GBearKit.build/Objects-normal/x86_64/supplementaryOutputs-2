@@ -1,0 +1,72 @@
+{
+  "/Users/oswald_joshua_olazabal/Desktop/GBear/Sources/GBearKit/ControllerMapping/ConnectedControllersObserver.swift" : {
+    "const-values" : "/Users/oswald_joshua_olazabal/Desktop/GBear/build/GBear.build/Debug/GBearKit.build/Objects-normal/x86_64/ConnectedControllersObserver.swiftconstvalues",
+    "dependencies" : "/Users/oswald_joshua_olazabal/Desktop/GBear/build/GBear.build/Debug/GBearKit.build/Objects-normal/x86_64/ConnectedControllersObserver.d",
+    "diagnostics" : "/Users/oswald_joshua_olazabal/Desktop/GBear/build/GBear.build/Debug/GBearKit.build/Objects-normal/x86_64/ConnectedControllersObserver.dia",
+    "object" : "/Users/oswald_joshua_olazabal/Desktop/GBear/build/GBear.build/Debug/GBearKit.build/Objects-normal/x86_64/ConnectedControllersObserver.o",
+    "swift-dependencies" : "/Users/oswald_joshua_olazabal/Desktop/GBear/build/GBear.build/Debug/GBearKit.build/Objects-normal/x86_64/ConnectedControllersObserver.swiftdeps"
+  },
+  "/Users/oswald_joshua_olazabal/Desktop/GBear/Sources/GBearKit/ControllerMapping/ControllerMappingStore.swift" : {
+    "const-values" : "/Users/oswald_joshua_olazabal/Desktop/GBear/build/GBear.build/Debug/GBearKit.build/Objects-normal/x86_64/ControllerMappingStore.swiftconstvalues",
+    "dependencies" : "/Users/oswald_joshua_olazabal/Desktop/GBear/build/GBear.build/Debug/GBearKit.build/Objects-normal/x86_64/ControllerMappingStore.d",
+    "diagnostics" : "/Users/oswald_joshua_olazabal/Desktop/GBear/build/GBear.build/Debug/GBearKit.build/Objects-normal/x86_64/ControllerMappingStore.dia",
+    "object" : "/Users/oswald_joshua_olazabal/Desktop/GBear/build/GBear.build/Debug/GBearKit.build/Objects-normal/x86_64/ControllerMappingStore.o",
+    "swift-dependencies" : "/Users/oswald_joshua_olazabal/Desktop/GBear/build/GBear.build/Debug/GBearKit.build/Objects-normal/x86_64/ControllerMappingStore.swiftdeps"
+  },
+  "/Users/oswald_joshua_olazabal/Desktop/GBear/Sources/GBearKit/ControllerMapping/GamepadElementCatalog.swift" : {
+    "const-values" : "/Users/oswald_joshua_olazabal/Desktop/GBear/build/GBear.build/Debug/GBearKit.build/Objects-normal/x86_64/GamepadElementCatalog.swiftconstvalues",
+    "dependencies" : "/Users/oswald_joshua_olazabal/Desktop/GBear/build/GBear.build/Debug/GBearKit.build/Objects-normal/x86_64/GamepadElementCatalog.d",
+    "diagnostics" : "/Users/oswald_joshua_olazabal/Desktop/GBear/build/GBear.build/Debug/GBearKit.build/Objects-normal/x86_64/GamepadElementCatalog.dia",
+    "object" : "/Users/oswald_joshua_olazabal/Desktop/GBear/build/GBear.build/Debug/GBearKit.build/Objects-normal/x86_64/GamepadElementCatalog.o",
+    "swift-dependencies" : "/Users/oswald_joshua_olazabal/Desktop/GBear/build/GBear.build/Debug/GBearKit.build/Objects-normal/x86_64/GamepadElementCatalog.swiftdeps"
+  },
+  "/Users/oswald_joshua_olazabal/Desktop/GBear/Sources/GBearKit/ControllerMapping/MappedAction.swift" : {
+    "const-values" : "/Users/oswald_joshua_olazabal/Desktop/GBear/build/GBear.build/Debug/GBearKit.build/Objects-normal/x86_64/MappedAction.swiftconstvalues",
+    "dependencies" : "/Users/oswald_joshua_olazabal/Desktop/GBear/build/GBear.build/Debug/GBearKit.build/Objects-normal/x86_64/MappedAction.d",
+    "diagnostics" : "/Users/oswald_joshua_olazabal/Desktop/GBear/build/GBear.build/Debug/GBearKit.build/Objects-normal/x86_64/MappedAction.dia",
+    "object" : "/Users/oswald_joshua_olazabal/Desktop/GBear/build/GBear.build/Debug/GBearKit.build/Objects-normal/x86_64/MappedAction.o",
+    "swift-dependencies" : "/Users/oswald_joshua_olazabal/Desktop/GBear/build/GBear.build/Debug/GBearKit.build/Objects-normal/x86_64/MappedAction.swiftdeps"
+  },
+  "/Users/oswald_joshua_olazabal/Desktop/GBear/Sources/GBearKit/ControllerMapping/MappedActionFormatting.swift" : {
+    "const-values" : "/Users/oswald_joshua_olazabal/Desktop/GBear/build/GBear.build/Debug/GBearKit.build/Objects-normal/x86_64/MappedActionFormatting.swiftconstvalues",
+    "dependencies" : "/Users/oswald_joshua_olazabal/Desktop/GBear/build/GBear.build/Debug/GBearKit.build/Objects-normal/x86_64/MappedActionFormatting.d",
+    "diagnostics" : "/Users/oswald_joshua_olazabal/Desktop/GBear/build/GBear.build/Debug/GBearKit.build/Objects-normal/x86_64/MappedActionFormatting.dia",
+    "object" : "/Users/oswald_joshua_olazabal/Desktop/GBear/build/GBear.build/Debug/GBearKit.build/Objects-normal/x86_64/MappedActionFormatting.o",
+    "swift-dependencies" : "/Users/oswald_joshua_olazabal/Desktop/GBear/build/GBear.build/Debug/GBearKit.build/Objects-normal/x86_64/MappedActionFormatting.swiftdeps"
+  },
+  "/Users/oswald_joshua_olazabal/Desktop/GBear/Sources/GBearKit/ControllerMapping/SyntheticInputPlayback.swift" : {
+    "const-values" : "/Users/oswald_joshua_olazabal/Desktop/GBear/build/GBear.build/Debug/GBearKit.build/Objects-normal/x86_64/SyntheticInputPlayback.swiftconstvalues",
+    "dependencies" : "/Users/oswald_joshua_olazabal/Desktop/GBear/build/GBear.build/Debug/GBearKit.build/Objects-normal/x86_64/SyntheticInputPlayback.d",
+    "diagnostics" : "/Users/oswald_joshua_olazabal/Desktop/GBear/build/GBear.build/Debug/GBearKit.build/Objects-normal/x86_64/SyntheticInputPlayback.dia",
+    "object" : "/Users/oswald_joshua_olazabal/Desktop/GBear/build/GBear.build/Debug/GBearKit.build/Objects-normal/x86_64/SyntheticInputPlayback.o",
+    "swift-dependencies" : "/Users/oswald_joshua_olazabal/Desktop/GBear/build/GBear.build/Debug/GBearKit.build/Objects-normal/x86_64/SyntheticInputPlayback.swiftdeps"
+  },
+  "/Users/oswald_joshua_olazabal/Desktop/GBear/Sources/GBearKit/ControllerMapping/VirtualKeyCatalog.swift" : {
+    "const-values" : "/Users/oswald_joshua_olazabal/Desktop/GBear/build/GBear.build/Debug/GBearKit.build/Objects-normal/x86_64/VirtualKeyCatalog.swiftconstvalues",
+    "dependencies" : "/Users/oswald_joshua_olazabal/Desktop/GBear/build/GBear.build/Debug/GBearKit.build/Objects-normal/x86_64/VirtualKeyCatalog.d",
+    "diagnostics" : "/Users/oswald_joshua_olazabal/Desktop/GBear/build/GBear.build/Debug/GBearKit.build/Objects-normal/x86_64/VirtualKeyCatalog.dia",
+    "object" : "/Users/oswald_joshua_olazabal/Desktop/GBear/build/GBear.build/Debug/GBearKit.build/Objects-normal/x86_64/VirtualKeyCatalog.o",
+    "swift-dependencies" : "/Users/oswald_joshua_olazabal/Desktop/GBear/build/GBear.build/Debug/GBearKit.build/Objects-normal/x86_64/VirtualKeyCatalog.swiftdeps"
+  },
+  "/Users/oswald_joshua_olazabal/Desktop/GBear/Sources/GBearKit/Models/CoverAspectRatio.swift" : {
+    "const-values" : "/Users/oswald_joshua_olazabal/Desktop/GBear/build/GBear.build/Debug/GBearKit.build/Objects-normal/x86_64/CoverAspectRatio.swiftconstvalues",
+    "dependencies" : "/Users/oswald_joshua_olazabal/Desktop/GBear/build/GBear.build/Debug/GBearKit.build/Objects-normal/x86_64/CoverAspectRatio.d",
+    "diagnostics" : "/Users/oswald_joshua_olazabal/Desktop/GBear/build/GBear.build/Debug/GBearKit.build/Objects-normal/x86_64/CoverAspectRatio.dia",
+    "object" : "/Users/oswald_joshua_olazabal/Desktop/GBear/build/GBear.build/Debug/GBearKit.build/Objects-normal/x86_64/CoverAspectRatio.o",
+    "swift-dependencies" : "/Users/oswald_joshua_olazabal/Desktop/GBear/build/GBear.build/Debug/GBearKit.build/Objects-normal/x86_64/CoverAspectRatio.swiftdeps"
+  },
+  "/Users/oswald_joshua_olazabal/Desktop/GBear/Sources/GBearKit/Models/EmulatorProfile.swift" : {
+    "const-values" : "/Users/oswald_joshua_olazabal/Desktop/GBear/build/GBear.build/Debug/GBearKit.build/Objects-normal/x86_64/EmulatorProfile.swiftconstvalues",
+    "dependencies" : "/Users/oswald_joshua_olazabal/Desktop/GBear/build/GBear.build/Debug/GBearKit.build/Objects-normal/x86_64/EmulatorProfile.d",
+    "diagnostics" : "/Users/oswald_joshua_olazabal/Desktop/GBear/build/GBear.build/Debug/GBearKit.build/Objects-normal/x86_64/EmulatorProfile.dia",
+    "object" : "/Users/oswald_joshua_olazabal/Desktop/GBear/build/GBear.build/Debug/GBearKit.build/Objects-normal/x86_64/EmulatorProfile.o",
+    "swift-dependencies" : "/Users/oswald_joshua_olazabal/Desktop/GBear/build/GBear.build/Debug/GBearKit.build/Objects-normal/x86_64/EmulatorProfile.swiftdeps"
+  },
+  "/Users/oswald_joshua_olazabal/Desktop/GBear/build/GBear.build/Debug/GBearKit.build/DerivedSources/resource_bundle_accessor.swift" : {
+    "const-values" : "/Users/oswald_joshua_olazabal/Desktop/GBear/build/GBear.build/Debug/GBearKit.build/Objects-normal/x86_64/resource_bundle_accessor.swiftconstvalues",
+    "dependencies" : "/Users/oswald_joshua_olazabal/Desktop/GBear/build/GBear.build/Debug/GBearKit.build/Objects-normal/x86_64/resource_bundle_accessor.d",
+    "diagnostics" : "/Users/oswald_joshua_olazabal/Desktop/GBear/build/GBear.build/Debug/GBearKit.build/Objects-normal/x86_64/resource_bundle_accessor.dia",
+    "object" : "/Users/oswald_joshua_olazabal/Desktop/GBear/build/GBear.build/Debug/GBearKit.build/Objects-normal/x86_64/resource_bundle_accessor.o",
+    "swift-dependencies" : "/Users/oswald_joshua_olazabal/Desktop/GBear/build/GBear.build/Debug/GBearKit.build/Objects-normal/x86_64/resource_bundle_accessor.swiftdeps"
+  }
+}

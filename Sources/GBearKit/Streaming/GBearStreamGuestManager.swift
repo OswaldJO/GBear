@@ -187,6 +187,7 @@ final class GBearStreamGuestManager {
         relayEpoch = UUID()
         padSender?.stop()
         padSender = nil
+        GBearHostLocalGamepad.shared.reclaimFromGuestSender()
         relaySocket?.close()
         relaySocket = nil
         video.stop()
@@ -265,6 +266,7 @@ final class GBearStreamGuestManager {
             let frame = GBearTunnelFrame.pack(channel: .input, payload: packet)
             socket?.send(frame)
         }
+        GBearHostLocalGamepad.shared.yieldToGuestSender()
         sender.start()
         padSender = sender
     }
@@ -324,6 +326,7 @@ final class GBearStreamGuestManager {
             video.start(host: host, port: videoPort)
             audio.start(host: host, port: audioPort)
             let sender = GBearGuestGamepadSender(host: host, port: inputPort, joinSeat: seat)
+            GBearHostLocalGamepad.shared.yieldToGuestSender()
             sender.start()
             padSender = sender
             phase = .streaming

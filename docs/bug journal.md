@@ -205,6 +205,15 @@ For release notes style summaries, see `source control log.md`. For architecture
 | **Fix** | Host **Start remote co-op** starts `GBearLocalRelayServer` on localhost and an outbound tunnel, then shows a `GBEAR1` invite line. **Join with invite** connects outbound and carries video, audio, and `GBG1`. |
 | **Commit** | release **v1.1.0** |
 
+### BJ-096 — Remote friend's controller stopped sending mid-session
+| | |
+|---|---|
+| **When** | Sep 26 2026 (**in progress**) |
+| **Symptom** | After mapping Player 2 and switching games, the host's **Controller map** showed the last signal minutes ago. Video still reached the friend. Host counters: only WebSocket pings arrived from the friend (~77 KB of input all session). |
+| **Cause** | On the friend's Mac, GBear also ran its own co-op session with **This Mac** as Player 1, so `GBearHostLocalGamepad` was active. It rebinds every controller's `valueChangedHandler` on each `refreshCoopSession` (e.g. opening the Streaming tab) and on controller reconnect (its `Task` hop runs after `GBearGuestGamepadSender`'s rebind). That replaced the sender's handler, so presses went to a local pad and were never sent. `stop()` also cleared every handler. |
+| **Fix** | `GBearHostLocalGamepad.yieldToGuestSender()` / `reclaimFromGuestSender()`: while `GBearStreamGuestManager` has a pad sender (invite or LAN join), host-local `bindAll` and `stop()` leave controller handlers alone. Also: `GBearRemoteCoopHost` kills stale `cloudflared tunnel --url http://127.0.0.1:8787` processes before starting a tunnel and terminates its tunnel on app quit (five orphans were found from earlier crashed runs). |
+| **Commit** | *in progress* |
+
 ### BJ-095 — Emulators never see GBear Virtual Pads
 | | |
 |---|---|

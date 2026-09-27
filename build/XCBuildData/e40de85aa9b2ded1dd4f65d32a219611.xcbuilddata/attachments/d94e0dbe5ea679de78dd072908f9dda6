@@ -1,0 +1,4 @@
+module GBearKit {
+header "GBearKit-Swift.h"
+export *
+}

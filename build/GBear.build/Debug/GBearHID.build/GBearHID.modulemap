@@ -1,0 +1,4 @@
+module GBearHID {
+umbrella "/Users/oswald_joshua_olazabal/Desktop/GBear/Sources/GBearHID/include"
+export *
+}

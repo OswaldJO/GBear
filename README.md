@@ -1,5 +1,7 @@
 # GBear
 
+GBear is short for gamer bear.
+
 GBear is a game library and launcher, plus a way to play that library from another screen. The Mac app keeps the library, covers, emulators, and the stream host. A phone companion and a Windows app join that host for ordinary streaming or for couch co-op.
 
 Installers are on the [v1.0.0 release](https://github.com/OswaldJO/GBear/releases/tag/v1.0.0).

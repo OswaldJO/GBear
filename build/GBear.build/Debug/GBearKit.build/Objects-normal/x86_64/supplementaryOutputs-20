@@ -1,0 +1,65 @@
+{
+  "/Users/oswald_joshua_olazabal/Desktop/GBear/Sources/GBearKit/Views/ScreenScraperDisambiguationSheet.swift" : {
+    "const-values" : "/Users/oswald_joshua_olazabal/Desktop/GBear/build/GBear.build/Debug/GBearKit.build/Objects-normal/x86_64/ScreenScraperDisambiguationSheet.swiftconstvalues",
+    "dependencies" : "/Users/oswald_joshua_olazabal/Desktop/GBear/build/GBear.build/Debug/GBearKit.build/Objects-normal/x86_64/ScreenScraperDisambiguationSheet.d",
+    "diagnostics" : "/Users/oswald_joshua_olazabal/Desktop/GBear/build/GBear.build/Debug/GBearKit.build/Objects-normal/x86_64/ScreenScraperDisambiguationSheet.dia",
+    "object" : "/Users/oswald_joshua_olazabal/Desktop/GBear/build/GBear.build/Debug/GBearKit.build/Objects-normal/x86_64/ScreenScraperDisambiguationSheet.o",
+    "swift-dependencies" : "/Users/oswald_joshua_olazabal/Desktop/GBear/build/GBear.build/Debug/GBearKit.build/Objects-normal/x86_64/ScreenScraperDisambiguationSheet.swiftdeps"
+  },
+  "/Users/oswald_joshua_olazabal/Desktop/GBear/Sources/GBearKit/Views/ScreenScraperLibraryView.swift" : {
+    "const-values" : "/Users/oswald_joshua_olazabal/Desktop/GBear/build/GBear.build/Debug/GBearKit.build/Objects-normal/x86_64/ScreenScraperLibraryView.swiftconstvalues",
+    "dependencies" : "/Users/oswald_joshua_olazabal/Desktop/GBear/build/GBear.build/Debug/GBearKit.build/Objects-normal/x86_64/ScreenScraperLibraryView.d",
+    "diagnostics" : "/Users/oswald_joshua_olazabal/Desktop/GBear/build/GBear.build/Debug/GBearKit.build/Objects-normal/x86_64/ScreenScraperLibraryView.dia",
+    "object" : "/Users/oswald_joshua_olazabal/Desktop/GBear/build/GBear.build/Debug/GBearKit.build/Objects-normal/x86_64/ScreenScraperLibraryView.o",
+    "swift-dependencies" : "/Users/oswald_joshua_olazabal/Desktop/GBear/build/GBear.build/Debug/GBearKit.build/Objects-normal/x86_64/ScreenScraperLibraryView.swiftdeps"
+  },
+  "/Users/oswald_joshua_olazabal/Desktop/GBear/Sources/GBearKit/Views/ScreenScraperManualSearchSheet.swift" : {
+    "const-values" : "/Users/oswald_joshua_olazabal/Desktop/GBear/build/GBear.build/Debug/GBearKit.build/Objects-normal/x86_64/ScreenScraperManualSearchSheet.swiftconstvalues",
+    "dependencies" : "/Users/oswald_joshua_olazabal/Desktop/GBear/build/GBear.build/Debug/GBearKit.build/Objects-normal/x86_64/ScreenScraperManualSearchSheet.d",
+    "diagnostics" : "/Users/oswald_joshua_olazabal/Desktop/GBear/build/GBear.build/Debug/GBearKit.build/Objects-normal/x86_64/ScreenScraperManualSearchSheet.dia",
+    "object" : "/Users/oswald_joshua_olazabal/Desktop/GBear/build/GBear.build/Debug/GBearKit.build/Objects-normal/x86_64/ScreenScraperManualSearchSheet.o",
+    "swift-dependencies" : "/Users/oswald_joshua_olazabal/Desktop/GBear/build/GBear.build/Debug/GBearKit.build/Objects-normal/x86_64/ScreenScraperManualSearchSheet.swiftdeps"
+  },
+  "/Users/oswald_joshua_olazabal/Desktop/GBear/Sources/GBearKit/Views/ScreenScraperMatchGrid.swift" : {
+    "const-values" : "/Users/oswald_joshua_olazabal/Desktop/GBear/build/GBear.build/Debug/GBearKit.build/Objects-normal/x86_64/ScreenScraperMatchGrid.swiftconstvalues",
+    "dependencies" : "/Users/oswald_joshua_olazabal/Desktop/GBear/build/GBear.build/Debug/GBearKit.build/Objects-normal/x86_64/ScreenScraperMatchGrid.d",
+    "diagnostics" : "/Users/oswald_joshua_olazabal/Desktop/GBear/build/GBear.build/Debug/GBearKit.build/Objects-normal/x86_64/ScreenScraperMatchGrid.dia",
+    "object" : "/Users/oswald_joshua_olazabal/Desktop/GBear/build/GBear.build/Debug/GBearKit.build/Objects-normal/x86_64/ScreenScraperMatchGrid.o",
+    "swift-dependencies" : "/Users/oswald_joshua_olazabal/Desktop/GBear/build/GBear.build/Debug/GBearKit.build/Objects-normal/x86_64/ScreenScraperMatchGrid.swiftdeps"
+  },
+  "/Users/oswald_joshua_olazabal/Desktop/GBear/Sources/GBearKit/Views/ScreenScraperPlatformPicker.swift" : {
+    "const-values" : "/Users/oswald_joshua_olazabal/Desktop/GBear/build/GBear.build/Debug/GBearKit.build/Objects-normal/x86_64/ScreenScraperPlatformPicker.swiftconstvalues",
+    "dependencies" : "/Users/oswald_joshua_olazabal/Desktop/GBear/build/GBear.build/Debug/GBearKit.build/Objects-normal/x86_64/ScreenScraperPlatformPicker.d",
+    "diagnostics" : "/Users/oswald_joshua_olazabal/Desktop/GBear/build/GBear.build/Debug/GBearKit.build/Objects-normal/x86_64/ScreenScraperPlatformPicker.dia",
+    "object" : "/Users/oswald_joshua_olazabal/Desktop/GBear/build/GBear.build/Debug/GBearKit.build/Objects-normal/x86_64/ScreenScraperPlatformPicker.o",
+    "swift-dependencies" : "/Users/oswald_joshua_olazabal/Desktop/GBear/build/GBear.build/Debug/GBearKit.build/Objects-normal/x86_64/ScreenScraperPlatformPicker.swiftdeps"
+  },
+  "/Users/oswald_joshua_olazabal/Desktop/GBear/Sources/GBearKit/Views/ScreenScraperRegionPriorityList.swift" : {
+    "const-values" : "/Users/oswald_joshua_olazabal/Desktop/GBear/build/GBear.build/Debug/GBearKit.build/Objects-normal/x86_64/ScreenScraperRegionPriorityList.swiftconstvalues",
+    "dependencies" : "/Users/oswald_joshua_olazabal/Desktop/GBear/build/GBear.build/Debug/GBearKit.build/Objects-normal/x86_64/ScreenScraperRegionPriorityList.d",
+    "diagnostics" : "/Users/oswald_joshua_olazabal/Desktop/GBear/build/GBear.build/Debug/GBearKit.build/Objects-normal/x86_64/ScreenScraperRegionPriorityList.dia",
+    "object" : "/Users/oswald_joshua_olazabal/Desktop/GBear/build/GBear.build/Debug/GBearKit.build/Objects-normal/x86_64/ScreenScraperRegionPriorityList.o",
+    "swift-dependencies" : "/Users/oswald_joshua_olazabal/Desktop/GBear/build/GBear.build/Debug/GBearKit.build/Objects-normal/x86_64/ScreenScraperRegionPriorityList.swiftdeps"
+  },
+  "/Users/oswald_joshua_olazabal/Desktop/GBear/Sources/GBearKit/Views/ScreenScraperSettingsSheet.swift" : {
+    "const-values" : "/Users/oswald_joshua_olazabal/Desktop/GBear/build/GBear.build/Debug/GBearKit.build/Objects-normal/x86_64/ScreenScraperSettingsSheet.swiftconstvalues",
+    "dependencies" : "/Users/oswald_joshua_olazabal/Desktop/GBear/build/GBear.build/Debug/GBearKit.build/Objects-normal/x86_64/ScreenScraperSettingsSheet.d",
+    "diagnostics" : "/Users/oswald_joshua_olazabal/Desktop/GBear/build/GBear.build/Debug/GBearKit.build/Objects-normal/x86_64/ScreenScraperSettingsSheet.dia",
+    "object" : "/Users/oswald_joshua_olazabal/Desktop/GBear/build/GBear.build/Debug/GBearKit.build/Objects-normal/x86_64/ScreenScraperSettingsSheet.o",
+    "swift-dependencies" : "/Users/oswald_joshua_olazabal/Desktop/GBear/build/GBear.build/Debug/GBearKit.build/Objects-normal/x86_64/ScreenScraperSettingsSheet.swiftdeps"
+  },
+  "/Users/oswald_joshua_olazabal/Desktop/GBear/Sources/GBearKit/Views/StoredDataInspectorView.swift" : {
+    "const-values" : "/Users/oswald_joshua_olazabal/Desktop/GBear/build/GBear.build/Debug/GBearKit.build/Objects-normal/x86_64/StoredDataInspectorView.swiftconstvalues",
+    "dependencies" : "/Users/oswald_joshua_olazabal/Desktop/GBear/build/GBear.build/Debug/GBearKit.build/Objects-normal/x86_64/StoredDataInspectorView.d",
+    "diagnostics" : "/Users/oswald_joshua_olazabal/Desktop/GBear/build/GBear.build/Debug/GBearKit.build/Objects-normal/x86_64/StoredDataInspectorView.dia",
+    "object" : "/Users/oswald_joshua_olazabal/Desktop/GBear/build/GBear.build/Debug/GBearKit.build/Objects-normal/x86_64/StoredDataInspectorView.o",
+    "swift-dependencies" : "/Users/oswald_joshua_olazabal/Desktop/GBear/build/GBear.build/Debug/GBearKit.build/Objects-normal/x86_64/StoredDataInspectorView.swiftdeps"
+  },
+  "/Users/oswald_joshua_olazabal/Desktop/GBear/Sources/GBearKit/Views/StreamingView.swift" : {
+    "const-values" : "/Users/oswald_joshua_olazabal/Desktop/GBear/build/GBear.build/Debug/GBearKit.build/Objects-normal/x86_64/StreamingView.swiftconstvalues",
+    "dependencies" : "/Users/oswald_joshua_olazabal/Desktop/GBear/build/GBear.build/Debug/GBearKit.build/Objects-normal/x86_64/StreamingView.d",
+    "diagnostics" : "/Users/oswald_joshua_olazabal/Desktop/GBear/build/GBear.build/Debug/GBearKit.build/Objects-normal/x86_64/StreamingView.dia",
+    "object" : "/Users/oswald_joshua_olazabal/Desktop/GBear/build/GBear.build/Debug/GBearKit.build/Objects-normal/x86_64/StreamingView.o",
+    "swift-dependencies" : "/Users/oswald_joshua_olazabal/Desktop/GBear/build/GBear.build/Debug/GBearKit.build/Objects-normal/x86_64/StreamingView.swiftdeps"
+  }
+}

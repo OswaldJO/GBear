@@ -1,0 +1,12 @@
+{
+  "/Users/oswald_joshua_olazabal/Desktop/GBear/build/GBear.build/Release/GBearKit.build/DerivedSources/resource_bundle_accessor.swift" : {
+    "abi-baseline-json" : "/Users/oswald_joshua_olazabal/Desktop/GBear/build/GBear.build/Release/GBearKit.build/Objects-normal/x86_64/GBearKit.abi.json",
+    "const-values" : "/Users/oswald_joshua_olazabal/Desktop/GBear/build/GBear.build/Release/GBearKit.build/Objects-normal/x86_64/GBearKit-primary.swiftconstvalues",
+    "dependencies" : "/Users/oswald_joshua_olazabal/Desktop/GBear/build/GBear.build/Release/GBearKit.build/Objects-normal/x86_64/GBearKit-primary.d",
+    "diagnostics" : "/Users/oswald_joshua_olazabal/Desktop/GBear/build/GBear.build/Release/GBearKit.build/Objects-normal/x86_64/GBearKit-primary.dia",
+    "objc-header" : "/Users/oswald_joshua_olazabal/Desktop/GBear/build/GBear.build/Release/GBearKit.build/Objects-normal/x86_64/GBearKit-Swift.h",
+    "swiftdoc" : "/Users/oswald_joshua_olazabal/Desktop/GBear/build/GBear.build/Release/GBearKit.build/Objects-normal/x86_64/GBearKit.swiftdoc",
+    "swiftmodule" : "/Users/oswald_joshua_olazabal/Desktop/GBear/build/GBear.build/Release/GBearKit.build/Objects-normal/x86_64/GBearKit.swiftmodule",
+    "swiftsourceinfo" : "/Users/oswald_joshua_olazabal/Desktop/GBear/build/GBear.build/Release/GBearKit.build/Objects-normal/x86_64/GBearKit.swiftsourceinfo"
+  }
+}

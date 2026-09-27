@@ -1,0 +1,12 @@
+Target dependency graph (5 targets)
+Target 'GBear' in project 'GBear'
+➜ Explicit dependency on target 'GBearKit' in project 'GBear'
+Target 'GBearKit' in project 'GBear'
+➜ Explicit dependency on target 'GBearKit' in project 'GBear'
+➜ Explicit dependency on target 'GBear_GBearKit' in project 'GBear'
+➜ Explicit dependency on target 'GBearHID' in project 'GBear'
+Target 'GBearKit' in project 'GBear'
+➜ Explicit dependency on target 'GBear_GBearKit' in project 'GBear'
+➜ Explicit dependency on target 'GBearHID' in project 'GBear'
+Target 'GBearHID' in project 'GBear' (no dependencies)
+Target 'GBear_GBearKit' in project 'GBear' (no dependencies)
