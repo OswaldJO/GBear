@@ -50,6 +50,22 @@ final class GBearVideoStreamClient: @unchecked Sendable {
         formatDescription = nil
     }
 
+    /// Full `GBV1` packet (header + Annex-B), used by the invite relay.
+    func ingest(_ packet: Data) {
+        guard packet.count >= 13 else { return }
+        stopping = false
+        let magic = packet.withUnsafeBytes { $0.load(as: UInt32.self) }.littleEndian
+        guard magic == GBearStreamPorts.videoMagic else { return }
+        let length = packet.withUnsafeBytes { $0.load(fromByteOffset: 4, as: UInt32.self) }.littleEndian
+        let isKeyframe = (packet[8] & 0x1) != 0
+        let total = 13 + Int(length)
+        guard length > 0, packet.count >= total else { return }
+        let annexB = packet.subdata(in: 13 ..< total)
+        decodeQueue.async {
+            self.decodeAnnexB(annexB, isKeyframe: isKeyframe)
+        }
+    }
+
     private func finish(_ reason: String) {
         guard !stopping else { return }
         stopping = true

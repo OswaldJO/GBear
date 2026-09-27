@@ -39,10 +39,21 @@ actor GBearVideoStreamServer {
     }
 
     /// Screen capture + encode only (call after [startListener]).
+    private var extraSink: (@Sendable (Data) -> Void)?
+
+    func setExtraSink(_ sink: (@Sendable (Data) -> Void)?) {
+        extraSink = sink
+    }
+
+    func requestKeyframe() {
+        capture?.requestKeyframe()
+    }
+
     func startCapture(
         width: Int,
         height: Int,
         fps: Int,
+        bitrate: Int = 8_000_000,
         audioHandler: GBearDisplayCapture.AudioHandler? = nil
     ) async throws {
         if capture != nil { return }
@@ -54,7 +65,7 @@ actor GBearVideoStreamServer {
             },
             audioHandler: audioHandler
         )
-        try await capture.start(width: width, height: height, fps: fps)
+        try await capture.start(width: width, height: height, fps: fps, bitrate: bitrate)
         self.capture = capture
     }
 
@@ -154,8 +165,9 @@ actor GBearVideoStreamServer {
     }
 
     private func sendFrame(data: Data, isKeyframe: Bool, width: UInt16, height: UInt16) {
-        guard !clients.isEmpty else { return }
         let packet = GBearVideoFrameFormat.pack(payload: data, width: width, height: height, isKeyframe: isKeyframe)
+        extraSink?(packet)
+        guard !clients.isEmpty else { return }
         let pending = PendingPacket(
             data: packet,
             isKeyframe: isKeyframe,

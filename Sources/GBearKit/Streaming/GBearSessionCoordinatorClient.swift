@@ -32,14 +32,14 @@ final class GBearSessionCoordinatorClient {
     }
 
     /// Dev path: `dev:you@gmail.com`. Production: Google ID token string.
-    func signIn(idToken: String) async -> Bool {
+    func signIn(idToken: String, role: String = "host", deviceID: String? = nil) async -> Bool {
         self.idToken = idToken
         lastError = nil
         do {
             let body: [String: Any] = [
-                "deviceId": hostDeviceID,
+                "deviceId": deviceID ?? hostDeviceID,
                 "deviceName": ProcessInfo.processInfo.hostName,
-                "role": "host",
+                "role": role,
             ]
             let json = try await postJSON(path: "/v1/auth/register-device", body: body)
             email = json["email"] as? String
@@ -88,6 +88,30 @@ final class GBearSessionCoordinatorClient {
         }
     }
 
+    func redeemInvite(_ code: String, deviceID: String, deviceName: String) async -> String? {
+        guard idToken != nil else {
+            lastError = "Sign in first"
+            return nil
+        }
+        do {
+            let json = try await postJSON(path: "/v1/session/redeem-invite", body: [
+                "inviteCode": code.trimmingCharacters(in: .whitespacesAndNewlines).uppercased(),
+                "deviceId": deviceID,
+                "deviceName": deviceName,
+            ])
+            let session = json["session"] as? [String: Any]
+            let id = session?["sessionId"] as? String
+            remoteSessionID = id
+            if id == nil {
+                lastError = "Invite was not accepted."
+            }
+            return id
+        } catch {
+            lastError = error.localizedDescription
+            return nil
+        }
+    }
+
     func refreshTURNCredentials() async {
         guard idToken != nil else { return }
         do {
@@ -123,6 +147,7 @@ final class GBearSessionCoordinatorClient {
         }
         var request = URLRequest(url: baseURL.appending(path: path))
         request.httpMethod = "POST"
+        request.timeoutInterval = 20
         request.setValue("application/json", forHTTPHeaderField: "Content-Type")
         request.setValue("Bearer \(token)", forHTTPHeaderField: "Authorization")
         request.httpBody = try JSONSerialization.data(withJSONObject: body)

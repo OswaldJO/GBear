@@ -25,9 +25,9 @@ final class GBearDisplayCapture: NSObject, @unchecked Sendable {
         super.init()
     }
 
-    func start(width: Int, height: Int, fps: Int) async throws {
+    func start(width: Int, height: Int, fps: Int, bitrate: Int = 8_000_000) async throws {
         #if canImport(ScreenCaptureKit)
-        try encoder.prepare(width: Int32(width), height: Int32(height), fps: Int32(fps))
+        try encoder.prepare(width: Int32(width), height: Int32(height), fps: Int32(fps), averageBitRate: bitrate)
 
         let content = try await SCShareableContent.excludingDesktopWindows(false, onScreenWindowsOnly: true)
         guard let display = content.displays.first else {

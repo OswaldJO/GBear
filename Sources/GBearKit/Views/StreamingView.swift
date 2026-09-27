@@ -5,6 +5,7 @@ struct StreamingView: View {
     @State private var session: StreamingPairingSession
     @State private var hostManager = GBearStreamHostManager.shared
     @State private var guestManager = GBearStreamGuestManager.shared
+    @State private var remoteHost = GBearRemoteCoopHost.shared
     @State private var confirmDisconnect = false
     @State private var streamLogSavedPath: String?
     @State private var showGuestVideo = false
@@ -22,6 +23,7 @@ struct StreamingView: View {
                 streamHostSection
                 playOnThisMacSection
                 joinComputerSection
+                joinRemoteSection
                 remoteSessionSection
                 pairingRequestsSection
                 coopSeatsSection
@@ -176,54 +178,57 @@ struct StreamingView: View {
 
     @ViewBuilder
     private var remoteSessionSection: some View {
-        Section("Remote co-op (session tunnel)") {
+        Section("Host a remote session") {
             Text(
-                "Sign in with Google (or dev token) on the coordinator so your own devices join without invites. Mint an invite for a friend on another network — no port forwarding."
+                "Your friend can be on another network. This Mac opens an outbound relay and gives you an invite line. No port forwarding. Same Wi-Fi can still use Join another computer."
             )
             .font(.caption)
             .foregroundStyle(.secondary)
             .fixedSize(horizontal: false, vertical: true)
-
-            let coord = GBearSessionCoordinatorClient.shared
-            if let email = coord.email {
-                LabeledContent("Account") { Text(email) }
+            if !remoteHost.inviteLine.isEmpty {
+                Text(remoteHost.inviteLine)
+                    .font(.body.monospaced())
+                    .textSelection(.enabled)
+                    .fixedSize(horizontal: false, vertical: true)
             }
-            if let sid = coord.remoteSessionID {
-                LabeledContent("Remote session") {
-                    Text(String(sid.prefix(8)) + "…")
-                        .font(.caption.monospaced())
-                }
-            }
-            if let invite = coord.lastInviteCode {
-                LabeledContent("Invite code") {
-                    Text(invite)
-                        .font(.title3.monospaced())
-                        .textSelection(.enabled)
-                }
-            }
-            if let err = coord.lastError {
-                Text(err).font(.caption).foregroundStyle(.red)
-            }
+            Text(remoteHost.statusMessage)
+                .font(.caption)
+                .foregroundStyle(.secondary)
+                .fixedSize(horizontal: false, vertical: true)
             HStack {
-                Button("Dev sign-in") {
-                    Task {
-                        coord.configure(baseURLString: "http://127.0.0.1:8787")
-                        _ = await coord.signIn(idToken: "dev:host@gbear.local")
+                Button(remoteHost.isStarting ? "Starting…" : "Start remote co-op") {
+                    Task { await remoteHost.start() }
+                }
+                .disabled(remoteHost.isStarting || remoteHost.isRunning)
+                if !remoteHost.inviteLine.isEmpty {
+                    Button("Copy invite") {
+                        remoteHost.copyInvite()
                     }
                 }
-                Button("Create remote session") {
-                    Task { _ = await coord.createRemoteSession() }
+                Button("End", role: .destructive) {
+                    Task { await remoteHost.stop() }
                 }
-                Button("Mint invite") {
-                    Task { _ = await coord.mintInvite() }
-                }
+                .disabled(!remoteHost.isRunning && !remoteHost.isStarting)
             }
-            Button("Refresh TURN / ICE") {
-                Task { await coord.refreshTURNCredentials() }
+        }
+    }
+
+    @ViewBuilder
+    private var joinRemoteSection: some View {
+        Section("Join a remote session") {
+            Text("Paste the invite line from the host Mac. Your computer connects outbound. No port forwarding.")
+                .font(.caption)
+                .foregroundStyle(.secondary)
+                .fixedSize(horizontal: false, vertical: true)
+            TextField("Invite line", text: $guestManager.inviteLine)
+            Text(guestManager.remoteStatusMessage)
+                .font(.caption)
+                .foregroundStyle(.secondary)
+                .fixedSize(horizontal: false, vertical: true)
+            Button("Join with invite") {
+                Task { await guestManager.joinRemote() }
             }
-            Button("End remote session", role: .destructive) {
-                Task { await coord.endRemoteSession() }
-            }
+            .disabled(guestManager.phase == .pairing || guestManager.phase == .streaming)
         }
     }
 

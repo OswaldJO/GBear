@@ -277,9 +277,53 @@ final class GBearStreamHostManager {
         return ok
     }
 
-    func beginVideoStream(deviceID: String, width: Int, height: Int, fps: Int) async {
+    func beginVideoStream(deviceID: String, width: Int, height: Int, fps: Int, bitrate: Int = 8_000_000) async {
         await enqueueStreamOperation {
-            await self.beginVideoStreamUnlocked(deviceID: deviceID, width: width, height: height, fps: fps)
+            await self.beginVideoStreamUnlocked(
+                deviceID: deviceID,
+                width: width,
+                height: height,
+                fps: fps,
+                bitrate: bitrate
+            )
+        }
+    }
+
+    func setRelaySinks(
+        video: (@Sendable (Data) -> Void)?,
+        audio: (@Sendable (Data) -> Void)?
+    ) async {
+        await self.video.setExtraSink(video)
+        await self.audio.setExtraSink(audio)
+    }
+
+    func requestRelayKeyframe() async {
+        await video.requestKeyframe()
+    }
+
+    /// Seats a friend who joined through the invite relay and starts a 720p capture for that link.
+    func attachRelayGuest(deviceID: String, deviceName: String, preferredSeat: Int?) async -> Int? {
+        _ = await setHostPlayer(deviceID: GBearCoopSessionState.localHostDeviceID)
+        guard let seat = await server.admitRelayGuest(
+            deviceID: deviceID,
+            deviceName: deviceName,
+            preferredSeat: preferredSeat
+        ) else {
+            return nil
+        }
+        await refreshCoopSession()
+        await beginVideoStream(deviceID: deviceID, width: 1280, height: 720, fps: 30, bitrate: 4_000_000)
+        await video.requestKeyframe()
+        guard isVideoStreaming else { return nil }
+        return seat
+    }
+
+    func releaseRelayGuest(deviceID: String) async {
+        await setRelaySinks(video: nil, audio: nil)
+        let session = await server.leaveDevice(deviceID: deviceID)
+        await refreshCoopSession()
+        if (session?.videoClientCount ?? 0) == 0 {
+            await endVideoStream(reason: "remote guest left")
         }
     }
 
@@ -296,7 +340,7 @@ final class GBearStreamHostManager {
         await task.value
     }
 
-    private func beginVideoStreamUnlocked(deviceID: String, width: Int, height: Int, fps: Int) async {
+    private func beginVideoStreamUnlocked(deviceID: String, width: Int, height: Int, fps: Int, bitrate: Int) async {
         await refreshCoopSession()
         // Second viewer attaches to existing capture — do not restart encode.
         if isVideoStreaming, captureTask != nil {
@@ -321,7 +365,7 @@ final class GBearStreamHostManager {
         captureTask?.cancel()
         captureTask = Task { @MainActor in
             do {
-                try await video.startCapture(width: width, height: height, fps: fps) { pcm, sampleRate, channels in
+                try await video.startCapture(width: width, height: height, fps: fps, bitrate: bitrate) { pcm, sampleRate, channels in
                     Task { await audioServer.sendPCM(pcm, sampleRate: sampleRate, channels: channels) }
                 }
                 GBearStreamSessionLog.i("Capture started \(width)x\(height) @ \(fps)fps")

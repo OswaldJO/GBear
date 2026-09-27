@@ -7,6 +7,7 @@ final class GBearGuestGamepadSender: @unchecked Sendable {
     private let host: String
     private let port: UInt16
     private let joinSeat: UInt8
+    private let relaySend: (@Sendable (Data) -> Void)?
     private var connection: NWConnection?
     private var observers: [NSObjectProtocol] = []
     private let queue = DispatchQueue(label: "GBearGuest.pad")
@@ -15,18 +16,28 @@ final class GBearGuestGamepadSender: @unchecked Sendable {
         self.host = host
         self.port = port
         self.joinSeat = UInt8(max(1, min(GBearStreamPorts.maxCoopViewers, joinSeat)))
+        self.relaySend = nil
+    }
+
+    init(joinSeat: Int, relaySend: @escaping @Sendable (Data) -> Void) {
+        self.host = ""
+        self.port = 0
+        self.joinSeat = UInt8(max(1, min(GBearStreamPorts.maxCoopViewers, joinSeat)))
+        self.relaySend = relaySend
     }
 
     func start() {
         stop()
-        let endpoint = NWEndpoint.hostPort(
-            host: NWEndpoint.Host(host),
-            port: NWEndpoint.Port(rawValue: port)!
-        )
-        let params = NWParameters.udp
-        let connection = NWConnection(to: endpoint, using: params)
-        self.connection = connection
-        connection.start(queue: queue)
+        if relaySend == nil {
+            let endpoint = NWEndpoint.hostPort(
+                host: NWEndpoint.Host(host),
+                port: NWEndpoint.Port(rawValue: port)!
+            )
+            let params = NWParameters.udp
+            let connection = NWConnection(to: endpoint, using: params)
+            self.connection = connection
+            connection.start(queue: queue)
+        }
         GCController.shouldMonitorBackgroundEvents = true
         let center = NotificationCenter.default
         observers.append(center.addObserver(forName: .GCControllerDidConnect, object: nil, queue: .main) { [weak self] _ in
@@ -83,6 +94,10 @@ final class GBearGuestGamepadSender: @unchecked Sendable {
             leftTrigger: event.leftTrigger,
             rightTrigger: event.rightTrigger
         )
+        if let relaySend {
+            relaySend(packet)
+            return
+        }
         connection?.send(content: packet, completion: .contentProcessed { _ in })
     }
 }

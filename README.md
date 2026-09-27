@@ -42,6 +42,6 @@ Both use the same picture and sound. The host captures its screen and system aud
 
 On a local network, co-op uses the same direct connection as regular streaming. Phones, another Mac, and the Windows app can sit in the same session.
 
-Across the internet, co-op is a different connection. A small session service hands out an invite, then tries a direct path and can relay the bytes if the two computers cannot see each other. That relay is still a two-person link. A full table of players belongs on a local network, or on a VPN that makes the machines look local. The Windows app’s **Join** and **Host this PC** buttons use that direct address. They do not use the phone invite.
+Across the internet, two Macs use a different connection. The host clicks **Start remote co-op**. GBear opens an outbound relay (no port forwarding) and shows an invite line. The other Mac pastes that line under **Join with invite** and connects outbound to the same relay. That relay is a two-person link: one host and one friend. A full table of players belongs on a local network. The Windows app’s **Join** and **Host this PC** buttons still use a direct address.
 
 So: regular streaming is one viewer and the host’s desktop. Couch co-op is the same desktop with a virtual controller per player. “Remote” means those extra players are not sitting at the host, whether they are on the same Wi-Fi or reaching it through an invite.

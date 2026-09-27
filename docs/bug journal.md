@@ -196,6 +196,15 @@ For release notes style summaries, see `source control log.md`. For architecture
 
 ## Streaming — architecture (Sunshine → native GBear)
 
+### BJ-091 — Remote co-op could not cross networks
+| | |
+|---|---|
+| **When** | Sep 26 2026 |
+| **Symptom** | Two Macs on different networks could not start couch co-op. **Join another computer** needs the host’s address. The **Remote co-op** buttons only talked to `127.0.0.1:8787`, and the Mac guest never redeemed an invite. |
+| **Cause** | The session coordinator and `GBTL` tunnel were not wired to the Mac guest, and nothing reachable from the internet was running. Direct ports cannot be opened without port forwarding. |
+| **Fix** | Host **Start remote co-op** starts `GBearLocalRelayServer` on localhost and an outbound tunnel, then shows a `GBEAR1` invite line. **Join with invite** connects outbound and carries video, audio, and `GBG1`. |
+| **Commit** | release **v1.1.0** |
+
 ### BJ-011 — Sunshine/Moonlight path fragile (ports, PIN, dual instances)
 | | |
 |---|---|
@@ -447,7 +456,7 @@ For release notes style summaries, see `source control log.md`. For architecture
 | BJ-008 | Residual `no_match` for short/obscure titles | *rain*, *Hannah*, *ChokoNana* may need manual ScreenScraper pick even with platform set. |
 | — | Some OEMs still collapse custom notification layout | `addAction` fallback present; may need in-app stream control panel. |
 | — | Host physical pad + GBear virtual pad both visible to emulators | If double-input, disconnect the physical device in the emulator and map **GBear Virtual Pad N**. |
-| — | WAN 8-player over session relay | Coordinator membership is 8; byte-relay is still two sockets. Use LAN for 3+ remote viewers. |
+| — | WAN table larger than two | Mac invite relay is host + one friend. Use LAN **Join another computer** for 3+ players. |
 | — | `stream/start` returns before capture is running | Phone connects to TCP **28766** immediately; first frames may lag until SCK starts (expected). |
 | — | Force-quit without **Stop** | Use Session **Stop** or Mac **Stop active stream**; next **Start** sends preflight **`stream/stop`** when **`videoStreaming`** is still true. |
 | — | Right stick on some pads uses **AXIS_RX/RY** vs **Z/RZ** | Mapping tries both; link capture matches target element only. |

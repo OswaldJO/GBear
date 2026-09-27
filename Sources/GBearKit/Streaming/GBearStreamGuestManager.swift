@@ -18,15 +18,19 @@ final class GBearStreamGuestManager {
     }
 
     var hostAddress: String = ""
+    var inviteLine: String = ""
     var preferredSeat: Int = 0
     var phase: Phase = .idle
     var statusMessage: String = "Enter a host LAN IP to join as a computer guest."
+    var remoteStatusMessage: String = "Paste the invite line from the host Mac."
     var assignedSeat: Int = 1
     var latestSample: CMSampleBuffer?
 
     private let video = GBearVideoStreamClient()
     private let audio = GBearAudioStreamClient()
     private var padSender: GBearGuestGamepadSender?
+    private var relaySocket: GBearRelayWebSocket?
+    private var relayEpoch = UUID()
     private var deviceID: String {
         let key = "gbear.guest.deviceId"
         if let existing = UserDefaults.standard.string(forKey: key), !existing.isEmpty {
@@ -77,9 +81,107 @@ final class GBearStreamGuestManager {
         }
     }
 
-    func stop() async {
+    func joinRemote() async {
+        guard let parsed = Self.parseInviteLine(inviteLine) else {
+            phase = .failed("Paste the full invite line from the host.")
+            remoteStatusMessage = "Paste the full invite line from the host. It starts with GBEAR1."
+            return
+        }
+        phase = .pairing
+        remoteStatusMessage = "Connecting through the relay…"
+        relayEpoch = UUID()
+        let epoch = relayEpoch
         padSender?.stop()
         padSender = nil
+        relaySocket?.close()
+        relaySocket = nil
+        video.stop()
+        audio.stop()
+        latestSample = nil
+        let coord = GBearSessionCoordinatorClient.shared
+        coord.configure(baseURLString: parsed.baseURL.absoluteString)
+        let signedIn = await coord.signIn(
+            idToken: "dev:guest@gbear.local",
+            role: "guest",
+            deviceID: deviceID
+        )
+        guard signedIn else {
+            let message = coord.lastError ?? "Could not reach the host’s relay."
+            phase = .failed(message)
+            remoteStatusMessage = message
+            return
+        }
+        guard let sessionID = await coord.redeemInvite(parsed.code, deviceID: deviceID, deviceName: deviceName) else {
+            let message = coord.lastError ?? "That invite was not accepted."
+            phase = .failed(message)
+            remoteStatusMessage = message
+            return
+        }
+        guard let socketURL = GBearRelayWebSocket.relayURL(
+            base: parsed.baseURL,
+            deviceID: deviceID,
+            sessionID: sessionID
+        ) else {
+            phase = .failed("The invite address is not valid.")
+            remoteStatusMessage = "The invite address is not valid."
+            return
+        }
+        video.onSampleBuffer = { [weak self] sample in
+            Task { @MainActor in
+                self?.latestSample = sample
+            }
+        }
+        video.onEnded = { [weak self] reason in
+            Task { @MainActor in
+                self?.remoteStatusMessage = "Video ended (\(reason))"
+            }
+        }
+        audio.startPlayback()
+        let videoClient = video
+        let audioClient = audio
+        let socket = GBearRelayWebSocket()
+        relaySocket = socket
+        socket.setHandlers(
+            onBinary: { data in
+                guard let (channel, payload) = GBearTunnelFrame.unpack(data) else { return }
+                switch channel {
+                case .video:
+                    videoClient.ingest(payload)
+                case .audio:
+                    audioClient.ingest(payload)
+                case .control:
+                    Task { @MainActor in
+                        GBearStreamGuestManager.shared.handleRelayControl(payload)
+                    }
+                case .input:
+                    break
+                }
+            },
+            onText: { text in
+                Task { @MainActor in
+                    GBearStreamGuestManager.shared.handleRelayText(text)
+                }
+            },
+            onClose: { reason in
+                Task { @MainActor in
+                    let manager = GBearStreamGuestManager.shared
+                    guard manager.relayEpoch == epoch else { return }
+                    guard manager.phase == .streaming || manager.phase == .pairing || manager.phase == .connected else { return }
+                    manager.phase = .failed(reason)
+                    manager.remoteStatusMessage = "Relay closed: \(reason)"
+                }
+            }
+        )
+        socket.connect(socketURL)
+        remoteStatusMessage = "Waiting for the host…"
+    }
+
+    func stop() async {
+        relayEpoch = UUID()
+        padSender?.stop()
+        padSender = nil
+        relaySocket?.close()
+        relaySocket = nil
         video.stop()
         audio.stop()
         latestSample = nil
@@ -90,7 +192,79 @@ final class GBearStreamGuestManager {
         if phase == .streaming || phase == .connected || phase == .pairing {
             phase = .idle
             statusMessage = "Disconnected."
+            remoteStatusMessage = "Disconnected."
         }
+    }
+
+    fileprivate func handleRelayText(_ text: String) {
+        guard let data = text.data(using: .utf8),
+              let json = try? JSONSerialization.jsonObject(with: data) as? [String: Any],
+              let type = json["type"] as? String else { return }
+        if type == "relay_ready" {
+            sendRelayHello()
+            remoteStatusMessage = "Connected. Waiting for the host to start the picture…"
+        } else if type == "peer_left" {
+            remoteStatusMessage = "The host left the session."
+            Task { await stop() }
+        }
+    }
+
+    fileprivate func handleRelayControl(_ payload: Data) {
+        guard let json = try? JSONSerialization.jsonObject(with: payload) as? [String: Any],
+              let type = json["type"] as? String else { return }
+        if type == "welcome" {
+            let seat = json["seat"] as? Int ?? 2
+            assignedSeat = seat
+            startRelayPad(seat: seat)
+            phase = .streaming
+            remoteStatusMessage = "Playing as Player \(seat). On the host, your controller is GBear Virtual Pad \(seat)."
+            statusMessage = remoteStatusMessage
+        } else if type == "error" {
+            let message = json["error"] as? String ?? "The host rejected the join."
+            phase = .failed(message)
+            remoteStatusMessage = message
+        }
+    }
+
+    private func sendRelayHello() {
+        let body: [String: Any] = [
+            "type": "hello",
+            "deviceId": deviceID,
+            "deviceName": deviceName,
+            "preferredSeat": preferredSeat,
+        ]
+        guard let data = try? JSONSerialization.data(withJSONObject: body) else { return }
+        relaySocket?.send(GBearTunnelFrame.pack(channel: .control, payload: data))
+    }
+
+    private func startRelayPad(seat: Int) {
+        padSender?.stop()
+        let socket = relaySocket
+        let sender = GBearGuestGamepadSender(joinSeat: seat) { packet in
+            let frame = GBearTunnelFrame.pack(channel: .input, payload: packet)
+            socket?.send(frame)
+        }
+        sender.start()
+        padSender = sender
+    }
+
+    private static func parseInviteLine(_ raw: String) -> (code: String, baseURL: URL)? {
+        let parts = raw.split(whereSeparator: { $0.isWhitespace }).map(String.init)
+        let code: String
+        let urlText: String
+        if parts.count >= 3, parts[0].caseInsensitiveCompare("GBEAR1") == .orderedSame {
+            code = parts[1]
+            urlText = parts[2]
+        } else if parts.count >= 2, parts[1].contains("://") {
+            code = parts[0]
+            urlText = parts[1]
+        } else {
+            return nil
+        }
+        var trimmed = urlText
+        while trimmed.hasSuffix("/") { trimmed.removeLast() }
+        guard let url = URL(string: trimmed), url.host != nil else { return nil }
+        return (code.uppercased(), url)
     }
 
     private func startStream(host: String) async {

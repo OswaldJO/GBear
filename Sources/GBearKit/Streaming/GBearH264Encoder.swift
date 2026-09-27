@@ -17,7 +17,7 @@ final class GBearH264Encoder: @unchecked Sendable {
         self.handler = handler
     }
 
-    func prepare(width: Int32, height: Int32, fps: Int32) throws {
+    func prepare(width: Int32, height: Int32, fps: Int32, averageBitRate: Int = 8_000_000) throws {
         self.width = width
         self.height = height
         if session != nil {
@@ -46,7 +46,12 @@ final class GBearH264Encoder: @unchecked Sendable {
         VTSessionSetProperty(newSession, key: kVTCompressionPropertyKey_RealTime, value: kCFBooleanTrue)
         // Baseline improves compatibility with Android OMX / C2 software decoders.
         VTSessionSetProperty(newSession, key: kVTCompressionPropertyKey_ProfileLevel, value: kVTProfileLevel_H264_Baseline_AutoLevel)
-        VTSessionSetProperty(newSession, key: kVTCompressionPropertyKey_AverageBitRate, value: NSNumber(value: 8_000_000))
+        VTSessionSetProperty(newSession, key: kVTCompressionPropertyKey_AverageBitRate, value: NSNumber(value: averageBitRate))
+        if averageBitRate < 8_000_000 {
+            let bytesPerSecond = max(averageBitRate / 8, 1)
+            let limits = [NSNumber(value: bytesPerSecond), NSNumber(value: 1)] as CFArray
+            VTSessionSetProperty(newSession, key: kVTCompressionPropertyKey_DataRateLimits, value: limits)
+        }
         // Frequent IDRs help the phone recover after decoder reconfiguration (~1s at 60 fps).
         VTSessionSetProperty(newSession, key: kVTCompressionPropertyKey_MaxKeyFrameInterval, value: NSNumber(value: fps))
         VTSessionSetProperty(newSession, key: kVTCompressionPropertyKey_ExpectedFrameRate, value: NSNumber(value: fps))

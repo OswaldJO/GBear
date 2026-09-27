@@ -11,21 +11,21 @@ final class GBearAudioStreamClient: @unchecked Sendable {
     private var stopping = false
     private let queue = DispatchQueue(label: "GBearGuest.audio", qos: .userInitiated)
 
+    func startPlayback() {
+        stopping = false
+        prepareEngine()
+    }
+
+    /// Full `GBA1` packet, used by the invite relay.
+    func ingest(_ packet: Data) {
+        guard !stopping else { return }
+        queue.async { self.handlePacket(packet) }
+    }
+
     func start(host: String, port: UInt16) {
         stop()
         stopping = false
-        if !started {
-            engine.attach(player)
-            let format = AVAudioFormat(standardFormatWithSampleRate: 48_000, channels: 2)!
-            engine.connect(player, to: engine.mainMixerNode, format: format)
-            do {
-                try engine.start()
-                player.play()
-                started = true
-            } catch {
-                print("[GBearGuestAudio] engine start failed: \(error.localizedDescription)")
-            }
-        }
+        prepareEngine()
         let endpoint = NWEndpoint.hostPort(host: NWEndpoint.Host(host), port: NWEndpoint.Port(rawValue: port)!)
         let connection = NWConnection(to: endpoint, using: .tcp)
         self.connection = connection
@@ -43,6 +43,23 @@ final class GBearAudioStreamClient: @unchecked Sendable {
         connection?.cancel()
         connection = nil
         player.stop()
+    }
+
+    private func prepareEngine() {
+        guard !started else {
+            if !player.isPlaying { player.play() }
+            return
+        }
+        engine.attach(player)
+        let format = AVAudioFormat(standardFormatWithSampleRate: 48_000, channels: 2)!
+        engine.connect(player, to: engine.mainMixerNode, format: format)
+        do {
+            try engine.start()
+            player.play()
+            started = true
+        } catch {
+            print("[GBearGuestAudio] engine start failed: \(error.localizedDescription)")
+        }
     }
 
     private func receiveLength() {

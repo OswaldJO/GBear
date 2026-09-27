@@ -279,6 +279,34 @@ actor GBearStreamControlServer {
     }
 
     @discardableResult
+    /// Pair and seat a computer that joined through the invite relay. The invite is the approval.
+    func admitRelayGuest(deviceID: String, deviceName: String, preferredSeat: Int?) -> Int? {
+        deniedDeviceIDs.remove(deviceID)
+        pendingByDeviceID.removeValue(forKey: deviceID)
+        let name = deviceName.trimmingCharacters(in: .whitespacesAndNewlines)
+        let displayName = name.isEmpty ? "Remote Mac" : name
+        let device = PairedDevice(deviceID: deviceID, name: displayName, pairedAt: Date())
+        pairedDevices.removeAll { $0.deviceID == deviceID }
+        pairedDevices.append(device)
+        try? Self.savePaired(pairedDevices, to: storeURL)
+        notifyPairingQueueChanged()
+        var session = ensureSession()
+        switch session.join(
+            deviceID: deviceID,
+            deviceName: displayName,
+            preferredSeat: preferredSeat,
+            kind: .computerGuest,
+            playAsHost: false
+        ) {
+        case .success(let seatInfo):
+            coopSession = session
+            notifySessionChanged()
+            return seatInfo.seat
+        case .failure:
+            return nil
+        }
+    }
+
     func leaveDevice(deviceID: String) -> GBearCoopSessionState? {
         guard var session = coopSession else { return nil }
         _ = session.leave(deviceID: deviceID)

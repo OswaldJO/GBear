@@ -152,8 +152,9 @@ The Mac app embeds its own **GBear stream host** (ScreenCaptureKit → H.264, HT
 - **`GBearVirtualGamepadManager`** — IOHIDUserDevice pads named **GBear Virtual Pad N**, created only for **occupied** seats.
 - **`GBearHostLocalGamepad`** — host GCController → assigned virtual pad.
 - **`GBearStreamGuestManager`** — another Mac pairs as `computerGuest`, receives video/audio, sends local pads as GBG1.
-- **`GBearSessionCoordinatorClient` / `GBearSessionTunnel`** — remote co-op (coordinator auth/invites/ICE/TURN + GBTL mux). LAN remains direct ports; coordinator membership is 8, WAN byte-relay is still two sockets.
-- **`StreamingView`** — **Host plays on** (this Mac = Player 1 and uses a slot, so **7 devices** can join; a paired companion standing in frees the Mac slot so **8 devices** can join), Join another computer (join order by default), 8-slot Move-to UI, pairing for phones and computers.
+- **`windows-guest/`** — Windows couch-co-op app (`GBearGuest.exe`). **Join** is a `computerGuest` (TCP `GBV1` / `GBA1`, UDP `GBG1` from XInput, keyboard fallback). **Host this PC** is the same control ports as the Mac host so a Mac can **Join another computer**: DXGI capture, Media Foundation H.264 (capped at 1280×720), WASAPI loopback, and a ViGEm Xbox pad per remote seat (seat 1 stays the physical Windows controller). ViGEmBus must be installed on that PC for the remote pad. Direct IP only (LAN or a VPN such as Tailscale). The phone invite relay is not used.
+- **`GBearRemoteCoopHost` / `GBearLocalRelayServer`** — two Macs on different networks. The host starts a localhost relay and an outbound Cloudflare tunnel, then copies a `GBEAR1` invite line. The guest redeems it and both sides exchange `GBTL` over WebSocket (video, audio, `GBG1`). No port forwarding. The relay is two sockets (host + one friend). LAN **Join another computer** is unchanged. Capture for this path is **1280×720 @ 30fps**, about **4 Mbit/s**.
+- **`StreamingView`** — **Host plays on** (this Mac = Player 1 and uses a slot, so **7 devices** can join; a paired companion standing in frees the Mac slot so **8 devices** can join), Join another computer (join order by default), **Start remote co-op** / **Join with invite**, 8-slot Move-to UI, pairing for phones and computers.
 
 ### macOS permissions
 

@@ -38,10 +38,10 @@ There are **8 pads**. This Mac uses one of them when it is playing, so **7 devic
 
 1. Host Mac is **Player 1** by default (local pad). On **Streaming**, **Host plays on** can point Player 1 at a paired companion instead — this Mac then leaves the slot, which is how an 8th device fits.
 2. Phones pair on LAN (or join via remote session invite) and **Start Desktop stream**. Default is **join order** (Player 2, 3…). Optional slot override at join; companion **Play as the host** claims Player 1 in place of the Mac.
-3. Another computer: Streaming → **Join another computer** (pair, then watch + send a local pad; join order unless a seat is picked).
+3. Another computer: Streaming → **Join another computer** (pair, then watch + send a local pad; join order unless a seat is picked). A Windows PC uses `windows-guest/build/GBearGuest.exe` (see `windows-guest/README.md`). **Join** connects to this Mac. **Host this PC** lets this Mac join the Windows machine the same way. Direct ports only; the remote-session invite relay is not used. Windows hosting needs [ViGEmBus](https://github.com/nefarius/ViGEmBus/releases) so the Mac’s pad appears as an Xbox controller.
 4. After people have joined, Mac Streaming tab **Move to** swaps who is Player N without re-plugging (GBG1 `joinSeat` stays; host remaps).
 5. Companion **Auto-map** fills GBG1 bindings; **Override** replaces one control.
-6. Remote WAN: `services/gbear-session` still uses a 2-socket relay; 8-player mixes are LAN-first.
+6. **Different networks (two Macs):** host **Streaming → Start remote co-op**, copy the `GBEAR1` invite line, friend **Join with invite**. Both connect outbound through the host’s relay. No port forwarding. Picture is 1280×720. The relay is two people; 3+ players stay on the LAN **Join another computer** path. The Windows app does not use this invite.
 
 ### Video (v1)
 

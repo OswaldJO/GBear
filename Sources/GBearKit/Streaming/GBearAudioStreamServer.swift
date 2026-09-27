@@ -21,6 +21,11 @@ actor GBearAudioStreamServer {
 
     private var tcpListener: NWListener?
     private var tcpClients: [ObjectIdentifier: TCPClient] = [:]
+    private var extraSink: (@Sendable (Data) -> Void)?
+
+    func setExtraSink(_ sink: (@Sendable (Data) -> Void)?) {
+        extraSink = sink
+    }
 
     private struct TCPClient {
         let connection: NWConnection
@@ -91,6 +96,7 @@ actor GBearAudioStreamServer {
     }
 
     private func sendPacket(_ packet: Data, pcmBytes: Int, sampleRate: UInt16, channels: UInt8) {
+        extraSink?(packet)
         for id in Array(tcpClients.keys) {
             enqueueTCP(id: id, packet: packet)
         }
