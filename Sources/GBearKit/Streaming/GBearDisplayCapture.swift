@@ -25,9 +25,15 @@ final class GBearDisplayCapture: NSObject, @unchecked Sendable {
         super.init()
     }
 
-    func start(width: Int, height: Int, fps: Int, bitrate: Int = 8_000_000) async throws {
+    func start(width: Int, height: Int, fps: Int, bitrate: Int = 8_000_000, tuning: GBearVideoTuning = .lan) async throws {
         #if canImport(ScreenCaptureKit)
-        try encoder.prepare(width: Int32(width), height: Int32(height), fps: Int32(fps), averageBitRate: bitrate)
+        try encoder.prepare(
+            width: Int32(width),
+            height: Int32(height),
+            fps: Int32(fps),
+            averageBitRate: bitrate,
+            tuning: tuning
+        )
 
         let content = try await SCShareableContent.excludingDesktopWindows(false, onScreenWindowsOnly: true)
         guard let display = content.displays.first else {
@@ -68,6 +74,10 @@ final class GBearDisplayCapture: NSObject, @unchecked Sendable {
 
     func requestKeyframe() {
         encoder.requestKeyframe()
+    }
+
+    func setBitRate(_ bitrate: Int) {
+        encoder.setBitRate(bitrate)
     }
 
     func stop() async {

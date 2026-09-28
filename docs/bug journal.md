@@ -205,6 +205,15 @@ For release notes style summaries, see `source control log.md`. For architecture
 | **Fix** | Host **Start remote co-op** starts `GBearLocalRelayServer` on localhost and an outbound tunnel, then shows a `GBEAR1` invite line. **Join with invite** connects outbound and carries video, audio, and `GBG1`. |
 | **Commit** | release **v1.1.0** |
 
+### BJ-098 — Remote co-op picture fell apart in busy scenes
+| | |
+|---|---|
+| **When** | Sep 28 2026 |
+| **Symptom** | Over the invite relay, input latency felt fine, but the picture turned blocky and smeared whenever a lot moved on screen, and stayed smeared for a moment afterwards. |
+| **Cause** | The relay path used the LAN encoder settings: Baseline H.264, a keyframe every second, and a hard cap at the 4 Mbit/s average, so busy frames were starved. When the link backed up, the host send pump and the relay dropped single frames mid-GOP. Every later P-frame then referenced a missing picture, so the smear lasted until the next keyframe. |
+| **Fix** | Relay capture uses a relay tuning (`GBearVideoTuning.relay` in `GBearH264Encoder`): High profile without B-frames, keyframes every 3s, and room to burst to 1.5× the average. `GBearRelayBitrateController` starts at 6 Mbit/s and adapts between 2 and 12 from control-channel ping round trips plus drops. After any video drop, the host pump and the relay skip to the next keyframe and request one, instead of forwarding broken frames. The relay tells the host `{"type":"congestion"}` when it sheds for the friend. The host Streaming screen shows the current **Picture** rate. |
+| **Commit** | release **v1.1.7** |
+
 ### BJ-097 — Remote friend's controller died once the game launched
 | | |
 |---|---|

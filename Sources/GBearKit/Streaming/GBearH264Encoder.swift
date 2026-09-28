@@ -2,6 +2,15 @@ import CoreMedia
 import Foundation
 import VideoToolbox
 
+/// Encoder settings per viewer path.
+enum GBearVideoTuning: Sendable {
+    /// LAN phones and computers: Baseline for Android decoders, IDR every second, strict rate cap.
+    case lan
+    /// Internet relay to a Mac guest: High profile, IDR every 3 s (drops request one sooner),
+    /// and 1.5× bursts so busy scenes are not starved.
+    case relay
+}
+
 final class GBearH264Encoder: @unchecked Sendable {
     typealias EncodedHandler = @Sendable (Data, Bool, UInt16, UInt16) -> Void
 
@@ -9,6 +18,7 @@ final class GBearH264Encoder: @unchecked Sendable {
     private let handler: EncodedHandler
     private var width: Int32 = 0
     private var height: Int32 = 0
+    private var tuning: GBearVideoTuning = .lan
     private var forceNextKeyframe = true
     private var cachedSPS: Data?
     private var cachedPPS: Data?
@@ -17,9 +27,16 @@ final class GBearH264Encoder: @unchecked Sendable {
         self.handler = handler
     }
 
-    func prepare(width: Int32, height: Int32, fps: Int32, averageBitRate: Int = 8_000_000) throws {
+    func prepare(
+        width: Int32,
+        height: Int32,
+        fps: Int32,
+        averageBitRate: Int = 8_000_000,
+        tuning: GBearVideoTuning = .lan
+    ) throws {
         self.width = width
         self.height = height
+        self.tuning = tuning
         if session != nil {
             VTCompressionSessionInvalidate(session!)
             session = nil
@@ -44,16 +61,19 @@ final class GBearH264Encoder: @unchecked Sendable {
 
         session = newSession
         VTSessionSetProperty(newSession, key: kVTCompressionPropertyKey_RealTime, value: kCFBooleanTrue)
-        // Baseline improves compatibility with Android OMX / C2 software decoders.
-        VTSessionSetProperty(newSession, key: kVTCompressionPropertyKey_ProfileLevel, value: kVTProfileLevel_H264_Baseline_AutoLevel)
-        VTSessionSetProperty(newSession, key: kVTCompressionPropertyKey_AverageBitRate, value: NSNumber(value: averageBitRate))
-        if averageBitRate < 8_000_000 {
-            let bytesPerSecond = max(averageBitRate / 8, 1)
-            let limits = [NSNumber(value: bytesPerSecond), NSNumber(value: 1)] as CFArray
-            VTSessionSetProperty(newSession, key: kVTCompressionPropertyKey_DataRateLimits, value: limits)
+        switch tuning {
+        case .lan:
+            // Baseline improves compatibility with Android OMX / C2 software decoders.
+            VTSessionSetProperty(newSession, key: kVTCompressionPropertyKey_ProfileLevel, value: kVTProfileLevel_H264_Baseline_AutoLevel)
+            // Frequent IDRs help the phone recover after decoder reconfiguration (~1s at 60 fps).
+            VTSessionSetProperty(newSession, key: kVTCompressionPropertyKey_MaxKeyFrameInterval, value: NSNumber(value: fps))
+        case .relay:
+            VTSessionSetProperty(newSession, key: kVTCompressionPropertyKey_ProfileLevel, value: kVTProfileLevel_H264_High_AutoLevel)
+            VTSessionSetProperty(newSession, key: kVTCompressionPropertyKey_AllowFrameReordering, value: kCFBooleanFalse)
+            VTSessionSetProperty(newSession, key: kVTCompressionPropertyKey_MaxKeyFrameInterval, value: NSNumber(value: fps * 3))
+            VTSessionSetProperty(newSession, key: kVTCompressionPropertyKey_MaxKeyFrameIntervalDuration, value: NSNumber(value: 3))
         }
-        // Frequent IDRs help the phone recover after decoder reconfiguration (~1s at 60 fps).
-        VTSessionSetProperty(newSession, key: kVTCompressionPropertyKey_MaxKeyFrameInterval, value: NSNumber(value: fps))
+        applyBitRate(averageBitRate, to: newSession)
         VTSessionSetProperty(newSession, key: kVTCompressionPropertyKey_ExpectedFrameRate, value: NSNumber(value: fps))
         VTCompressionSessionPrepareToEncodeFrames(newSession)
         forceNextKeyframe = true
@@ -80,6 +100,26 @@ final class GBearH264Encoder: @unchecked Sendable {
 
     func requestKeyframe() {
         forceNextKeyframe = true
+    }
+
+    /// Changes the target while encoding (relay adapts to the friend's connection).
+    func setBitRate(_ averageBitRate: Int) {
+        guard let session else { return }
+        applyBitRate(averageBitRate, to: session)
+    }
+
+    private func applyBitRate(_ averageBitRate: Int, to session: VTCompressionSession) {
+        VTSessionSetProperty(session, key: kVTCompressionPropertyKey_AverageBitRate, value: NSNumber(value: averageBitRate))
+        let bytesPerSecond = max(averageBitRate / 8, 1)
+        switch tuning {
+        case .lan:
+            guard averageBitRate < 8_000_000 else { return }
+            let limits = [NSNumber(value: bytesPerSecond), NSNumber(value: 1)] as CFArray
+            VTSessionSetProperty(session, key: kVTCompressionPropertyKey_DataRateLimits, value: limits)
+        case .relay:
+            let limits = [NSNumber(value: bytesPerSecond * 3 / 2), NSNumber(value: 1)] as CFArray
+            VTSessionSetProperty(session, key: kVTCompressionPropertyKey_DataRateLimits, value: limits)
+        }
     }
 
     func invalidate() {

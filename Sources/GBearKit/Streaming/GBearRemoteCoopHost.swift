@@ -15,8 +15,11 @@ final class GBearRemoteCoopHost {
     private let relay = GBearLocalRelayServer()
     private var tunnelProcess: Process?
     private var tunnelOutput: OutputCollector?
-    nonisolated private let videoPump = GBearRelaySendPump()
-    nonisolated private let audioPump = GBearRelaySendPump()
+    nonisolated private let videoPump = GBearRelaySendPump(dependentFrames: true)
+    nonisolated private let audioPump = GBearRelaySendPump(dependentFrames: false)
+    nonisolated private let bitrate = GBearRelayBitrateController()
+    private var pingTask: Task<Void, Never>?
+    private(set) var pictureNote = ""
     private var socket: GBearRelayWebSocket?
     private var relayURL: URL?
     private var reconnectTask: Task<Void, Never>?
@@ -27,6 +30,16 @@ final class GBearRemoteCoopHost {
     private var admittedSeat: Int?
 
     private init() {
+        videoPump.onDrop = { [bitrate] in bitrate.handleDrop() }
+        bitrate.onKeyframeNeeded = {
+            Task { await GBearStreamHostManager.shared.requestRelayKeyframe() }
+        }
+        bitrate.onBitRateChange = { rate in
+            Task { @MainActor in
+                await GBearStreamHostManager.shared.setRelayBitRate(rate)
+                GBearRemoteCoopHost.shared.updatePictureNote(rate)
+            }
+        }
         NotificationCenter.default.addObserver(
             forName: NSApplication.willTerminateNotification,
             object: nil,
@@ -89,6 +102,7 @@ final class GBearRemoteCoopHost {
         reconnectTask = nil
         guestDropTask?.cancel()
         guestDropTask = nil
+        stopPings()
         endStayAwake()
         let guestID = admittedGuestID
         admittedGuestID = nil
@@ -133,7 +147,9 @@ final class GBearRemoteCoopHost {
 
     private func handleText(_ text: String) {
         guard let type = jsonType(text) else { return }
-        if type == "peer_left" {
+        if type == "congestion" {
+            bitrate.handleDrop()
+        } else if type == "peer_left" {
             statusMessage = "Your friend disconnected. Waiting for them to reconnect…"
             guestDropTask?.cancel()
             let guestID = admittedGuestID
@@ -174,10 +190,39 @@ final class GBearRemoteCoopHost {
                 Task { await GBearVirtualGamepadManager.shared.apply(event) }
             }
         case .control:
+            if let json = try? JSONSerialization.jsonObject(with: payload) as? [String: Any],
+               json["type"] as? String == "pong",
+               let sent = json["t"] as? Double {
+                bitrate.handlePong(sentMillis: sent)
+                return
+            }
             Task { @MainActor in await self.handleControl(payload) }
         case .video, .audio:
             break
         }
+    }
+
+    private func startPings() {
+        pingTask?.cancel()
+        pingTask = Task { @MainActor in
+            while !Task.isCancelled {
+                try? await Task.sleep(nanoseconds: 1_000_000_000)
+                guard !Task.isCancelled, admittedGuestID != nil else { continue }
+                sendControl(bitrate.pingMessage())
+                bitrate.tick()
+            }
+        }
+    }
+
+    private func stopPings() {
+        pingTask?.cancel()
+        pingTask = nil
+        pictureNote = ""
+    }
+
+    fileprivate func updatePictureNote(_ rate: Int) {
+        guard admittedGuestID != nil else { return }
+        pictureNote = String(format: "Picture: %.1f Mbit/s (adjusts to your friend’s connection)", Double(rate) / 1_000_000)
     }
 
     private func handleRelayClosed(_ reason: String) {
@@ -213,6 +258,7 @@ final class GBearRemoteCoopHost {
         let preferred = json["preferredSeat"] as? Int
         let seatPref = (preferred ?? 0) >= 1 ? preferred : nil
         statusMessage = "Your friend connected. Starting the stream…"
+        bitrate.reset()
         await GBearStreamHostManager.shared.setRelaySinks(
             video: { [videoPump] packet in
                 let frame = GBearTunnelFrame.pack(channel: .video, payload: packet)
@@ -237,6 +283,8 @@ final class GBearRemoteCoopHost {
         admittedGuestID = deviceID
         admittedSeat = seat
         sendControl(["type": "welcome", "seat": seat])
+        updatePictureNote(bitrate.currentBitRate)
+        startPings()
         if AccessibilityPermission.isGranted {
             statusMessage = "Your friend is Player \(seat). Launch the game. In the emulator, set Player 1 to your controller. For Player \(seat), choose the keyboard, then click each button slot while your friend presses that button. This Mac’s speakers stay quiet while they are connected."
         } else {
@@ -246,6 +294,7 @@ final class GBearRemoteCoopHost {
     }
 
     private func dropGuest() async {
+        stopPings()
         let guestID = admittedGuestID
         admittedGuestID = nil
         admittedSeat = nil
@@ -334,23 +383,44 @@ final class GBearRemoteCoopHost {
     }
 }
 
-/// Drops stale video frames so a slow link cannot queue seconds of picture.
+/// Drops stale frames so a slow link cannot queue seconds of picture.
+/// H.264 frames depend on the one before, so once a video frame is dropped every frame up to
+/// the next keyframe is dropped too; sending them would smear the picture until then.
 final class GBearRelaySendPump: @unchecked Sendable {
     private let lock = NSLock()
+    private let dependentFrames: Bool
     private var sending = false
     private var pending: Data?
     private var pendingIsKeyframe = false
+    private var awaitingKeyframe = false
     var send: (@Sendable (Data, @escaping @Sendable () -> Void) -> Void)?
+    var onDrop: (@Sendable () -> Void)?
+
+    init(dependentFrames: Bool) {
+        self.dependentFrames = dependentFrames
+    }
 
     func enqueue(_ data: Data, keyframe: Bool) {
         lock.lock()
+        if dependentFrames {
+            if awaitingKeyframe, !keyframe {
+                lock.unlock()
+                return
+            }
+            if keyframe { awaitingKeyframe = false }
+        }
         let deliver = send
         if sending {
-            if keyframe || pending == nil || !pendingIsKeyframe {
+            if !dependentFrames || keyframe || pending == nil {
                 pending = data
                 pendingIsKeyframe = keyframe
+                lock.unlock()
+                return
             }
+            awaitingKeyframe = true
+            let dropped = onDrop
             lock.unlock()
+            dropped?()
             return
         }
         sending = true

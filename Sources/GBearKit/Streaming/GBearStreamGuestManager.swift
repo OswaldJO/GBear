@@ -158,7 +158,7 @@ final class GBearStreamGuestManager {
         let socket = GBearRelayWebSocket()
         relaySocket = socket
         socket.setHandlers(
-            onBinary: { data in
+            onBinary: { [weak socket] data in
                 guard let (channel, payload) = GBearTunnelFrame.unpack(data) else { return }
                 switch channel {
                 case .video:
@@ -166,6 +166,16 @@ final class GBearStreamGuestManager {
                 case .audio:
                     audioClient.ingest(payload)
                 case .control:
+                    // Answer right here, not after a main-actor hop, so the host's round trip
+                    // measures the network queue rather than this Mac's UI work.
+                    if let json = try? JSONSerialization.jsonObject(with: payload) as? [String: Any],
+                       json["type"] as? String == "ping",
+                       let sent = json["t"] {
+                        if let pong = try? JSONSerialization.data(withJSONObject: ["type": "pong", "t": sent]) {
+                            socket?.send(GBearTunnelFrame.pack(channel: .control, payload: pong))
+                        }
+                        return
+                    }
                     Task { @MainActor in
                         GBearStreamGuestManager.shared.handleRelayControl(payload)
                     }

@@ -49,11 +49,16 @@ actor GBearVideoStreamServer {
         capture?.requestKeyframe()
     }
 
+    func setBitRate(_ bitrate: Int) {
+        capture?.setBitRate(bitrate)
+    }
+
     func startCapture(
         width: Int,
         height: Int,
         fps: Int,
         bitrate: Int = 8_000_000,
+        tuning: GBearVideoTuning = .lan,
         audioHandler: GBearDisplayCapture.AudioHandler? = nil
     ) async throws {
         if capture != nil { return }
@@ -65,7 +70,7 @@ actor GBearVideoStreamServer {
             },
             audioHandler: audioHandler
         )
-        try await capture.start(width: width, height: height, fps: fps, bitrate: bitrate)
+        try await capture.start(width: width, height: height, fps: fps, bitrate: bitrate, tuning: tuning)
         self.capture = capture
     }
 

@@ -187,6 +187,11 @@ struct StreamingView: View {
                 .font(.caption)
                 .foregroundStyle(.secondary)
                 .fixedSize(horizontal: false, vertical: true)
+            if !remoteHost.pictureNote.isEmpty {
+                Text(remoteHost.pictureNote)
+                    .font(.caption.monospacedDigit())
+                    .foregroundStyle(.secondary)
+            }
             HStack {
                 Button(remoteHost.isStarting ? "Starting…" : "Start remote co-op") {
                     Task { await remoteHost.start() }

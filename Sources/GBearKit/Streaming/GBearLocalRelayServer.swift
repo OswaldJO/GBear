@@ -35,6 +35,8 @@ final class GBearLocalRelayServer: @unchecked Sendable {
         var fragmentOpcode: UInt8 = 0
         var fragments = Data()
         var outboundBuffered = 0
+        /// After a video drop, later frames reference the missing one, so skip until a keyframe.
+        var skippingVideoUntilKeyframe = false
         weak var server: GBearLocalRelayServer?
 
         init(connection: NWConnection, sessionID: String, server: GBearLocalRelayServer) {
@@ -44,8 +46,7 @@ final class GBearLocalRelayServer: @unchecked Sendable {
         }
 
         func send(opcode: UInt8, payload: Data) {
-            // Shed a backed-up picture. Never drop controller or control frames (BJ-097).
-            if opcode == 2, outboundBuffered > 2_000_000, GBearLocalRelayServer.isShedableMedia(payload) { return }
+            if opcode == 2, !admitsMedia(payload) { return }
             let frame = GBearLocalRelayServer.frame(opcode: opcode, payload: payload)
             outboundBuffered += frame.count
             connection.send(content: frame, completion: .contentProcessed { [weak self] _ in
@@ -59,6 +60,39 @@ final class GBearLocalRelayServer: @unchecked Sendable {
         func sendText(_ text: String) {
             send(opcode: 1, payload: Data(text.utf8))
         }
+
+        /// Video and audio may be dropped when this peer's link is backed up; controller and
+        /// control frames never are (BJ-097).
+        private func admitsMedia(_ payload: Data) -> Bool {
+            guard payload.count >= 9,
+                  payload.withUnsafeBytes({ $0.loadUnaligned(as: UInt32.self).littleEndian }) == GBearTunnelFrame.magic,
+                  let channel = GBearTunnelFrame.Channel(rawValue: payload[payload.startIndex + 4]) else { return true }
+            let backedUp = outboundBuffered > GBearLocalRelayServer.mediaBacklogLimit
+            switch channel {
+            case .video:
+                let keyframeIndex = payload.startIndex + 9 + 8
+                let keyframe = payload.count > 17 && (payload[keyframeIndex] & 1) != 0
+                if skippingVideoUntilKeyframe, !keyframe { return false }
+                if backedUp {
+                    skippingVideoUntilKeyframe = true
+                    server?.reportCongestion(from: self)
+                    return false
+                }
+                skippingVideoUntilKeyframe = false
+                return true
+            case .audio:
+                return !backedUp
+            case .control, .input:
+                return true
+            }
+        }
+    }
+
+    /// About a second of picture at the relay's usual bitrates.
+    private static let mediaBacklogLimit = 1_000_000
+
+    private func reportCongestion(from client: Client) {
+        peer(of: client)?.sendText(#"{"type":"congestion"}"#)
     }
 
     func start(port: UInt16 = 8787) async throws {
@@ -452,14 +486,6 @@ final class GBearLocalRelayServer: @unchecked Sendable {
     }
 
     /// Video and audio can be dropped when a peer falls behind. Controller input cannot.
-    private static func isShedableMedia(_ payload: Data) -> Bool {
-        guard payload.count >= 5 else { return true }
-        let magic = payload.withUnsafeBytes { $0.loadUnaligned(as: UInt32.self).littleEndian }
-        guard magic == GBearTunnelFrame.magic else { return true }
-        return payload[4] == GBearTunnelFrame.Channel.video.rawValue
-            || payload[4] == GBearTunnelFrame.Channel.audio.rawValue
-    }
-
     private static func frame(opcode: UInt8, payload: Data) -> Data {
         var header = Data()
         header.append(0x80 | opcode)

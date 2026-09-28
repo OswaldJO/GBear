@@ -278,16 +278,28 @@ final class GBearStreamHostManager {
         return ok
     }
 
-    func beginVideoStream(deviceID: String, width: Int, height: Int, fps: Int, bitrate: Int = 8_000_000) async {
+    func beginVideoStream(
+        deviceID: String,
+        width: Int,
+        height: Int,
+        fps: Int,
+        bitrate: Int = 8_000_000,
+        tuning: GBearVideoTuning = .lan
+    ) async {
         await enqueueStreamOperation {
             await self.beginVideoStreamUnlocked(
                 deviceID: deviceID,
                 width: width,
                 height: height,
                 fps: fps,
-                bitrate: bitrate
+                bitrate: bitrate,
+                tuning: tuning
             )
         }
+    }
+
+    func setRelayBitRate(_ bitrate: Int) async {
+        await video.setBitRate(bitrate)
     }
 
     func setRelaySinks(
@@ -313,7 +325,14 @@ final class GBearStreamHostManager {
             return nil
         }
         await refreshCoopSession()
-        await beginVideoStream(deviceID: deviceID, width: 1280, height: 720, fps: 30, bitrate: 4_000_000)
+        await beginVideoStream(
+            deviceID: deviceID,
+            width: 1280,
+            height: 720,
+            fps: 30,
+            bitrate: GBearRelayBitrateController.startBitRate,
+            tuning: .relay
+        )
         await video.requestKeyframe()
         guard isVideoStreaming else { return nil }
         return seat
@@ -341,7 +360,14 @@ final class GBearStreamHostManager {
         await task.value
     }
 
-    private func beginVideoStreamUnlocked(deviceID: String, width: Int, height: Int, fps: Int, bitrate: Int) async {
+    private func beginVideoStreamUnlocked(
+        deviceID: String,
+        width: Int,
+        height: Int,
+        fps: Int,
+        bitrate: Int,
+        tuning: GBearVideoTuning
+    ) async {
         await refreshCoopSession()
         // Second viewer attaches to existing capture — do not restart encode.
         if isVideoStreaming, captureTask != nil {
@@ -366,7 +392,7 @@ final class GBearStreamHostManager {
         captureTask?.cancel()
         captureTask = Task { @MainActor in
             do {
-                try await video.startCapture(width: width, height: height, fps: fps, bitrate: bitrate) { pcm, sampleRate, channels in
+                try await video.startCapture(width: width, height: height, fps: fps, bitrate: bitrate, tuning: tuning) { pcm, sampleRate, channels in
                     Task { await audioServer.sendPCM(pcm, sampleRate: sampleRate, channels: channels) }
                 }
                 GBearStreamSessionLog.i("Capture started \(width)x\(height) @ \(fps)fps")
