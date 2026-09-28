@@ -20,6 +20,22 @@
 		<data>
 		ISK31/NZevAAUbs9nmM6wd2sHHo=
 		</data>
+		<key>Resources/GBear_GBearKit.bundle/Contents/_CodeSignature/CodeDirectory</key>
+		<data>
+		8UaCiIHT+w2JuZFI2IxzDOka1Bs=
+		</data>
+		<key>Resources/GBear_GBearKit.bundle/Contents/_CodeSignature/CodeRequirements</key>
+		<data>
+		dYwptS1R0W4q9YQnBgrfJ1BTpnI=
+		</data>
+		<key>Resources/GBear_GBearKit.bundle/Contents/_CodeSignature/CodeResources</key>
+		<data>
+		md8HSMgq0Ayat2CjAxiOheiO5JQ=
+		</data>
+		<key>Resources/GBear_GBearKit.bundle/Contents/_CodeSignature/CodeSignature</key>
+		<data>
+		sTBOmdeOykU7BGUhUDSfyzbd2cg=
+		</data>
 	</dict>
 	<key>files2</key>
 	<dict>
@@ -49,6 +65,34 @@
 			<key>hash2</key>
 			<data>
 			nxtzABy0KbB/HK8N/JUtiQrWqCVQXpZdssFk20XbLJo=
+			</data>
+		</dict>
+		<key>Resources/GBear_GBearKit.bundle/Contents/_CodeSignature/CodeDirectory</key>
+		<dict>
+			<key>hash2</key>
+			<data>
+			mANfIAKkhI/K251H8kVXghdxkk3kGxCsZcK1zbEZScg=
+			</data>
+		</dict>
+		<key>Resources/GBear_GBearKit.bundle/Contents/_CodeSignature/CodeRequirements</key>
+		<dict>
+			<key>hash2</key>
+			<data>
+			Q05dGeaKoviADHHWJFPeiLeIaFN0JF4aY3+JqOp0rsw=
+			</data>
+		</dict>
+		<key>Resources/GBear_GBearKit.bundle/Contents/_CodeSignature/CodeResources</key>
+		<dict>
+			<key>hash2</key>
+			<data>
+			y/tMFdU3pNb5C8hVxrJFsNma6SZuD3IKGLSPW6/q1Uc=
+			</data>
+		</dict>
+		<key>Resources/GBear_GBearKit.bundle/Contents/_CodeSignature/CodeSignature</key>
+		<dict>
+			<key>hash2</key>
+			<data>
+			oNDnYiDPRAG/WC2GKcvNIICBqqGIWxg8aN6iwUzwRDg=
 			</data>
 		</dict>
 	</dict>

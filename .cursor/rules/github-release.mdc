@@ -1,0 +1,45 @@
+---
+description: Publish a GitHub release after a user-facing fix
+alwaysApply: true
+---
+
+# GitHub release after a fix
+
+After a fix that changes what a user runs, publish the next GitHub release in the same turn. Do not wait to be asked.
+
+## Skip when
+
+- Doc-only edits, typos, or refactors with no behavior change.
+- The user said not to release, or the change is an experiment that will be reverted.
+
+## Version and notes
+
+- Repo is [OswaldJO/GBear](https://github.com/OswaldJO/GBear). `origin` (`MacDeck`) redirects there. Tags are lightweight: `v1.1.6`, then the next patch.
+- Before tagging, set `docs/source control log.md` and the **BJ-###** **Commit** field to that release (not *in progress*).
+- Release notes match `build/release-assets/notes-v1.1.6.md`: what broke, what to install, and who needs it (host, friend, or both). Say to start the session again and send a new invite when the co-op link changed.
+
+## Mac build
+
+When Mac code changed, build a universal Release app. Use `CODE_SIGN_IDENTITY='Apple Development'` (the full certificate name conflicts with automatic signing):
+
+```bash
+xcodebuild -project GBear.xcodeproj -scheme GBear -configuration Release \
+  -destination 'generic/platform=macOS' ONLY_ACTIVE_ARCH=NO ARCHS='arm64 x86_64' \
+  SYMROOT="$PWD/build" DEVELOPMENT_TEAM=AFYV687T82 \
+  CODE_SIGN_IDENTITY='Apple Development' build
+ditto -c -k --keepParent build/Release/GBear.app build/release-assets/GBear-macOS.zip
+```
+
+Confirm `lipo` shows `x86_64 arm64` and `codesign --verify --deep --strict` passes. The app is signed with the Apple Development certificate and is not notarized.
+
+## Assets
+
+Upload **GBear-macOS.zip** when the Mac app changed. Re-upload **GBear-companion-android.apk** and **GBearGuest-windows.exe** from the previous release when those apps did not change, so the page still has all three. Rebuild an app only when its code changed.
+
+Do not commit `build/`.
+
+## Publish
+
+Commit the fix and the doc update, tag `vX.Y.Z` on that commit, push `HEAD` and the tag, then create the release with those assets. Use `gh` when it is installed. Otherwise call the GitHub API with the existing git credential and do not print the token.
+
+Return the release URL.
