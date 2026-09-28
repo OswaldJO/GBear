@@ -121,6 +121,31 @@ struct GBear: App {
 
                         Other reasons a game is missing:
                         The file is gone, or its folder is not in Paths for that emulator. The file is inside an Excludes folder. The file type is not in the emulator's supported extensions. The file sits more than one folder deep inside a Paths folder (only files and immediate subfolders are imported).
+
+                        ROMM games:
+                        Removing a game that is only in ROMM blocks it the same way, so ROMM sync does not add it back. Games from a ROMM platform appear only while that platform is linked to an emulator under ROMM in the Library sidebar.
+                        """
+                    )
+                }
+
+                Button("ROMM") {
+                    showHelpDialog(
+                        title: "ROMM",
+                        message: """
+                        Connecting:
+                        In the Library tab, select Show ROMM under ROMM in the sidebar. Enter your ROMM server address, username, and password, then click Connect. The password is stored in your Keychain.
+
+                        Linking platforms:
+                        Each ROMM platform gets an emulator menu. Link GameCube to your Dolphin GameCube profile, for example, and that emulator's collection blends with the ROMM GameCube platform.
+
+                        ROMM status:
+                        Sync Now (and Scan Paths) compares names, ignoring region tags like (USA) and file extensions. The ROMM section of a game's info panel then says In ROMM or Missing, and ROMM path opens the game in the ROMM web page.
+
+                        ROMM-only games:
+                        By default only games already on this Mac get a ROMM status. Check "Add games to library that are not on this Mac" next to Sync Now to also add the rest: they appear with ROMM's cover, and their Path says Not present. Hidden files and non-game files in ROMM are always ignored. Click Download From ROMM under Path in the info panel (or press Play) to download the game into the emulator's game folder from the Paths tab. If the emulator has more than one game folder, GBear asks which one to use. Games made of several files are unzipped into their own folder.
+
+                        Clear Sync:
+                        Removes every ROMM game that is not on this Mac and resets all In ROMM / Missing statuses, for a clean next sync. Downloaded games and all files are kept.
                         """
                     )
                 }

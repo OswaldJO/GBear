@@ -561,7 +561,7 @@ public enum GamePathScanner {
         let games = (try? modelContext.fetch(FetchDescriptor<LibraryGame>())) ?? []
         var removed = 0
         var siblingCache: [String: [URL]] = [:]
-        for game in games {
+        for game in games where game.rommImported != true {
             let romURL = URL(fileURLWithPath: game.romPath)
             if isPS3Eboot(romURL) { continue }
             let parent = romURL.deletingLastPathComponent()
@@ -859,7 +859,7 @@ public enum GamePathScanner {
         var removed = 0
         for game in games {
             guard resolvedEmulatorID(for: game) != nil else { continue }
-            if game.librarySourceID == "epic" { continue }
+            if game.librarySourceID == "epic" || game.rommImported == true { continue }
 
             let gamePath = normalizedPathForComparison(game.romPath)
             let standardized = (game.romPath as NSString).standardizingPath

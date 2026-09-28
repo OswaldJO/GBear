@@ -30,7 +30,8 @@ enum GameLauncher {
     /// Notification tokens retained while tracking launched emulator processes.
     private static var terminationObservers: [NSObjectProtocol] = []
 
-    static func launch(game: LibraryGame) throws {
+    /// `launchEmulator` overrides the game's library emulator (the info panel's Launch with).
+    static func launch(game: LibraryGame, launchEmulator: EmulatorProfile? = nil) throws {
         DebugLog.log("Launch requested: title=\(game.title) romPath=\(game.romPath)")
         if game.emulatorUUID == nil, let store = game.storefront, let gameID = game.storefrontGameID {
             try launchStorefrontGame(game, store: store, gameID: gameID)
@@ -52,9 +53,12 @@ enum GameLauncher {
             try launchStandaloneTarget(at: URL(fileURLWithPath: standardizedPath))
             return
         }
-        guard let emulator = game.emulator else {
+        guard let emulator = launchEmulator ?? game.emulator else {
             DebugLog.log("Launch failed: missing emulator")
             throw GameLaunchError.missingEmulator
+        }
+        if launchEmulator != nil {
+            DebugLog.log("Launch with override emulator=\(emulator.name)")
         }
 
         let exe = URL(fileURLWithPath: emulator.executablePath)

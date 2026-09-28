@@ -34,6 +34,7 @@ This document describes **how the app behaves today** and **where implementation
   - **Grid:** installed storefront games show a green check in the cover's top-right corner (`LibraryGame.isInstalledStorefrontGame`).
   - **Launch** (`GameLauncher.launchStorefrontGame`): Steam always via `steam://rungameid`; Epic via the launcher URI, falling back to the installed app; GOG opens the installed app, otherwise the game in GOG Galaxy.
   - **Blocking:** removing a storefront game blocks `storefront/<store>/<id>`, so it stays blocked whether installed or not.
+- **ROMM → Show ROMM** — opens `RommSettingsView`. See **ROMM** below.
 - **Cover Art and Metadata → Screen Scrapper** — detail pane for ScreenScraper in this order: **login**, **Actions** (full-library scrape), **Automatic matching**, **Region priority** at the bottom (reorderable list; first available cover/title region is used). **Only Scan Missing** (default on) skips games that already have scraped cover art (ScreenScraper or TheGamesDB); uncheck to scrape the whole library again. The panel also has **IGDB keys** and **TheGamesDB API key** cards (in fallback order). When you are not signed in, the scrape fetches covers from whichever of those keys are saved.
 
 ### Toolbar (Library)
@@ -50,7 +51,9 @@ This document describes **how the app behaves today** and **where implementation
 
 ### Inspector (Info)
 
-- `LibraryGameInspectorView`: display name; for emulator-linked games — **File** (basename) and **Path** (full `romPath`, link-styled; tap opens **Finder** via `NSWorkspace.activateFileViewerSelecting`); for **Mac** entries with no emulator — editable game path + **Choose Game…**.
+- `LibraryGameInspectorView`: display name; for emulator-linked games — **File** (basename) and **Path** (full `romPath`, link-styled; tap opens **Finder** via `NSWorkspace.activateFileViewerSelecting`; orange **Not present** when the file is missing, with a **Download From ROMM** button underneath for ROMM games — see **ROMM**); for **Mac** entries with no emulator — editable game path + **Choose Game…**.
+- **ROMM** (only when `rommStatus` is set, i.e. the game's emulator is linked to a ROMM platform): **Status** (**In ROMM** green / **Missing** orange) and **ROMM path** (the server's `full_path`, link-styled; opens `<server>/rom/<id>` in the browser).
+- **Launch with** (emulator-linked games only): a menu of emulator profiles. The default is the game's library emulator; picking another stores `LibraryGame.launchEmulatorIDString`, and `RootView.launch` passes that profile to `GameLauncher.launch(game:launchEmulator:)`. The game stays in its library section and keeps its ROMM link; scans don't touch the override. A deleted override profile falls back to the default.
 - **Multi-disc set:** link with suggestions or **Link with other discs…** sheet (`DiscGroupLinkSheet`); list linked discs with ▲/▼ reorder; **Reset order from filenames**; **Unlink this disc**. Linked discs share cover art and ScreenScraper `gameid`/`systemeid`; changes propagate via `DiscGroupService.propagateSharedState`.
 - Cover art: choose file, **Search for Covers** across configured providers (title drops trailing `(USA)` / `(Disc 1)` tags; **Platform** defaults from the emulator profile), reorder detected covers, set primary, clear. Inspector preview uses the same per-emulator crop as the grid.
 
@@ -141,6 +144,28 @@ When a configured **game folder** belongs to an RPCS3 (or PS3-style) emulator, `
 - **Launch:** `GameLauncher` — if `epicAppName` is set, tries `com.epicgames.launcher://apps/...` before falling back to direct path.
 
 **Key types:** `EpicInstalledGamesImporter.swift`, `GameLauncher.swift`.
+
+---
+
+## ROMM
+
+- **Connection** (`RommCredentials`, `RommClient`): server address and username in `UserDefaults` (`ROMM.ServerURL`, `ROMM.Username`; `http://` is assumed without a scheme), password in the Keychain (`KeychainStore`, service `com.gbear.romm`). Every request uses HTTP Basic auth. **Connect** calls `GET /api/heartbeat` (server version) and `GET /api/platforms`.
+- **Platform links** (`RommSync.links`, `UserDefaults` `ROMM.PlatformLinks`, ROMM platform id → `EmulatorProfile.id`): one emulator menu per ROMM platform in the pane.
+- **Sync** (`RommSync.sync`; **Sync Now** in the pane and at the end of **Scan Paths**), per linked platform:
+  - Fetch `GET /api/roms?platform_ids=…&platform_id=…` in pages of 1000 (ROMM 4 only honours `platform_ids`; older servers `platform_id`) and drop roms whose `platform_id` differs.
+  - **Filter** (`RommSync.isGame`): skip hidden files or anything under a hidden folder (`.DS_Store`, `._` AppleDouble), `Thumbs.db` / `desktop.ini`, non-game extensions (text, images, audio/video, xml/dat/db, saves, checksums), and single files whose extension is not in the linked emulator's supported file types (when it has any). Multi-file games (folders) pass. Filtered entries are not matched, added, or counted (`Summary.ignoredFiles`).
+  - **Name match** (`RommSync.matchKey`): drop `(…)` / `[…]` tags, fold accents, `&` → and, roman numerals II–X → digits, drop the/a/an/and, then compare the sorted words. A local game matches on its file stem, title, or library name against ROMM's `fs_name_no_tags` or `name`, so "Legend of Zelda, The - The Wind Waker (USA)" matches "The Legend of Zelda: The Wind Waker".
+  - Matched games get `rommStatus = in_romm`, `rommRomID`, `rommPath`, `rommFileName`, `rommHasMultipleFiles`; unmatched local games get `missing`.
+  - **ROMM-only games** — only when **Add games to library that are not on this Mac** is checked (next to **Sync Now**; `ROMM.AddGamesNotOnMac`, **off by default**; with it off, sync deletes not-downloaded ROMM-only rows) — become rows with `rommImported = true`, ROMM's cover, and a placeholder `romPath` (`/ROMM/<platform fs_slug>/<fs_name>`), so the inspector shows **Path: Not present**. Blocked as `romm/<id>`, so **Remove from Library** keeps them out.
+  - ROMM-only rows whose ROMM game is gone are deleted. Unlinking an emulator clears its ROMM fields and removes its not-downloaded ROMM-only rows. If the user copies the file into a game folder themselves, Scan Paths adds it and the next sync drops the duplicate ROMM-only row.
+- **Clear Sync** (`RommSync.clearSync`, with a confirmation): deletes rows with `rommImported == true` whose file is not present and clears every ROMM field on all other games. Downloaded games (file present) stay; no files are touched; login, platform links, and the blocked list are kept.
+- **Download** (`RootView.downloadFromROMM` → `RommSync.download(_:into:modelContext:)`): from **Download From ROMM** under Path, or from **Play** when `needsROMMDownload` (in ROMM, file not present; Play launches after the download).
+  - The destination is the emulator's **game folder** from Paths (`RommSync.downloadFolders`). If there are several, a confirmation dialog lists them. With none, the user is told to add one. An unmounted folder fails with a message.
+  - `RommClient.download` fetches `GET /api/roms/{id}/content/{fs_name}` to a temp file. Single files are moved to `<folder>/<fs_name>`; multi-file games arrive as a zip and are extracted with `ditto -x -k` into `<folder>/<fs_name>/` (one game folder, like the scanner expects).
+  - The row's `romPath` becomes the real path and `rommImported` is cleared, so it is an ordinary local game from then on (still **In ROMM** after sync). A spinner shows on the tile and in the inspector while downloading.
+- **Scanner:** `GamePathScanner` never prunes `rommImported` rows for a missing file or as a cue sidecar track.
+
+**Key types:** `RommClient.swift`, `RommSync.swift`, `RommSettingsView.swift`, `KeychainStore.swift`.
 
 ---
 
@@ -270,14 +295,14 @@ Legacy bindings that used **Alt** (`0x12`) still map to left Option on the Mac.
 ## Data model (SwiftData)
 
 - **`EmulatorProfile`** — name, paths, launch template, extensions, `preferScreenScraperCovers`, `autoLinkMultiDiscGames` (both default `false` for migration), `coverAspectRatioRaw` (default `"2:3"`), `screenScraperSystemId` (optional ScreenScraper console).
-- **`LibraryGame`** — title, `libraryDisplayName`, `romPath`, optional emulator link (`emulatorIDString` + relationship), cover URLs/options JSON, `platformHint`, `screenScraperGameId` / `screenScraperSystemId`, `screenScraperSelectionSkipped`, `discGroupIDString`, `discGroupOrder`, `librarySourceID`, `epicAppName`, `sortOrder`, play/metadata timestamps.
+- **`LibraryGame`** — title, `libraryDisplayName`, `romPath`, optional emulator link (`emulatorIDString` + relationship), cover URLs/options JSON, `platformHint`, `screenScraperGameId` / `screenScraperSystemId`, `screenScraperSelectionSkipped`, `discGroupIDString`, `discGroupOrder`, `librarySourceID`, `epicAppName`, `storefrontGameID`, `storefrontInstalled`, ROMM link (`rommStatus`, `rommRomID`, `rommPath`, `rommFileName`, `rommHasMultipleFiles`, `rommImported`), `launchEmulatorIDString` (per-game Launch with override), `sortOrder`, play/metadata timestamps.
 - **`GameFolderPath`** — folder path, purpose (games / covers / excludes), linked emulator.
 
 ---
 
 ## Help menu (app target)
 
-- Replaces default Help group with topic buttons (RetroArch, RPCS3, orphan cleanup, **Keystrokes permission**). Implemented in `GBear.swift`.
+- Replaces default Help group with topic buttons (RetroArch, RPCS3, orphan cleanup, **Games missing after scan**, **ROMM**, **Keystrokes permission**). Implemented in `GBear.swift`.
 
 ---
 

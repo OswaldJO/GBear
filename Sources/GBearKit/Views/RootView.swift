@@ -10,11 +10,19 @@ private enum MainSection: Hashable {
     case streaming
 }
 
+private struct PendingROMMDownload {
+    let gameID: UUID
+    let title: String
+    let folders: [URL]
+    let launchAfter: Bool
+}
+
 private enum LibrarySidebarSelection: Hashable {
     case all
     case macGames
     case emulator(UUID)
     case storefrontManager
+    case romm
     case screenScraper
 }
 
@@ -38,6 +46,7 @@ public struct RootView: View {
     @State private var screenScraperCredentialsRevision = 0
     @Bindable private var screenScraperDisambiguationCoordinator = ScreenScraperDisambiguationCoordinator.shared
     @State private var clearEmulatorGamesID: UUID?
+    @State private var pendingROMMDownload: PendingROMMDownload?
     /// Game card showing play / info overlay.
     @State private var actionOverlayGameID: UUID?
     /// Game open in the trailing inspector column.
@@ -63,7 +72,7 @@ public struct RootView: View {
             return sortedVisible.filter { $0.emulatorUUID == nil }
         case .emulator(let id):
             return sortedVisible.filter { $0.emulatorUUID == id }
-        case .storefrontManager, .screenScraper:
+        case .storefrontManager, .romm, .screenScraper:
             return []
         }
     }
@@ -73,7 +82,7 @@ public struct RootView: View {
         case .all: return "All"
         case .macGames: return "Mac Games"
         case .emulator(let id): return emulators.first(where: { $0.id == id })?.name
-        case .storefrontManager, .screenScraper: return nil
+        case .storefrontManager, .romm, .screenScraper: return nil
         }
     }
 
@@ -120,6 +129,13 @@ public struct RootView: View {
                 games: games,
                 onImport: { importStorefrontGames() }
             )
+        case .romm:
+            RommSettingsView(
+                sync: RommSync.shared,
+                emulators: emulators,
+                games: games,
+                onSync: { syncROMM() }
+            )
         case .screenScraper:
             ScreenScraperLibrarySettingsView(
                 fetcher: MetadataBackgroundFetcher.shared,
@@ -151,12 +167,13 @@ public struct RootView: View {
                         LibraryGameInspectorView(
                             game: game,
                             allGames: games,
+                            emulators: emulators,
                             coverAspect: game.emulatorUUID.flatMap { id in
                                 emulators.first(where: { $0.id == id })?.coverAspectRatio
-                            } ?? .default
-                        ) {
-                            inspectorGameID = nil
-                        }
+                            } ?? .default,
+                            onDismiss: { inspectorGameID = nil },
+                            onDownloadFromROMM: { downloadFromROMM(game, launchAfter: false) }
+                        )
                     }
                     .frame(minWidth: 280, idealWidth: 320, maxWidth: 520)
                     .frame(maxHeight: .infinity)
@@ -194,6 +211,10 @@ public struct RootView: View {
                 Section("Storefront Manager") {
                     Label("Show Manager", systemImage: "storefront")
                         .tag(LibrarySidebarSelection.storefrontManager)
+                }
+                Section("ROMM") {
+                    Label("Show ROMM", systemImage: "server.rack")
+                        .tag(LibrarySidebarSelection.romm)
                 }
                 Section("Cover Art and Metadata") {
                     ScreenScraperSidebarRow(fetcher: MetadataBackgroundFetcher.shared)
@@ -370,6 +391,24 @@ public struct RootView: View {
         .sheet(isPresented: $showBlockedGames) {
             BlockedGamesSheet()
         }
+        .confirmationDialog(
+            "Download to which game folder?",
+            isPresented: Binding(
+                get: { pendingROMMDownload != nil },
+                set: { if !$0 { pendingROMMDownload = nil } }
+            ),
+            titleVisibility: .visible,
+            presenting: pendingROMMDownload
+        ) { pending in
+            ForEach(pending.folders, id: \.self) { folder in
+                Button(folder.path) {
+                    startROMMDownload(gameID: pending.gameID, folder: folder, launchAfter: pending.launchAfter)
+                }
+            }
+            Button("Cancel", role: .cancel) {}
+        } message: { pending in
+            Text("“\(pending.title)” is in ROMM but not on this Mac. Choose where to save it.")
+        }
         .sheet(isPresented: $showScreenScraperDisambiguation) {
             ScreenScraperDisambiguationSheet(coordinator: ScreenScraperDisambiguationCoordinator.shared)
         }
@@ -398,6 +437,7 @@ public struct RootView: View {
         }
         Task {
             let storefront = await StorefrontImporter.shared.importAll(modelContext: modelContext)
+            let romm = await RommSync.shared.sync(modelContext: modelContext)
             var parts: [String] = []
             if summary.added > 0 {
                 parts.append("Added \(summary.added) game(s)")
@@ -418,17 +458,27 @@ public struct RootView: View {
                 parts.append("Removed \(summary.removedNested) extra file(s) inside game folders")
             }
             parts.append(contentsOf: storefront.feedbackParts)
+            parts.append(contentsOf: romm.feedbackParts)
             if summary.skippedBlocked > 0 {
                 parts.append(blockedSkipNote(summary.skippedBlocked))
             }
-            if summary.hasAnyChanges || storefront.hasChanges {
+            if summary.hasAnyChanges || storefront.hasChanges || romm.added > 0 || romm.removed > 0 {
                 scanFeedback = parts.joined(separator: ". ") + "."
             } else if !parts.isEmpty {
                 scanFeedback = "No new games found. " + parts.joined(separator: ". ") + "."
             } else {
                 scanFeedback = "No new games found. Add folders in Paths or check that files use supported extensions."
             }
-            if summary.added > 0 || storefront.added > 0 {
+            if summary.added > 0 || storefront.added > 0 || romm.added > 0 {
+                MetadataBackgroundFetcher.shared.scheduleExtraPass(container: modelContext.container)
+            }
+        }
+    }
+
+    private func syncROMM() {
+        Task {
+            let summary = await RommSync.shared.sync(modelContext: modelContext)
+            if summary.added > 0 {
                 MetadataBackgroundFetcher.shared.scheduleExtraPass(container: modelContext.container)
             }
         }
@@ -479,8 +529,46 @@ public struct RootView: View {
         } else {
             fresh.emulator = nil
         }
+        if fresh.needsROMMDownload {
+            downloadFromROMM(fresh, launchAfter: true)
+            return
+        }
+        launch(fresh)
+    }
+
+    /// Downloads into the emulator's only game folder, or asks which one when there are several.
+    private func downloadFromROMM(_ game: LibraryGame, launchAfter: Bool) {
+        guard !RommSync.shared.downloading.contains(game.id) else { return }
+        let emulator = game.emulatorUUID.flatMap { id in emulators.first { $0.id == id } }
+        let folders = RommSync.downloadFolders(for: emulator)
+        switch folders.count {
+        case 0:
+            scanFeedback = "Add a game folder for \(emulator?.name ?? "this emulator") in Paths, then download again."
+        case 1:
+            startROMMDownload(gameID: game.id, folder: folders[0], launchAfter: launchAfter)
+        default:
+            pendingROMMDownload = PendingROMMDownload(gameID: game.id, title: game.libraryListTitle, folders: folders, launchAfter: launchAfter)
+        }
+    }
+
+    private func startROMMDownload(gameID: UUID, folder: URL, launchAfter: Bool) {
+        guard let game = games.first(where: { $0.id == gameID }) else { return }
+        Task {
+            do {
+                try await RommSync.shared.download(game, into: folder, modelContext: modelContext)
+                if launchAfter { launch(game) }
+            } catch {
+                scanFeedback = "ROMM download failed: \(error.localizedDescription)"
+            }
+        }
+    }
+
+    private func launch(_ fresh: LibraryGame) {
         do {
-            try GameLauncher.launch(game: fresh)
+            let override = fresh.launchEmulatorIDString
+                .flatMap(UUID.init(uuidString:))
+                .flatMap { id in emulators.first { $0.id == id } }
+            try GameLauncher.launch(game: fresh, launchEmulator: override)
             fresh.lastPlayed = Date()
             try modelContext.save()
         } catch {
@@ -493,11 +581,12 @@ public struct RootView: View {
         let storefrontIdentity = game.storefront.flatMap { store in
             game.storefrontGameID.map { store.blocklistIdentity(gameID: $0) }
         }
+        let rommIdentity = game.rommImported == true ? game.rommRomID.map(RommSync.blocklistIdentity(romID:)) : nil
         LibraryBlocklist.add(
             path: game.romPath,
             title: game.libraryListTitle,
             sourceName: game.emulator?.name ?? game.storefront?.displayName,
-            identity: storefrontIdentity
+            identity: storefrontIdentity ?? rommIdentity
         )
         modelContext.delete(game)
     }
@@ -728,6 +817,18 @@ private struct GameLibraryTile: View {
                         }
                     }
 
+                if RommSync.shared.downloading.contains(game.id) {
+                    RoundedRectangle(cornerRadius: 8)
+                        .fill(Color.black.opacity(0.55))
+                    VStack(spacing: 6) {
+                        ProgressView().controlSize(.regular)
+                        Text("Downloading from ROMM…")
+                            .font(.caption2.weight(.semibold))
+                            .foregroundStyle(.white)
+                    }
+                    .allowsHitTesting(false)
+                }
+
                 if showsActionOverlay {
                     RoundedRectangle(cornerRadius: 8)
                         .fill(Color.black.opacity(0.45))
@@ -780,8 +881,10 @@ private struct LibraryGameInspectorView: View {
     @Environment(\.modelContext) private var modelContext
     @Bindable var game: LibraryGame
     let allGames: [LibraryGame]
+    let emulators: [EmulatorProfile]
     var coverAspect: CoverAspectRatio
     var onDismiss: () -> Void
+    var onDownloadFromROMM: () -> Void
 
     @State private var showCoverSearch = false
     @State private var showDiscGroupLinkSheet = false
@@ -815,18 +918,87 @@ private struct LibraryGameInspectorView: View {
                             .multilineTextAlignment(.trailing)
                     }
                     LabeledContent("Path") {
-                        Button {
-                            revealROMInFinder()
-                        } label: {
-                            Text((game.romPath as NSString).standardizingPath)
-                                .font(.caption)
-                                .foregroundStyle(Color(nsColor: .linkColor))
-                                .multilineTextAlignment(.trailing)
-                                .frame(maxWidth: .infinity, alignment: .trailing)
+                        if game.isFilePresent {
+                            Button {
+                                revealROMInFinder()
+                            } label: {
+                                Text((game.romPath as NSString).standardizingPath)
+                                    .font(.caption)
+                                    .foregroundStyle(Color(nsColor: .linkColor))
+                                    .multilineTextAlignment(.trailing)
+                                    .frame(maxWidth: .infinity, alignment: .trailing)
+                            }
+                            .buttonStyle(.plain)
+                            .help("Show in Finder")
+                        } else {
+                            Text("Not present")
+                                .font(.caption.weight(.semibold))
+                                .foregroundStyle(.orange)
                         }
-                        .buttonStyle(.plain)
-                        .help("Show in Finder")
                     }
+                    if game.needsROMMDownload {
+                        HStack(spacing: 8) {
+                            Spacer()
+                            if RommSync.shared.downloading.contains(game.id) {
+                                ProgressView().controlSize(.small)
+                                Text("Downloading…")
+                                    .font(.caption)
+                                    .foregroundStyle(.secondary)
+                            } else {
+                                Button("Download From ROMM", systemImage: "arrow.down.circle") {
+                                    onDownloadFromROMM()
+                                }
+                            }
+                        }
+                    }
+                }
+            }
+
+            if let status = game.rommStatus {
+                Section("ROMM") {
+                    LabeledContent("Status") {
+                        Text(status == RommStatus.inROMM ? "In ROMM" : "Missing")
+                            .font(.caption.weight(.semibold))
+                            .foregroundStyle(status == RommStatus.inROMM ? .green : .orange)
+                    }
+                    if let rommPath = game.rommPath {
+                        LabeledContent("ROMM path") {
+                            Button {
+                                if let romID = game.rommRomID, let url = RommClient.webURL(romID: romID) {
+                                    NSWorkspace.shared.open(url)
+                                }
+                            } label: {
+                                Text(rommPath)
+                                    .font(.caption)
+                                    .foregroundStyle(Color(nsColor: .linkColor))
+                                    .multilineTextAlignment(.trailing)
+                                    .frame(maxWidth: .infinity, alignment: .trailing)
+                            }
+                            .buttonStyle(.plain)
+                            .help("Open in ROMM")
+                        }
+                    }
+                    if status == RommStatus.missing {
+                        Text("No game with a matching name is in the linked ROMM platform.")
+                            .font(.caption)
+                            .foregroundStyle(.secondary)
+                    }
+                }
+            }
+
+            if let libraryEmulatorID = game.emulatorUUID {
+                Section("Launch with") {
+                    Picker("Emulator", selection: launchEmulatorBinding(libraryEmulatorID: libraryEmulatorID)) {
+                        Text("\(emulators.first { $0.id == libraryEmulatorID }?.name ?? "Library emulator") (default)")
+                            .tag(UUID?.none)
+                        Divider()
+                        ForEach(emulators.filter { $0.id != libraryEmulatorID }, id: \.id) { emulator in
+                            Text(emulator.name).tag(UUID?.some(emulator.id))
+                        }
+                    }
+                    Text("Only changes which emulator opens this game. It stays in its current library section.")
+                        .font(.caption)
+                        .foregroundStyle(.secondary)
                 }
             }
 
@@ -1061,6 +1233,20 @@ private struct LibraryGameInspectorView: View {
         } else {
             NSWorkspace.shared.activateFileViewerSelecting([url])
         }
+    }
+
+    private func launchEmulatorBinding(libraryEmulatorID: UUID) -> Binding<UUID?> {
+        Binding(
+            get: {
+                game.launchEmulatorIDString
+                    .flatMap(UUID.init(uuidString:))
+                    .flatMap { id in emulators.contains { $0.id == id } && id != libraryEmulatorID ? id : nil }
+            },
+            set: { newValue in
+                game.launchEmulatorIDString = newValue?.uuidString
+                try? modelContext.save()
+            }
+        )
     }
 
     private var nameBinding: Binding<String> {

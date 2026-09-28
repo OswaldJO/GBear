@@ -8,6 +8,15 @@ For release notes style summaries, see `source control log.md`. For architecture
 
 ## Mac library — scanning & covers
 
+### BJ-101 — ROMM sync added ~13,500 junk games (hidden files, whole server under every emulator)
+| | |
+|---|---|
+| **When** | Sep 28 2026 (**in progress**) |
+| **Symptom** | After the first ROMM **Sync Now**, the library jumped to ~13,800 games: tiles named `._.DS_Store` and `._Aery-Peace-of Mind-2.nsp` with no covers. The sync said 14,789 in ROMM although the linked platforms held about 1,000 games. |
+| **Cause** | 1) `RommClient.roms` sent `platform_id`, which ROMM 4 ignores (it filters on `platform_ids`), so every linked platform returned the whole server and each emulator got every rom. 2) Nothing filtered ROMM's entries, so macOS AppleDouble / `.DS_Store` files were imported as games. 3) Games not on this Mac were always added. |
+| **Fix** | The request sends `platform_ids` and `platform_id`, and roms whose `platform_id` differs are dropped. `RommSync.isGame` skips hidden files/folders, docs, images, saves and other non-game extensions, and single files the linked emulator can't open (its supported file types); they are not counted either (reported as ignored). **Add games to library that are not on this Mac** is a checkbox, **off by default**; with it off, the next sync removes not-downloaded ROMM-only rows. **Clear Sync** removes every not-downloaded ROMM game and resets all ROMM statuses. |
+| **Commit** | *in progress* |
+
 ### BJ-100 — Cover search results spilled over other provider sections
 | | |
 |---|---|

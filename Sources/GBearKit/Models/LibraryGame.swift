@@ -39,6 +39,19 @@ public final class LibraryGame {
     public var storefrontGameID: String?
     /// False for owned storefront games that are not installed on this Mac. Nil for non-storefront games.
     public var storefrontInstalled: Bool?
+    /// ROMM status for games on an emulator linked to a ROMM platform: `in_romm` or `missing`. Nil when not linked.
+    public var rommStatus: String?
+    /// Matching ROMM rom id and its server path (`full_path`).
+    public var rommRomID: Int?
+    public var rommPath: String?
+    /// ROMM `fs_name`, used for the download URL and as the local file / folder name.
+    public var rommFileName: String?
+    /// ROMM serves multi-file games as a zip; it is extracted into a folder named `rommFileName`.
+    public var rommHasMultipleFiles: Bool?
+    /// True for rows added from ROMM with no local file match until they are downloaded.
+    public var rommImported: Bool?
+    /// Emulator profile that launches this game instead of its library emulator. Nil uses the library emulator.
+    public var launchEmulatorIDString: String?
     public var sortOrder: Int
     public var dateAdded: Date
     public var lastPlayed: Date?
@@ -128,6 +141,17 @@ public final class LibraryGame {
     /// Installed storefront games get the green check on their cover.
     public var isInstalledStorefrontGame: Bool {
         storefront != nil && storefrontInstalled != false
+    }
+
+    public var isInROMM: Bool { rommStatus == RommStatus.inROMM }
+
+    public var isFilePresent: Bool {
+        FileManager.default.fileExists(atPath: (romPath as NSString).standardizingPath)
+    }
+
+    /// Linked to a ROMM game and the local file is not on this Mac.
+    public var needsROMMDownload: Bool {
+        rommRomID != nil && rommStatus == RommStatus.inROMM && !isFilePresent
     }
 
     public var emulatorUUID: UUID? {

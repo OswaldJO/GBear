@@ -9,6 +9,15 @@ For the **living product and architecture handbook**, see `Features and Inner Wo
 current release: 1  
 
 ## Updates
+- **Launch with, per game (Sep 28 2026, in progress):** The info panel has a **Launch with** section, between ROMM and Multi-disc set, with a menu of emulator profiles. Picking one makes that emulator open the game. The game stays in its library section, and the default is its library emulator (`LibraryGame.launchEmulatorIDString`, `GameLauncher.launch(game:launchEmulator:)`).
+- **ROMM server integration (Sep 28 2026, in progress):** A new **ROMM** section in the Library sidebar, between Storefront Manager and Cover Art and Metadata, opens a pane to connect to a ROMM server (address, username, Keychain password) and link each ROMM platform to an emulator (for example GameCube to Dolphin).
+  - **Sync Now** and **Scan Paths** match games by name, ignoring region tags and extensions.
+  - The info panel has a new **ROMM** section, between Name in library and Multi-disc set, showing **Status** (In ROMM / Missing) and a **ROMM path** that opens the game in ROMM's web page.
+  - **Add games to library that are not on this Mac** (checkbox next to Sync Now, **off by default**). When on, ROMM-only games join the emulator's collection with ROMM's cover, and their **Path** says **Not present**.
+  - Sync ignores hidden files (`.DS_Store`, `._` files) and non-game files, and asks ROMM 4 for one platform at a time with `platform_ids`. Before this, each emulator got the whole server, about 13,500 junk rows (BJ-101).
+  - **Clear Sync** removes ROMM games that are not on this Mac and resets all ROMM statuses. Downloaded games are kept. A **Download From ROMM** button under Path (or Play) saves the game into the emulator's game folder from Paths, asking which folder when there are several. Multi-file games are unzipped into their own folder.
+  - Removing one blocks it (`romm/<id>`). There is a Help → ROMM entry.
+  - Code: `RommClient`, `RommSync`, `RommSettingsView`, and a shared `KeychainStore` (storefront credentials use it too).
 - **Storefront Manager: Epic, Steam, GOG (Sep 28 2026, in progress):** The Library toolbar button is now **Import Storefront Installed Games**. A new **Storefront Manager** section above Cover Art and Metadata has a **Show Manager** row. It opens one pane with checkboxes for Epic Games, Steam, and GOG, a login card for each, and the import button.
   - **Sign-in:** a login window for Steam, GOG, and Epic. Steam also needs your own Steam Web API key to list owned games.
   - **Only show installed games in library:** a checkbox next to each login.

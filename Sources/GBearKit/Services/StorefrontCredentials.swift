@@ -1,5 +1,4 @@
 import Foundation
-import Security
 
 /// Storefront sign-in state. Tokens and the Steam Web API key live in the Keychain; display names in `UserDefaults`.
 enum StorefrontCredentials {
@@ -60,29 +59,10 @@ enum StorefrontCredentials {
     // MARK: Keychain
 
     private static func keychainString(_ account: String) -> String? {
-        let query: [String: Any] = [
-            kSecClass as String: kSecClassGenericPassword,
-            kSecAttrService as String: service,
-            kSecAttrAccount as String: account,
-            kSecReturnData as String: true,
-            kSecMatchLimit as String: kSecMatchLimitOne,
-        ]
-        var result: AnyObject?
-        guard SecItemCopyMatching(query as CFDictionary, &result) == errSecSuccess,
-              let data = result as? Data else { return nil }
-        return String(data: data, encoding: .utf8)
+        KeychainStore.string(service: service, account: account)
     }
 
     private static func setKeychainString(_ value: String?, for account: String) {
-        let base: [String: Any] = [
-            kSecClass as String: kSecClassGenericPassword,
-            kSecAttrService as String: service,
-            kSecAttrAccount as String: account,
-        ]
-        SecItemDelete(base as CFDictionary)
-        guard let value, !value.isEmpty, let data = value.data(using: .utf8) else { return }
-        var add = base
-        add[kSecValueData as String] = data
-        SecItemAdd(add as CFDictionary, nil)
+        KeychainStore.set(value, service: service, account: account)
     }
 }
