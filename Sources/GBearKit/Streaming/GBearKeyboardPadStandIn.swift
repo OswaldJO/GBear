@@ -11,6 +11,11 @@ final class GBearKeyboardPadStandIn: @unchecked Sendable {
     private static let releaseThreshold: Float = 0.35
 
     private let queue = DispatchQueue(label: "com.gbear.keyboard-pad-stand-in")
+    /// Shared hardware key table. A `nil` source is this process's private table: emulator
+    /// menus still see those events, but a running game polls the hardware table and misses
+    /// them. `GameLauncher` also hides GBear when the game starts, and macOS drops a hidden
+    /// app's private key events (BJ-097).
+    private let hardwareSource: CGEventSource? = CGEventSource(stateID: .hidSystemState)
     private var held: Set<GBearPadControl> = []
     private var loggedMissingTrust = false
     private var loggedActive = false
@@ -53,7 +58,11 @@ final class GBearKeyboardPadStandIn: @unchecked Sendable {
     }
 
     private func post(_ control: GBearPadControl, down: Bool) {
-        guard let event = CGEvent(keyboardEventSource: nil, virtualKey: control.keyCode, keyDown: down) else { return }
+        guard let event = CGEvent(
+            keyboardEventSource: hardwareSource,
+            virtualKey: control.keyCode,
+            keyDown: down
+        ) else { return }
         event.flags = control.isKeypadKey ? .maskNumericPad : []
         event.post(tap: .cghidEventTap)
     }

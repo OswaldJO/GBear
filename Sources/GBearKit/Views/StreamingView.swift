@@ -52,7 +52,9 @@ struct StreamingView: View {
         }
         .onReceive(NotificationCenter.default.publisher(for: NSApplication.didBecomeActiveNotification)) { _ in
             Task {
-                await hostManager.refreshCapturePermission()
+                if !hostManager.isVideoStreaming {
+                    await hostManager.refreshCapturePermission()
+                }
                 session.refreshHostStatus()
             }
         }

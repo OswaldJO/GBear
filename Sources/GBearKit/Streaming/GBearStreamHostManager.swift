@@ -83,6 +83,7 @@ final class GBearStreamHostManager {
 
     /// Starts HTTP control and keeps video/audio/input listeners bound until [stop] / [restartHost].
     func ensureReady() async {
+        if case .running = state { return }
         state = .preparing
         GBearLocalOutputMute.setStreamingMuted(false)
         await refreshCapturePermission()

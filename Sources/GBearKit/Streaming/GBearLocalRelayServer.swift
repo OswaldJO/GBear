@@ -44,7 +44,8 @@ final class GBearLocalRelayServer: @unchecked Sendable {
         }
 
         func send(opcode: UInt8, payload: Data) {
-            if opcode == 2, outboundBuffered > 2_000_000 { return }
+            // Shed a backed-up picture. Never drop controller or control frames (BJ-097).
+            if opcode == 2, outboundBuffered > 2_000_000, GBearLocalRelayServer.isShedableMedia(payload) { return }
             let frame = GBearLocalRelayServer.frame(opcode: opcode, payload: payload)
             outboundBuffered += frame.count
             connection.send(content: frame, completion: .contentProcessed { [weak self] _ in
@@ -448,6 +449,15 @@ final class GBearLocalRelayServer: @unchecked Sendable {
             }
         }
         return ParsedFrame(fin: fin, opcode: opcode, payload: payload, consumed: total)
+    }
+
+    /// Video and audio can be dropped when a peer falls behind. Controller input cannot.
+    private static func isShedableMedia(_ payload: Data) -> Bool {
+        guard payload.count >= 5 else { return true }
+        let magic = payload.withUnsafeBytes { $0.loadUnaligned(as: UInt32.self).littleEndian }
+        guard magic == GBearTunnelFrame.magic else { return true }
+        return payload[4] == GBearTunnelFrame.Channel.video.rawValue
+            || payload[4] == GBearTunnelFrame.Channel.audio.rawValue
     }
 
     private static func frame(opcode: UInt8, payload: Data) -> Data {

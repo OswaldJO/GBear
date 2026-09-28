@@ -205,6 +205,15 @@ For release notes style summaries, see `source control log.md`. For architecture
 | **Fix** | Host **Start remote co-op** starts `GBearLocalRelayServer` on localhost and an outbound tunnel, then shows a `GBEAR1` invite line. **Join with invite** connects outbound and carries video, audio, and `GBG1`. |
 | **Commit** | release **v1.1.0** |
 
+### BJ-097 — Remote friend's controller died once the game launched
+| | |
+|---|---|
+| **When** | Sep 27 2026 (**in progress**) |
+| **Symptom** | The friend's taps showed on the host **Controller map**, then stopped after Play. Opening GBear again did not bring them back. The map staying quiet means packets were no longer applied, not only that the game ignored keys. |
+| **Cause** | The relay WebSocket used a 30s receive timeout. The host mostly sends video and only receives controller packets, so a quiet load (or GBear being hidden for the game) killed the socket. Nothing reconnected, and the friend's app treated that as the host leaving and stopped sending. A full video buffer also dropped every binary frame, including `GBG1`. Separately, stand-in keys were posted on GBear's private key table, which a running game does not poll. |
+| **Fix** | Keep the WebSocket open for the session, keep the process awake while co-op is running, reconnect if the socket drops, and never shed controller frames when video backs up. Input is applied off the video path. Stand-in keys post with `CGEventSource(stateID: .hidSystemState)`. Reopening the Streaming screen no longer restarts an already-running host. |
+| **Commit** | *in progress* |
+
 ### BJ-096 — Remote friend's controller stopped sending mid-session
 | | |
 |---|---|

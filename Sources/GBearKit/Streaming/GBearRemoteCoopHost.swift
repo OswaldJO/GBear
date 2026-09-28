@@ -18,6 +18,11 @@ final class GBearRemoteCoopHost {
     nonisolated private let videoPump = GBearRelaySendPump()
     nonisolated private let audioPump = GBearRelaySendPump()
     private var socket: GBearRelayWebSocket?
+    private var relayURL: URL?
+    private var reconnectTask: Task<Void, Never>?
+    private var reconnectAttempts = 0
+    private var stayAwake: NSObjectProtocol?
+    private var guestDropTask: Task<Void, Never>?
     private var admittedGuestID: String?
     private var admittedSeat: Int?
 
@@ -64,26 +69,12 @@ final class GBearRemoteCoopHost {
             ) else {
                 throw failure("Could not build the relay address.")
             }
-            let socket = GBearRelayWebSocket()
-            self.socket = socket
-            wirePumps(socket)
-            socket.setHandlers(
-                onBinary: { [weak self] data in
-                    Task { @MainActor in self?.handleIncoming(data) }
-                },
-                onText: { [weak self] text in
-                    Task { @MainActor in self?.handleText(text) }
-                },
-                onClose: { [weak self] reason in
-                    Task { @MainActor in
-                        guard let self, self.isRunning else { return }
-                        self.statusMessage = "Relay closed: \(reason)"
-                    }
-                }
-            )
-            socket.connect(socketURL)
+            relayURL = socketURL
+            reconnectAttempts = 0
+            connectRelay(socketURL)
             inviteLine = "GBEAR1 \(code) \(publicURL.absoluteString)"
             isRunning = true
+            beginStayAwake()
             statusMessage = "Send the invite line to your friend. Leave this screen open. When they join, launch the game and set up both players in the emulator’s controller settings."
         } catch {
             await stop()
@@ -93,11 +84,18 @@ final class GBearRemoteCoopHost {
     }
 
     func stop() async {
+        isRunning = false
+        reconnectTask?.cancel()
+        reconnectTask = nil
+        guestDropTask?.cancel()
+        guestDropTask = nil
+        endStayAwake()
         let guestID = admittedGuestID
         admittedGuestID = nil
         admittedSeat = nil
         videoPump.send = nil
         audioPump.send = nil
+        relayURL = nil
         socket?.close()
         socket = nil
         if let guestID {
@@ -111,7 +109,6 @@ final class GBearRemoteCoopHost {
         tunnelOutput = nil
         await GBearSessionCoordinatorClient.shared.endRemoteSession()
         relay.stop()
-        isRunning = false
         if inviteLine.isEmpty == false {
             statusMessage = "Remote session ended."
         }
@@ -137,12 +134,39 @@ final class GBearRemoteCoopHost {
     private func handleText(_ text: String) {
         guard let type = jsonType(text) else { return }
         if type == "peer_left" {
-            statusMessage = "Your friend disconnected."
-            Task { await self.dropGuest() }
+            statusMessage = "Your friend disconnected. Waiting for them to reconnect…"
+            guestDropTask?.cancel()
+            let guestID = admittedGuestID
+            guestDropTask = Task { @MainActor in
+                try? await Task.sleep(nanoseconds: 8_000_000_000)
+                guard !Task.isCancelled, self.admittedGuestID == guestID else { return }
+                await self.dropGuest()
+                self.statusMessage = "Your friend left. The invite still works if they join again."
+            }
         }
     }
 
-    private func handleIncoming(_ data: Data) {
+    private func connectRelay(_ url: URL) {
+        let socket = GBearRelayWebSocket()
+        self.socket = socket
+        wirePumps(socket)
+        socket.setHandlers(
+            onBinary: { [weak self] data in
+                self?.handleRelayBinary(data)
+            },
+            onText: { [weak self] text in
+                Task { @MainActor in self?.handleText(text) }
+            },
+            onClose: { [weak self] reason in
+                Task { @MainActor in self?.handleRelayClosed(reason) }
+            }
+        )
+        socket.connect(url)
+    }
+
+    /// Video frames stay off the main actor. Only controller and control messages hop over,
+    /// so a busy game cannot bury `GBG1` behind the picture (BJ-097).
+    private nonisolated func handleRelayBinary(_ data: Data) {
         guard let (channel, payload) = GBearTunnelFrame.unpack(data) else { return }
         switch channel {
         case .input:
@@ -150,9 +174,26 @@ final class GBearRemoteCoopHost {
                 Task { await GBearVirtualGamepadManager.shared.apply(event) }
             }
         case .control:
-            Task { await self.handleControl(payload) }
+            Task { @MainActor in await self.handleControl(payload) }
         case .video, .audio:
             break
+        }
+    }
+
+    private func handleRelayClosed(_ reason: String) {
+        guard isRunning, let relayURL else { return }
+        guard reconnectTask == nil else { return }
+        reconnectAttempts += 1
+        if reconnectAttempts > 15 {
+            statusMessage = "Connection dropped (\(reason)). Start remote co-op again and send a new invite."
+            return
+        }
+        statusMessage = "Connection dropped (\(reason)). Reconnecting…"
+        reconnectTask = Task { @MainActor in
+            try? await Task.sleep(nanoseconds: 1_000_000_000)
+            reconnectTask = nil
+            guard !Task.isCancelled, isRunning, self.relayURL == relayURL else { return }
+            connectRelay(relayURL)
         }
     }
 
@@ -160,6 +201,9 @@ final class GBearRemoteCoopHost {
         guard let json = try? JSONSerialization.jsonObject(with: payload) as? [String: Any],
               json["type"] as? String == "hello",
               let deviceID = json["deviceId"] as? String else { return }
+        guestDropTask?.cancel()
+        guestDropTask = nil
+        reconnectAttempts = 0
         if admittedGuestID == deviceID, let admittedSeat {
             sendControl(["type": "welcome", "seat": admittedSeat])
             await GBearStreamHostManager.shared.requestRelayKeyframe()
@@ -269,6 +313,20 @@ final class GBearRemoteCoopHost {
             return nil
         }
         return URL(string: String(text[match]))
+    }
+
+    private func beginStayAwake() {
+        guard stayAwake == nil else { return }
+        stayAwake = ProcessInfo.processInfo.beginActivity(
+            options: [.userInitiated, .idleSystemSleepDisabled, .suddenTerminationDisabled],
+            reason: "GBear is hosting remote co-op"
+        )
+    }
+
+    private func endStayAwake() {
+        guard let stayAwake else { return }
+        ProcessInfo.processInfo.endActivity(stayAwake)
+        self.stayAwake = nil
     }
 
     private func failure(_ message: String) -> NSError {

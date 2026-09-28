@@ -37,7 +37,12 @@ final class GBearStreamGuestManager {
     private let audio = GBearAudioStreamClient()
     private var padSender: GBearGuestGamepadSender?
     private var relaySocket: GBearRelayWebSocket?
+    private var relayURL: URL?
+    private var wantsRelay = false
     private var relayEpoch = UUID()
+    private var reconnectTask: Task<Void, Never>?
+    private var reconnectAttempts = 0
+    private var stayAwake: NSObjectProtocol?
     private var deviceID: String {
         let key = "gbear.guest.deviceId"
         if let existing = UserDefaults.standard.string(forKey: key), !existing.isEmpty {
@@ -96,8 +101,10 @@ final class GBearStreamGuestManager {
         }
         phase = .pairing
         remoteStatusMessage = "Connecting through the relay…"
+        wantsRelay = true
+        reconnectAttempts = 0
+        beginStayAwake()
         relayEpoch = UUID()
-        let epoch = relayEpoch
         padSender?.stop()
         padSender = nil
         relaySocket?.close()
@@ -113,15 +120,11 @@ final class GBearStreamGuestManager {
             deviceID: deviceID
         )
         guard signedIn else {
-            let message = coord.lastError ?? "Could not reach the host’s relay."
-            phase = .failed(message)
-            remoteStatusMessage = message
+            failRelayJoin(coord.lastError ?? "Could not reach the host’s relay.")
             return
         }
         guard let sessionID = await coord.redeemInvite(parsed.code, deviceID: deviceID, deviceName: deviceName) else {
-            let message = coord.lastError ?? "That invite was not accepted."
-            phase = .failed(message)
-            remoteStatusMessage = message
+            failRelayJoin(coord.lastError ?? "That invite was not accepted.")
             return
         }
         guard let socketURL = GBearRelayWebSocket.relayURL(
@@ -129,8 +132,7 @@ final class GBearStreamGuestManager {
             deviceID: deviceID,
             sessionID: sessionID
         ) else {
-            phase = .failed("The invite address is not valid.")
-            remoteStatusMessage = "The invite address is not valid."
+            failRelayJoin("The invite address is not valid.")
             return
         }
         video.onSampleBuffer = { [weak self] sample in
@@ -144,6 +146,13 @@ final class GBearStreamGuestManager {
             }
         }
         audio.startPlayback()
+        relayURL = socketURL
+        openRelaySocket(socketURL)
+        remoteStatusMessage = "Waiting for the host…"
+    }
+
+    private func openRelaySocket(_ url: URL) {
+        let epoch = relayEpoch
         let videoClient = video
         let audioClient = audio
         let socket = GBearRelayWebSocket()
@@ -171,19 +180,51 @@ final class GBearStreamGuestManager {
             },
             onClose: { reason in
                 Task { @MainActor in
-                    let manager = GBearStreamGuestManager.shared
-                    guard manager.relayEpoch == epoch else { return }
-                    guard manager.phase == .streaming || manager.phase == .pairing || manager.phase == .connected else { return }
-                    manager.phase = .failed(reason)
-                    manager.remoteStatusMessage = "Relay closed: \(reason)"
+                    GBearStreamGuestManager.shared.handleRelayClosed(reason, epoch: epoch)
                 }
             }
         )
-        socket.connect(socketURL)
-        remoteStatusMessage = "Waiting for the host…"
+        socket.connect(url)
+    }
+
+    private func handleRelayClosed(_ reason: String, epoch: UUID) {
+        guard wantsRelay, relayEpoch == epoch else { return }
+        guard phase == .streaming || phase == .pairing || phase == .connected else { return }
+        scheduleRelayReconnect(reason)
+    }
+
+    private func failRelayJoin(_ message: String) {
+        wantsRelay = false
+        endStayAwake()
+        phase = .failed(message)
+        remoteStatusMessage = message
+    }
+
+    private func scheduleRelayReconnect(_ reason: String) {
+        guard reconnectTask == nil else { return }
+        reconnectAttempts += 1
+        if reconnectAttempts > 5 {
+            let message = "Lost the host (\(reason)). Paste the invite and join again."
+            wantsRelay = false
+            phase = .failed(message)
+            remoteStatusMessage = message
+            return
+        }
+        remoteStatusMessage = "Connection dropped. Reconnecting…"
+        reconnectTask = Task { @MainActor in
+            try? await Task.sleep(nanoseconds: 400_000_000)
+            reconnectTask = nil
+            guard !Task.isCancelled, wantsRelay, let relayURL else { return }
+            openRelaySocket(relayURL)
+        }
     }
 
     func stop() async {
+        wantsRelay = false
+        reconnectTask?.cancel()
+        reconnectTask = nil
+        relayURL = nil
+        endStayAwake()
         relayEpoch = UUID()
         padSender?.stop()
         padSender = nil
@@ -225,9 +266,10 @@ final class GBearStreamGuestManager {
         if type == "relay_ready" {
             sendRelayHello()
             remoteStatusMessage = "Connected. Waiting for the host to start the picture…"
-        } else if type == "peer_left" {
-            remoteStatusMessage = "The host left the session."
-            Task { await stop() }
+        } else         if type == "peer_left" {
+            guard wantsRelay else { return }
+            remoteStatusMessage = "The host connection blipped. Reconnecting…"
+            scheduleRelayReconnect("host left")
         }
     }
 
@@ -235,6 +277,7 @@ final class GBearStreamGuestManager {
         guard let json = try? JSONSerialization.jsonObject(with: payload) as? [String: Any],
               let type = json["type"] as? String else { return }
         if type == "welcome" {
+            reconnectAttempts = 0
             let seat = json["seat"] as? Int ?? 2
             assignedSeat = seat
             startRelayPad(seat: seat)
@@ -327,6 +370,7 @@ final class GBearStreamGuestManager {
             audio.start(host: host, port: audioPort)
             let sender = GBearGuestGamepadSender(host: host, port: inputPort, joinSeat: seat)
             GBearHostLocalGamepad.shared.yieldToGuestSender()
+            beginStayAwake()
             sender.start()
             padSender = sender
             phase = .streaming
@@ -365,5 +409,19 @@ final class GBearStreamGuestManager {
             throw NSError(domain: "GBearGuest", code: status, userInfo: [NSLocalizedDescriptionKey: "Not paired with host."])
         }
         return json
+    }
+
+    private func beginStayAwake() {
+        guard stayAwake == nil else { return }
+        stayAwake = ProcessInfo.processInfo.beginActivity(
+            options: [.userInitiated, .idleSystemSleepDisabled, .suddenTerminationDisabled],
+            reason: "GBear is in a remote co-op session"
+        )
+    }
+
+    private func endStayAwake() {
+        guard let stayAwake else { return }
+        ProcessInfo.processInfo.endActivity(stayAwake)
+        self.stayAwake = nil
     }
 }

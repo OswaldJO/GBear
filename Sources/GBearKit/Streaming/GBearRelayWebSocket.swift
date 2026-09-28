@@ -11,6 +11,8 @@ final class GBearRelayWebSocket: NSObject, URLSessionWebSocketDelegate, @uncheck
     private var openHandler: (@Sendable () -> Void)?
     private var closeHandler: (@Sendable (String) -> Void)?
     private var opened = false
+    /// False while `close()` is tearing the socket down, so that cancel does not look like a drop.
+    private var notifyClose = false
 
     func setHandlers(
         onBinary: (@Sendable (Data) -> Void)? = nil,
@@ -29,11 +31,16 @@ final class GBearRelayWebSocket: NSObject, URLSessionWebSocketDelegate, @uncheck
     func connect(_ url: URL) {
         close()
         let configuration = URLSessionConfiguration.default
-        configuration.timeoutIntervalForRequest = 30
+        // A short request timeout kills this socket when the other side is only sending.
+        // The host mostly receives controller packets, so a quiet load screen used to
+        // drop the session after 30s and nothing reconnected (BJ-097).
+        configuration.timeoutIntervalForRequest = 24 * 60 * 60
+        configuration.timeoutIntervalForResource = 24 * 60 * 60
         configuration.waitsForConnectivity = true
         let session = URLSession(configuration: configuration, delegate: self, delegateQueue: nil)
         var request = URLRequest(url: url)
-        request.timeoutInterval = 30
+        request.timeoutInterval = 24 * 60 * 60
+        notifyClose = true
         let task = session.webSocketTask(with: request)
         task.maximumMessageSize = 8 * 1024 * 1024
         self.session = session
@@ -60,10 +67,12 @@ final class GBearRelayWebSocket: NSObject, URLSessionWebSocketDelegate, @uncheck
     }
 
     func close() {
+        notifyClose = false
         pingTask?.cancel()
         pingTask = nil
-        task?.cancel(with: .goingAway, reason: nil)
+        let old = task
         task = nil
+        old?.cancel(with: .goingAway, reason: nil)
         session?.invalidateAndCancel()
         session = nil
         opened = false
@@ -91,8 +100,9 @@ final class GBearRelayWebSocket: NSObject, URLSessionWebSocketDelegate, @uncheck
     }
 
     private func receiveNext() {
-        task?.receive { [weak self] result in
-            guard let self else { return }
+        guard let task else { return }
+        task.receive { [weak self] result in
+            guard let self, self.task === task else { return }
             switch result {
             case .success(let message):
                 switch message {
@@ -128,6 +138,7 @@ final class GBearRelayWebSocket: NSObject, URLSessionWebSocketDelegate, @uncheck
         didCloseWith closeCode: URLSessionWebSocketTask.CloseCode,
         reason: Data?
     ) {
+        guard webSocketTask === task else { return }
         let text = reason.flatMap { String(data: $0, encoding: .utf8) } ?? "closed (\(closeCode.rawValue))"
         emitClose(text)
     }
@@ -149,10 +160,11 @@ final class GBearRelayWebSocket: NSObject, URLSessionWebSocketDelegate, @uncheck
     private func emitClose(_ reason: String) {
         lock.lock()
         let handler = closeHandler
-        let already = opened
+        let notify = notifyClose
+        notifyClose = false
         opened = false
         lock.unlock()
-        if already || handler != nil {
+        if notify {
             handler?(reason)
         }
     }
