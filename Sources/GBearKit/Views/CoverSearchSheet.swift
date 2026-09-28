@@ -208,7 +208,7 @@ struct CoverSearchSheet: View {
     private func runSearch() async {
         let providers = CoverProvider.configured
         guard !providers.isEmpty else {
-            errorMessage = "No cover providers are set up. Add IGDB or TheGamesDB keys on Screen Scrapper."
+            errorMessage = "No cover providers are set up. Add IGDB or TheGamesDB keys under Cover Art and Metadata → Manage Providers."
             return
         }
         let query = RomTitleNormalizer.strippingTrailingParentheticalTags(

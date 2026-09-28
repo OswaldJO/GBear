@@ -8,6 +8,15 @@ For release notes style summaries, see `source control log.md`. For architecture
 
 ## Mac library — scanning & covers
 
+### BJ-102 — ROMM games did not blend with local games (disc duplicates, messy local names)
+| | |
+|---|---|
+| **When** | Sep 28 2026 (**in progress**) |
+| **Symptom** | PS1 showed local **D (USA) (Disc 2)** next to a coverless ROMM copy **D (USA) (Disc 2).chd**, and **Chrono Cross (USA) (Disc 1)** next to a ROMM-only **Chrono Cross**. Local dump names (`… Switch NSP BASE GAME`, underscores) stayed **Missing** even though ROMM had the game under a cleaner name. |
+| **Cause** | The match key removed every `(…)` tag, including `(Disc N)`, and kept one ROMM game per key. So all local discs matched ROMM's Disc 1 and Discs 2–3 were added again as not-on-this-Mac games. Unidentified ROMM games keep the file extension in `name` (`….chd`), which broke their key and title. Local scene junk and title ids stopped exact word matches. |
+| **Fix** | New `RommMatcher`: exact file name, then `RomTitleNormalizer`-cleaned titles, then ROMM title contained in the local name (single candidate, no extra sequel number, extra words not another game's). Disc numbers must agree; a disc-less local game claims every disc of the set. ROMM names lose their extension for titles. Matched games without a cover take ROMM's. The next sync deletes the duplicate not-downloaded rows. |
+| **Commit** | *in progress* |
+
 ### BJ-101 — ROMM sync added ~13,500 junk games (hidden files, whole server under every emulator)
 | | |
 |---|---|

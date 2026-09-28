@@ -170,12 +170,7 @@ final class RommSync {
         blocked: Set<String>,
         summary: inout Summary
     ) {
-        var romsByKey: [String: RommClient.Rom] = [:]
-        for rom in roms {
-            for key in [Self.matchKey(rom.fileNameNoTags), Self.matchKey(rom.name)] where !key.isEmpty {
-                if romsByKey[key] == nil { romsByKey[key] = rom }
-            }
-        }
+        let matcher = RommMatcher(roms: roms)
         let romsByID = Dictionary(roms.map { ($0.id, $0) }, uniquingKeysWith: { first, _ in first })
 
         let emulatorID = emulator.id
@@ -183,14 +178,13 @@ final class RommSync {
         var matchedRomIDs = Set<Int>()
 
         for game in games where game.rommImported != true {
-            let stem = URL(fileURLWithPath: game.romPath).deletingPathExtension().lastPathComponent
-            let rom = [stem, game.title, game.libraryListTitle].lazy
-                .map(Self.matchKey)
-                .compactMap { romsByKey[$0] }
-                .first
-            if let rom {
+            let hits = matcher.match(
+                fileName: URL(fileURLWithPath: game.romPath).lastPathComponent,
+                titles: [game.title, game.libraryListTitle]
+            )
+            if let rom = hits.first {
                 apply(rom, to: game)
-                matchedRomIDs.insert(rom.id)
+                matchedRomIDs.formUnion(hits.map(\.id))
                 summary.inROMM += 1
             } else {
                 clearROMMFields(game)
@@ -215,6 +209,7 @@ final class RommSync {
                 continue
             }
             apply(rom, to: game)
+            game.title = Self.displayTitle(for: rom)
             importedRomIDs.insert(romID)
             summary.inROMM += 1
         }
@@ -228,7 +223,7 @@ final class RommSync {
             }
             maxSort += 1
             let game = LibraryGame(
-                title: rom.name,
+                title: Self.displayTitle(for: rom),
                 romPath: Self.placeholderPath(for: rom),
                 emulatorIDString: emulator.id.uuidString,
                 emulator: emulator,
@@ -251,6 +246,14 @@ final class RommSync {
         game.rommPath = rom.fullPath
         game.rommFileName = rom.fileName
         game.rommHasMultipleFiles = rom.hasMultipleFiles
+        if game.coverImageURLString == nil, let cover = rom.coverURL {
+            game.coverImageURLString = cover.absoluteString
+        }
+    }
+
+    /// ROMM's name without a file extension (unidentified roms are named after their file).
+    static func displayTitle(for rom: RommClient.Rom) -> String {
+        RommMatcher.strippingExtension(rom.name)
     }
 
     private func clearROMMFields(_ game: LibraryGame) {
@@ -294,21 +297,6 @@ final class RommSync {
         (emulator?.folderPaths ?? [])
             .filter { $0.resolvedPurpose == .games }
             .map { URL(fileURLWithPath: ($0.folderPath as NSString).standardizingPath, isDirectory: true) }
-    }
-
-    /// Order-insensitive word key: tags in () / [] dropped, accents folded, roman numerals as digits, filler words removed.
-    static func matchKey(_ raw: String) -> String {
-        var text = raw.replacingOccurrences(of: #"\([^)]*\)|\[[^\]]*\]"#, with: " ", options: .regularExpression)
-        text = text.folding(options: [.diacriticInsensitive, .caseInsensitive], locale: .current).lowercased()
-        text = text.replacingOccurrences(of: "&", with: " and ")
-        let romans = ["ii": "2", "iii": "3", "iv": "4", "v": "5", "vi": "6", "vii": "7", "viii": "8", "ix": "9", "x": "10"]
-        let filler: Set<String> = ["the", "a", "an", "and"]
-        let words = text
-            .replacingOccurrences(of: "'", with: "")
-            .components(separatedBy: CharacterSet.alphanumerics.inverted)
-            .filter { !$0.isEmpty && !filler.contains($0) }
-            .map { romans[$0] ?? $0 }
-        return words.sorted().joined(separator: " ")
     }
 
     // MARK: Download

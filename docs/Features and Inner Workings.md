@@ -18,7 +18,7 @@ This document describes **how the app behaves today** and **where implementation
 - **All** — every visible game (emulator-linked + standalone Mac/Epic-style entries that pass filters).
 - **Mac Games** — games with **no** `emulatorUUID` (native Mac adds, Epic imports, etc.). Context menu can clear only these entries.
 - **Per-emulator** — games linked to that `EmulatorProfile`.
-- **Count** — footer under the sidebar shows how many games are in the selected list (All, Mac Games, Flycast, …). Hidden on Screen Scrapper and storefront panes.
+- **Count** — footer under the sidebar shows how many games are in the selected list (All, Mac Games, Flycast, …). Hidden on the Manage Providers, Storefront Manager, and ROMM panes.
 - **Storefront Manager → Show Manager** — one sidebar row that opens `StorefrontManagerView`. At the top, a **Storefronts** card has a checkbox for **Epic Games**, **Steam**, **GOG** (`StorefrontSettings.enabled`, `UserDefaults` `Storefronts.Enabled`, default Epic only). Unchecked storefronts are not imported and their games are hidden from the grid (rows are kept). Then a login card per storefront (`StorefrontLoginCard`) with **Only show installed games in library** (`Storefronts.OnlyInstalled`, per storefront), the Steam Web API key field, and the Epic paste-code fallback. Last, one import card with per-storefront counts and the last result.
   - **Sign-in** (`StorefrontLoginSheet`, embedded `WKWebView` with a non-persistent data store):
     - **Steam:** OpenID to `steamcommunity.com` returns the SteamID64. Owned games also need the user's own **Steam Web API key** (`IPlayerService/GetOwnedGames`).
@@ -35,7 +35,7 @@ This document describes **how the app behaves today** and **where implementation
   - **Launch** (`GameLauncher.launchStorefrontGame`): Steam always via `steam://rungameid`; Epic via the launcher URI, falling back to the installed app; GOG opens the installed app, otherwise the game in GOG Galaxy.
   - **Blocking:** removing a storefront game blocks `storefront/<store>/<id>`, so it stays blocked whether installed or not.
 - **ROMM → Show ROMM** — opens `RommSettingsView`. See **ROMM** below.
-- **Cover Art and Metadata → Screen Scrapper** — detail pane for ScreenScraper in this order: **login**, **Actions** (full-library scrape), **Automatic matching**, **Region priority** at the bottom (reorderable list; first available cover/title region is used). **Only Scan Missing** (default on) skips games that already have scraped cover art (ScreenScraper or TheGamesDB); uncheck to scrape the whole library again. The panel also has **IGDB keys** and **TheGamesDB API key** cards (in fallback order). When you are not signed in, the scrape fetches covers from whichever of those keys are saved.
+- **Cover Art and Metadata → Manage Providers** (`ScreenScraperSidebarRow`; the pane is still titled Screen Scrapper) — detail pane for ScreenScraper in this order: **login**, **Actions** (full-library scrape), **Automatic matching**, **Region priority** at the bottom (reorderable list; first available cover/title region is used). **Only Scan Missing** (default on) skips games that already have scraped cover art (ScreenScraper or TheGamesDB); uncheck to scrape the whole library again. The panel also has **IGDB keys** and **TheGamesDB API key** cards (in fallback order). When you are not signed in, the scrape fetches covers from whichever of those keys are saved.
 
 ### Toolbar (Library)
 
@@ -154,7 +154,12 @@ When a configured **game folder** belongs to an RPCS3 (or PS3-style) emulator, `
 - **Sync** (`RommSync.sync`; **Sync Now** in the pane and at the end of **Scan Paths**), per linked platform:
   - Fetch `GET /api/roms?platform_ids=…&platform_id=…` in pages of 1000 (ROMM 4 only honours `platform_ids`; older servers `platform_id`) and drop roms whose `platform_id` differs.
   - **Filter** (`RommSync.isGame`): skip hidden files or anything under a hidden folder (`.DS_Store`, `._` AppleDouble), `Thumbs.db` / `desktop.ini`, non-game extensions (text, images, audio/video, xml/dat/db, saves, checksums), and single files whose extension is not in the linked emulator's supported file types (when it has any). Multi-file games (folders) pass. Filtered entries are not matched, added, or counted (`Summary.ignoredFiles`).
-  - **Name match** (`RommSync.matchKey`): drop `(…)` / `[…]` tags, fold accents, `&` → and, roman numerals II–X → digits, drop the/a/an/and, then compare the sorted words. A local game matches on its file stem, title, or library name against ROMM's `fs_name_no_tags` or `name`, so "Legend of Zelda, The - The Wind Waker (USA)" matches "The Legend of Zelda: The Wind Waker".
+  - **Name match** (`RommMatcher`), first hit wins:
+    1. **Exact file name** (extension dropped, case-insensitive) against ROMM's `fs_name`.
+    2. **Normalized title:** `RomTitleNormalizer.searchQuery` (tags, Switch title ids, underscores, `v0`, ™, junk like NSP/XCI/USA), disc labels removed, accents folded, `&` → and, roman numerals → digits, the/a/an/and/of dropped, words sorted. Local file name, title, and library name are compared with ROMM's `name`, `fs_name_no_tags`, and `fs_name`. So "Legend of Zelda, The - The Wind Waker (USA)" matches "The Legend of Zelda: The Wind Waker" and `Monument-Valley-2.NSP` matches "Monument Valley 2".
+    3. **ROMM title inside the local name** (for cleaner ROMM names): every ROMM word is in the local name (at least two words), exactly one ROMM game fits, the extra local words have no number (so `Crash Bandicoot 3` never matches `Crash Bandicoot`), and they are not another ROMM game's words. "Moomintroll Winters Warmth Switch NSP BASE GAME" matches "Moomintroll: Winter's Warmth".
+  - **Discs never cross:** the disc number (`Disc 2`, `CD2`) comes from the file name. Disc 2 matches ROMM's Disc 2, or a disc-less ROMM game (multi-file set). A disc-less local game (`.m3u`, folder) matches every disc of a split ROMM set, so none of them come back as not-on-this-Mac duplicates.
+  - Matched games with no cover take ROMM's cover. ROMM-only rows are titled with ROMM's name minus any file extension (`RommSync.displayTitle`).
   - Matched games get `rommStatus = in_romm`, `rommRomID`, `rommPath`, `rommFileName`, `rommHasMultipleFiles`; unmatched local games get `missing`.
   - **ROMM-only games** — only when **Add games to library that are not on this Mac** is checked (next to **Sync Now**; `ROMM.AddGamesNotOnMac`, **off by default**; with it off, sync deletes not-downloaded ROMM-only rows) — become rows with `rommImported = true`, ROMM's cover, and a placeholder `romPath` (`/ROMM/<platform fs_slug>/<fs_name>`), so the inspector shows **Path: Not present**. Blocked as `romm/<id>`, so **Remove from Library** keeps them out.
   - ROMM-only rows whose ROMM game is gone are deleted. Unlinking an emulator clears its ROMM fields and removes its not-downloaded ROMM-only rows. If the user copies the file into a game folder themselves, Scan Paths adds it and the next sync drops the duplicate ROMM-only row.
@@ -165,7 +170,7 @@ When a configured **game folder** belongs to an RPCS3 (or PS3-style) emulator, `
   - The row's `romPath` becomes the real path and `rommImported` is cleared, so it is an ordinary local game from then on (still **In ROMM** after sync). A spinner shows on the tile and in the inspector while downloading.
 - **Scanner:** `GamePathScanner` never prunes `rommImported` rows for a missing file or as a cue sidecar track.
 
-**Key types:** `RommClient.swift`, `RommSync.swift`, `RommSettingsView.swift`, `KeychainStore.swift`.
+**Key types:** `RommClient.swift`, `RommSync.swift`, `RommMatcher.swift`, `RommSettingsView.swift`, `KeychainStore.swift`.
 
 ---
 

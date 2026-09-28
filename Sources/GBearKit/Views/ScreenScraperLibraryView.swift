@@ -488,7 +488,7 @@ struct ScreenScraperSidebarRow: View {
 
     var body: some View {
         HStack(spacing: 8) {
-            Text("Screen Scrapper")
+            Text("Manage Providers")
             Spacer(minLength: 4)
             if fetcher.libraryScrapeInProgress {
                 ProgressView()
