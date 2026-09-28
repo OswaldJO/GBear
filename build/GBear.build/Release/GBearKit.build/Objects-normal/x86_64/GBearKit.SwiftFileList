@@ -60,6 +60,7 @@
 /Users/oswald_joshua_olazabal/Desktop/GBear/Sources/GBearKit/Streaming/GBearNWListenerAwait.swift
 /Users/oswald_joshua_olazabal/Desktop/GBear/Sources/GBearKit/Streaming/GBearPadControl.swift
 /Users/oswald_joshua_olazabal/Desktop/GBear/Sources/GBearKit/Streaming/GBearPadInputMonitor.swift
+/Users/oswald_joshua_olazabal/Desktop/GBear/Sources/GBearKit/Streaming/GBearRelayBitrateController.swift
 /Users/oswald_joshua_olazabal/Desktop/GBear/Sources/GBearKit/Streaming/GBearRelayWebSocket.swift
 /Users/oswald_joshua_olazabal/Desktop/GBear/Sources/GBearKit/Streaming/GBearRemoteCoopHost.swift
 /Users/oswald_joshua_olazabal/Desktop/GBear/Sources/GBearKit/Streaming/GBearRemoteInputPlayback.swift
