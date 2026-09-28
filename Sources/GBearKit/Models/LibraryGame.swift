@@ -25,10 +25,20 @@ public final class LibraryGame {
     public var screenScraperSystemId: Int?
     /// User skipped automatic ScreenScraper disambiguation for this game.
     public var screenScraperSelectionSkipped: Bool = false
-    /// Optional source identifier (e.g. "epic") for imported launcher ecosystems.
+    /// Remote cover provider for the current scraped art: `screenscraper`, `thegamesdb`, or `igdb`.
+    public var remoteCoverSource: String?
+    /// Last TheGamesDB search for this game, including a miss, so background passes do not repeat it.
+    public var theGamesDBCheckedAt: Date?
+    /// Last IGDB search for this game, including a miss, so background passes do not repeat it.
+    public var igdbCheckedAt: Date?
+    /// Storefront raw value (`epic`, `steam`, `gog`) for launcher-imported games; nil for ROMs and manual Mac games.
     public var librarySourceID: String?
     /// Epic app name used to launch via Epic Games Launcher URI protocol.
     public var epicAppName: String?
+    /// Store-side id: Epic app name, Steam app id, or GOG product id.
+    public var storefrontGameID: String?
+    /// False for owned storefront games that are not installed on this Mac. Nil for non-storefront games.
+    public var storefrontInstalled: Bool?
     public var sortOrder: Int
     public var dateAdded: Date
     public var lastPlayed: Date?
@@ -52,6 +62,9 @@ public final class LibraryGame {
         screenScraperGameId: Int? = nil,
         screenScraperSystemId: Int? = nil,
         screenScraperSelectionSkipped: Bool = false,
+        remoteCoverSource: String? = nil,
+        theGamesDBCheckedAt: Date? = nil,
+        igdbCheckedAt: Date? = nil,
         librarySourceID: String? = nil,
         epicAppName: String? = nil,
         sortOrder: Int = 0,
@@ -73,6 +86,9 @@ public final class LibraryGame {
         self.screenScraperGameId = screenScraperGameId
         self.screenScraperSystemId = screenScraperSystemId
         self.screenScraperSelectionSkipped = screenScraperSelectionSkipped
+        self.remoteCoverSource = remoteCoverSource
+        self.theGamesDBCheckedAt = theGamesDBCheckedAt
+        self.igdbCheckedAt = igdbCheckedAt
         self.librarySourceID = librarySourceID
         self.epicAppName = epicAppName
         self.sortOrder = sortOrder
@@ -90,7 +106,8 @@ public final class LibraryGame {
         return title
     }
 
-    /// True when this game already has ScreenScraper-sourced box art (cached file or pinned match + cover).
+    /// True when this game already has scraped box art in the cover cache, or a pinned ScreenScraper match plus a cover.
+    /// TheGamesDB and IGDB downloads land in the same cache, so Only Scan Missing treats them as already scraped.
     public var hasScreenScraperCover: Bool {
         let cover = coverImageURLString?.trimmingCharacters(in: .whitespacesAndNewlines) ?? ""
         let options = coverImageOptions
@@ -102,6 +119,15 @@ public final class LibraryGame {
         if options.contains(where: looksLikeRemoteCover) { return true }
         if screenScraperGameId != nil, !cover.isEmpty { return true }
         return false
+    }
+
+    public var storefront: Storefront? {
+        librarySourceID.flatMap(Storefront.init(rawValue:))
+    }
+
+    /// Installed storefront games get the green check on their cover.
+    public var isInstalledStorefrontGame: Bool {
+        storefront != nil && storefrontInstalled != false
     }
 
     public var emulatorUUID: UUID? {

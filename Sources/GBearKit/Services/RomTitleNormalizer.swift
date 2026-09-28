@@ -42,8 +42,18 @@ enum RomTitleNormalizer {
             .trimmingCharacters(in: .whitespacesAndNewlines)
     }
 
+    /// True when a string still looks like a dump filename (underscores, Switch title id, trailing `v0`).
+    static func looksLikeDumpName(_ title: String) -> Bool {
+        if title.contains("_") { return true }
+        if title.range(of: #"0100[0-9A-Fa-f]{12}"#, options: .regularExpression) != nil { return true }
+        if title.range(of: #"(?i)(?:^|\s)v\d+$"#, options: .regularExpression) != nil { return true }
+        return false
+    }
+
     static func searchQuery(fromFileNameStem stem: String) -> String {
-        var s = strippingTrailingParentheticalTags(stem)
+        let spaced = stem.replacingOccurrences(of: "_", with: " ")
+        var s = strippingTrailingParentheticalTags(spaced)
+        s = stripTrailingVersionTag(s)
         for ch in ["™", "®", "©"] {
             s = s.replacingOccurrences(of: ch, with: "")
         }
@@ -197,6 +207,25 @@ enum RomTitleNormalizer {
             .map(String.init)
             .filter { !junkTokens.contains($0.lowercased()) }
             .joined(separator: " ")
+    }
+
+    private static func stripTrailingVersionTag(_ text: String) -> String {
+        var s = text.trimmingCharacters(in: .whitespacesAndNewlines)
+        let pattern = #"(?i)\s+v\d+\s*$"#
+        while let range = s.range(of: pattern, options: .regularExpression) {
+            s.removeSubrange(range)
+            s = s.trimmingCharacters(in: .whitespacesAndNewlines)
+        }
+        return s
+    }
+
+    /// Title through the sequel number, when words follow it.
+    /// `Fullmetal Alchemist 3 The Girl Who Succeeds God` → `Fullmetal Alchemist 3`.
+    static func titleThroughSequelNumber(_ query: String) -> String? {
+        let words = query.split(whereSeparator: \.isWhitespace).map(String.init)
+        guard let numberIndex = words.lastIndex(where: { canonicalDistinguishingToken($0) != nil }) else { return nil }
+        guard numberIndex + 1 < words.count, numberIndex >= 1 else { return nil }
+        return words[...numberIndex].joined(separator: " ")
     }
 
     private static func reorderTrailingThe(in text: String) -> String {

@@ -106,6 +106,25 @@ struct GBear: App {
                     )
                 }
 
+                Button("Games missing after scan") {
+                    showHelpDialog(
+                        title: "Games missing after scan",
+                        message: """
+                        Why a game did not come back:
+                        When you right-click a game and choose Remove from Library, GBear adds it to the blocked list. Scan Paths and Import Storefront Installed Games skip blocked games, so a game you removed stays removed even though its file is still in a Paths folder (or still owned on Steam, Epic, or GOG).
+
+                        How to get it back:
+                        In the Library tab, click Manage Blocked List. It shows every game you removed, with the emulator, the date, and the file path. Click Unblock next to a game (or Unblock All), then run Scan Paths. The game is added again if its file is still in one of your Paths folders.
+
+                        What does not block:
+                        Clear All Games, Clear Games for an emulator, and Clear Mac Games do not add anything to the blocked list. Scan Paths imports those games again. Adding a Mac game with Add Game also unblocks it.
+
+                        Other reasons a game is missing:
+                        The file is gone, or its folder is not in Paths for that emulator. The file is inside an Excludes folder. The file type is not in the emulator's supported extensions. The file sits more than one folder deep inside a Paths folder (only files and immediate subfolders are imported).
+                        """
+                    )
+                }
+
                 Button("Keystrokes permission") {
                     showHelpDialog(
                         title: "Keystrokes permission",

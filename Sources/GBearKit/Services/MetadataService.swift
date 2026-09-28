@@ -151,8 +151,10 @@ enum MetadataService {
     static func searchQuery(displayTitle: String, romFileNameStem: String) -> String {
         let fromRom = RomTitleNormalizer.searchQuery(fromFileNameStem: romFileNameStem)
         let fromDisplay = RomTitleNormalizer.searchQuery(fromFileNameStem: displayTitle)
-        let candidates = [fromRom, fromDisplay].filter { !$0.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty }
-        return candidates.max(by: { $0.count < $1.count }) ?? displayTitle
+        let candidates = [fromDisplay, fromRom].filter { !$0.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty }
+        let clean = candidates.filter { !RomTitleNormalizer.looksLikeDumpName($0) }
+        let pool = clean.isEmpty ? candidates : clean
+        return pool.max(by: { $0.count < $1.count }) ?? displayTitle
     }
 
     /// Whether a scraped title should replace the library filename title.
@@ -189,6 +191,40 @@ enum MetadataService {
         }
 
         return true
+    }
+
+    /// Stricter check for name-search backups (TheGamesDB, IGDB), whose search returns loosely related games.
+    /// The shorter title's words must all appear in the longer one, and a one-word title must match exactly.
+    /// `Off the Game` ✗ `Olympic Games Tokyo 2020`; `Hollow Knight Voidheart Edition` ✓ `Hollow Knight`.
+    static func backupTitleMatches(searchQuery: String, candidate: String) -> Bool {
+        guard pickTitleIsCompatible(searchQuery: searchQuery, pickTitle: candidate) else { return false }
+        let queryWords = significantWords(from: searchQuery)
+        let candidateWords = significantWords(from: candidate)
+        guard !queryWords.isEmpty, !candidateWords.isEmpty else { return false }
+        let (shorter, longer) = queryWords.count <= candidateWords.count
+            ? (queryWords, candidateWords)
+            : (candidateWords, queryWords)
+        guard shorter.isSubset(of: longer) else { return false }
+        return shorter.count >= 2 || shorter == longer
+    }
+
+    private static let backupStopWords: Set<String> = ["the", "of", "a", "an", "and"]
+
+    private static func significantWords(from text: String) -> Set<String> {
+        let folded = text
+            .folding(options: [.caseInsensitive, .diacriticInsensitive], locale: nil)
+            .replacingOccurrences(of: "'", with: "")
+            .replacingOccurrences(of: "’", with: "")
+        var words = Set<String>()
+        for raw in folded.split(whereSeparator: { !$0.isLetter && !$0.isNumber }) {
+            let word = String(raw).lowercased()
+            if let number = RomTitleNormalizer.canonicalDistinguishingToken(word) {
+                words.insert(number)
+            } else if word.count >= 2, !backupStopWords.contains(word) {
+                words.insert(word)
+            }
+        }
+        return words
     }
 
     /// Part/Vol numbers in ROM filenames (e.g. "Part 1") are often absent from ScreenScraper titles (e.g. ".hack//Infection").

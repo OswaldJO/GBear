@@ -14,6 +14,7 @@ private enum LibrarySidebarSelection: Hashable {
     case all
     case macGames
     case emulator(UUID)
+    case storefrontManager
     case screenScraper
 }
 
@@ -32,6 +33,7 @@ public struct RootView: View {
     @State private var confirmClearAllGames = false
     @State private var confirmClearMacGames = false
     @State private var showScreenScraperSettings = false
+    @State private var showBlockedGames = false
     @State private var showScreenScraperDisambiguation = false
     @State private var screenScraperCredentialsRevision = 0
     @Bindable private var screenScraperDisambiguationCoordinator = ScreenScraperDisambiguationCoordinator.shared
@@ -47,7 +49,7 @@ public struct RootView: View {
 
     private var visibleLibraryGames: [LibraryGame] {
         games.filter { game in
-            guard let emulatorID = game.emulatorUUID else { return true }
+            guard let emulatorID = game.emulatorUUID else { return StorefrontSettings.shared.isVisible(game) }
             return activeEmulatorIDs.contains(emulatorID)
         }
     }
@@ -61,7 +63,7 @@ public struct RootView: View {
             return sortedVisible.filter { $0.emulatorUUID == nil }
         case .emulator(let id):
             return sortedVisible.filter { $0.emulatorUUID == id }
-        case .screenScraper:
+        case .storefrontManager, .screenScraper:
             return []
         }
     }
@@ -71,7 +73,7 @@ public struct RootView: View {
         case .all: return "All"
         case .macGames: return "Mac Games"
         case .emulator(let id): return emulators.first(where: { $0.id == id })?.name
-        case .screenScraper: return nil
+        case .storefrontManager, .screenScraper: return nil
         }
     }
 
@@ -111,6 +113,13 @@ public struct RootView: View {
     @ViewBuilder
     private var libraryDetailContent: some View {
         switch sidebarSelection {
+        case .storefrontManager:
+            StorefrontManagerView(
+                settings: StorefrontSettings.shared,
+                importer: StorefrontImporter.shared,
+                games: games,
+                onImport: { importStorefrontGames() }
+            )
         case .screenScraper:
             ScreenScraperLibrarySettingsView(
                 fetcher: MetadataBackgroundFetcher.shared,
@@ -182,6 +191,10 @@ public struct RootView: View {
                             }
                     }
                 }
+                Section("Storefront Manager") {
+                    Label("Show Manager", systemImage: "storefront")
+                        .tag(LibrarySidebarSelection.storefrontManager)
+                }
                 Section("Cover Art and Metadata") {
                     ScreenScraperSidebarRow(fetcher: MetadataBackgroundFetcher.shared)
                         .tag(LibrarySidebarSelection.screenScraper)
@@ -208,11 +221,12 @@ public struct RootView: View {
                     }
 
                     Button {
-                        importEpicInstalledGames()
+                        importStorefrontGames()
                     } label: {
-                        Label("Import Epic Installed Games", systemImage: "shippingbox")
+                        Label("Import Storefront Installed Games", systemImage: "shippingbox")
                             .labelStyle(.titleAndIcon)
                     }
+                    .disabled(StorefrontImporter.shared.isImporting)
 
                     Button {
                         showScreenScraperSettings = true
@@ -231,6 +245,13 @@ public struct RootView: View {
                             }
                         }
                         .labelStyle(.titleAndIcon)
+                    }
+
+                    Button {
+                        showBlockedGames = true
+                    } label: {
+                        Label("Manage Blocked List", systemImage: "hand.raised")
+                            .labelStyle(.titleAndIcon)
                     }
                 }
             }
@@ -346,6 +367,9 @@ public struct RootView: View {
         }) {
             ScreenScraperSettingsSheet()
         }
+        .sheet(isPresented: $showBlockedGames) {
+            BlockedGamesSheet()
+        }
         .sheet(isPresented: $showScreenScraperDisambiguation) {
             ScreenScraperDisambiguationSheet(coordinator: ScreenScraperDisambiguationCoordinator.shared)
         }
@@ -365,76 +389,69 @@ public struct RootView: View {
     }
 
     private func performScan() {
+        let summary: GamePathScanner.ScanSummary
         do {
-            let summary = try GamePathScanner.scan(modelContext: modelContext)
-            let epicSummary = try EpicInstalledGamesImporter.importInstalledGames(modelContext: modelContext)
-            if summary.hasAnyChanges {
-                var parts: [String] = []
-                if summary.added > 0 {
-                    parts.append("Added \(summary.added) game(s)")
-                }
-                if summary.reassigned > 0 {
-                    parts.append("Re-linked \(summary.reassigned) existing game(s) to this emulator")
-                }
-                if summary.linkedCovers > 0 {
-                    parts.append("Linked \(summary.linkedCovers) cover image(s)")
-                }
-                if summary.autoLinkedDiscSets > 0 {
-                    parts.append("Auto-linked \(summary.autoLinkedDiscSets) multi-disc set(s)")
-                }
-                if summary.removedMissing > 0 {
-                    parts.append("Removed \(summary.removedMissing) missing game(s)")
-                }
-                if summary.removedNested > 0 {
-                    parts.append("Removed \(summary.removedNested) extra file(s) inside game folders")
-                }
-                if epicSummary.added > 0 {
-                    parts.append("Imported \(epicSummary.added) Epic game(s)")
-                }
-                if epicSummary.updated > 0 {
-                    parts.append("Updated \(epicSummary.updated) Epic game(s)")
-                }
+            summary = try GamePathScanner.scan(modelContext: modelContext)
+        } catch {
+            scanFeedback = "Scan failed: \(error.localizedDescription)"
+            return
+        }
+        Task {
+            let storefront = await StorefrontImporter.shared.importAll(modelContext: modelContext)
+            var parts: [String] = []
+            if summary.added > 0 {
+                parts.append("Added \(summary.added) game(s)")
+            }
+            if summary.reassigned > 0 {
+                parts.append("Re-linked \(summary.reassigned) existing game(s) to this emulator")
+            }
+            if summary.linkedCovers > 0 {
+                parts.append("Linked \(summary.linkedCovers) cover image(s)")
+            }
+            if summary.autoLinkedDiscSets > 0 {
+                parts.append("Auto-linked \(summary.autoLinkedDiscSets) multi-disc set(s)")
+            }
+            if summary.removedMissing > 0 {
+                parts.append("Removed \(summary.removedMissing) missing game(s)")
+            }
+            if summary.removedNested > 0 {
+                parts.append("Removed \(summary.removedNested) extra file(s) inside game folders")
+            }
+            parts.append(contentsOf: storefront.feedbackParts)
+            if summary.skippedBlocked > 0 {
+                parts.append(blockedSkipNote(summary.skippedBlocked))
+            }
+            if summary.hasAnyChanges || storefront.hasChanges {
                 scanFeedback = parts.joined(separator: ". ") + "."
-            } else if epicSummary.hasChanges {
-                var parts: [String] = []
-                if epicSummary.added > 0 {
-                    parts.append("Imported \(epicSummary.added) Epic game(s)")
-                }
-                if epicSummary.updated > 0 {
-                    parts.append("Updated \(epicSummary.updated) Epic game(s)")
-                }
-                scanFeedback = parts.joined(separator: ". ") + "."
+            } else if !parts.isEmpty {
+                scanFeedback = "No new games found. " + parts.joined(separator: ". ") + "."
             } else {
                 scanFeedback = "No new games found. Add folders in Paths or check that files use supported extensions."
             }
-            if summary.added > 0 || epicSummary.added > 0 {
+            if summary.added > 0 || storefront.added > 0 {
                 MetadataBackgroundFetcher.shared.scheduleExtraPass(container: modelContext.container)
             }
-        } catch {
-            scanFeedback = "Scan failed: \(error.localizedDescription)"
         }
     }
 
-    private func importEpicInstalledGames() {
-        do {
-            let epicSummary = try EpicInstalledGamesImporter.importInstalledGames(modelContext: modelContext)
-            if epicSummary.hasChanges {
-                var parts: [String] = []
-                if epicSummary.added > 0 {
-                    parts.append("Imported \(epicSummary.added) Epic game(s)")
-                }
-                if epicSummary.updated > 0 {
-                    parts.append("Updated \(epicSummary.updated) Epic game(s)")
-                }
-                scanFeedback = parts.joined(separator: ". ") + "."
-                if epicSummary.added > 0 {
-                    MetadataBackgroundFetcher.shared.scheduleExtraPass(container: modelContext.container)
-                }
+    private func blockedSkipNote(_ count: Int) -> String {
+        "Skipped \(count) blocked game(s) you removed (Manage Blocked List)"
+    }
+
+    private func importStorefrontGames() {
+        Task {
+            let summary = await StorefrontImporter.shared.importAll(modelContext: modelContext)
+            let parts = summary.feedbackParts
+            if StorefrontSettings.shared.enabled.isEmpty {
+                scanFeedback = "No storefronts are checked. Turn one on under Storefront Manager."
+            } else if parts.isEmpty {
+                scanFeedback = "No storefront changes. Installed games are already in your library."
             } else {
-                scanFeedback = "No installed Epic games found to import."
+                scanFeedback = parts.joined(separator: ". ") + "."
             }
-        } catch {
-            scanFeedback = "Epic import failed: \(error.localizedDescription)"
+            if summary.added > 0 {
+                MetadataBackgroundFetcher.shared.scheduleExtraPass(container: modelContext.container)
+            }
         }
     }
 
@@ -473,6 +490,15 @@ public struct RootView: View {
     }
 
     private func deleteGame(_ game: LibraryGame) {
+        let storefrontIdentity = game.storefront.flatMap { store in
+            game.storefrontGameID.map { store.blocklistIdentity(gameID: $0) }
+        }
+        LibraryBlocklist.add(
+            path: game.romPath,
+            title: game.libraryListTitle,
+            sourceName: game.emulator?.name ?? game.storefront?.displayName,
+            identity: storefrontIdentity
+        )
         modelContext.delete(game)
     }
 
@@ -547,6 +573,7 @@ public struct RootView: View {
                     scanFeedback = "That game is already in your library."
                     return
                 }
+                LibraryBlocklist.remove(path: standardizedPath)
                 let baseTitle = URL(fileURLWithPath: standardizedPath).deletingPathExtension().lastPathComponent
                 let title = baseTitle.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty ? "Mac Game" : baseTitle
                 let nextSort = (games.map(\.sortOrder).max() ?? -1) + 1
@@ -682,7 +709,15 @@ private struct GameLibraryTile: View {
                             .strokeBorder(.quaternary, lineWidth: 1)
                     }
                     .overlay(alignment: .topTrailing) {
-                        if let label = DiscGroupService.discLabel(for: game), game.discGroupIDString != nil {
+                        if game.isInstalledStorefrontGame {
+                            Image(systemName: "checkmark.circle.fill")
+                                .font(.system(size: 20, weight: .semibold))
+                                .symbolRenderingMode(.palette)
+                                .foregroundStyle(.white, .green)
+                                .shadow(color: .black.opacity(0.4), radius: 2)
+                                .padding(6)
+                                .help("Installed")
+                        } else if let label = DiscGroupService.discLabel(for: game), game.discGroupIDString != nil {
                             Text(label)
                                 .font(.caption2.weight(.bold))
                                 .padding(.horizontal, 6)
@@ -748,7 +783,7 @@ private struct LibraryGameInspectorView: View {
     var coverAspect: CoverAspectRatio
     var onDismiss: () -> Void
 
-    @State private var showScreenScraperSearch = false
+    @State private var showCoverSearch = false
     @State private var showDiscGroupLinkSheet = false
 
     var body: some View {
@@ -889,9 +924,9 @@ private struct LibraryGameInspectorView: View {
                         Button("Choose Image…", systemImage: "photo") {
                             pickCoverImage()
                         }
-                        if MetadataCredentials.isConfigured {
-                            Button("Search ScreenScraper…", systemImage: "sparkle.magnifyingglass") {
-                                showScreenScraperSearch = true
+                        if !CoverProvider.configured.isEmpty {
+                            Button("Search for Covers…", systemImage: "sparkle.magnifyingglass") {
+                                showCoverSearch = true
                             }
                         }
                         if game.screenScraperSelectionSkipped {
@@ -985,8 +1020,8 @@ private struct LibraryGameInspectorView: View {
                 .help("Hide game details")
             }
         }
-        .sheet(isPresented: $showScreenScraperSearch) {
-            ScreenScraperManualSearchSheet(
+        .sheet(isPresented: $showCoverSearch) {
+            CoverSearchSheet(
                 libraryGameId: game.id,
                 initialTitle: game.libraryListTitle,
                 initialSystemId: MetadataSystemResolver.systemId(

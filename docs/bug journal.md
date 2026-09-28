@@ -8,6 +8,24 @@ For release notes style summaries, see `source control log.md`. For architecture
 
 ## Mac library — scanning & covers
 
+### BJ-100 — Cover search results spilled over other provider sections
+| | |
+|---|---|
+| **When** | Sep 28 2026 (**in progress**) |
+| **Symptom** | In **Search for Covers**, a loaded cover drew far larger than its card and covered the ScreenScraper section header and the result's own title (seen with *Chasm* for Switch from TheGamesDB). |
+| **Cause** | `CachedCoverThumbnail` used `scaledToFill()` inside a fixed-height frame with no clipping, so a tall box-art image drew at its fill size outside the card. The same grid code was in `ScreenScraperMatchGrid`. |
+| **Fix** | `CachedCoverThumbnail` takes a `contentMode`. Both result grids use `.fit` inside a 180 pt box with `.clipped()`, so the whole cover shows inside its card. Library tiles keep `.fill`. |
+| **Commit** | *in progress* |
+
+### BJ-099 — IGDB backup took the wrong game's cover and title
+| | |
+|---|---|
+| **When** | Sep 28 2026 (**in progress**) |
+| **Symptom** | *Off the Game* got the cover and title of *Olympic Games Tokyo 2020: The Official Video Game*. *Fullmetal Alchemist 3 The Girl Who Succeeds God* was renamed to the Japanese *Kami wo Tsugu Shoujo* title. |
+| **Cause** | TheGamesDB / IGDB used `pickTitleIsCompatible`, which accepts nearly any title for a 3+ word query with no numbers. IGDB's fuzzy search returned the Olympic game, and the Japanese main name counted as a match, so it also replaced the library title. |
+| **Fix** | `MetadataService.backupTitleMatches`: the shorter title's words (apostrophes and accents folded, roman numerals as digits) must all appear in the longer one, and a one-word title must match exactly. Used for backup picks and backup title changes. |
+| **Commit** | *in progress* |
+
 ### BJ-090 — Manual ScreenScraper search missed region-tagged titles
 | | |
 |---|---|

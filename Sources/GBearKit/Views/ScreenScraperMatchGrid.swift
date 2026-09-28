@@ -22,9 +22,9 @@ struct ScreenScraperMatchGrid: View {
 
     private func candidateCard(_ candidate: ScreenScraperGameMatch) -> some View {
         VStack(alignment: .leading, spacing: 8) {
-            CachedCoverThumbnail(urlString: candidate.coverURL?.absoluteString)
-                .frame(height: 140)
-                .frame(maxWidth: .infinity)
+            CachedCoverThumbnail(urlString: candidate.coverURL?.absoluteString, contentMode: .fit)
+                .frame(maxWidth: .infinity, minHeight: 180, maxHeight: 180)
+                .clipped()
                 .background(.quaternary.opacity(0.4), in: RoundedRectangle(cornerRadius: 8))
 
             Text(candidate.systemName)

@@ -182,6 +182,9 @@ enum DiscGroupService {
         target.coverImageOptionsJSON = source.coverImageOptionsJSON
         target.screenScraperGameId = source.screenScraperGameId
         target.screenScraperSystemId = source.screenScraperSystemId
+        target.remoteCoverSource = source.remoteCoverSource
+        target.theGamesDBCheckedAt = source.theGamesDBCheckedAt
+        target.igdbCheckedAt = source.igdbCheckedAt
     }
 
     private static func fetchGames(inGroupID groupID: String, context: ModelContext) -> [LibraryGame] {

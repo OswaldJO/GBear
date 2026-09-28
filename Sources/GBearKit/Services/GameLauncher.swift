@@ -6,6 +6,7 @@ enum GameLaunchError: LocalizedError {
     case missingRom
     case invalidExecutable
     case unsupportedStandaloneTarget
+    case storefrontAppMissing(String)
 
     var errorDescription: String? {
         switch self {
@@ -13,6 +14,7 @@ enum GameLaunchError: LocalizedError {
         case .missingRom: return "The game file could not be found."
         case .invalidExecutable: return "The emulator path is not valid."
         case .unsupportedStandaloneTarget: return "The selected Mac game path could not be launched."
+        case .storefrontAppMissing(let app): return "\(app) is not installed, so this game could not be opened."
         }
     }
 }
@@ -30,6 +32,10 @@ enum GameLauncher {
 
     static func launch(game: LibraryGame) throws {
         DebugLog.log("Launch requested: title=\(game.title) romPath=\(game.romPath)")
+        if game.emulatorUUID == nil, let store = game.storefront, let gameID = game.storefrontGameID {
+            try launchStorefrontGame(game, store: store, gameID: gameID)
+            return
+        }
         let romURL = URL(fileURLWithPath: game.romPath)
         let standardizedPath = (romURL.path as NSString).standardizingPath
         guard FileManager.default.fileExists(atPath: standardizedPath) else {
@@ -375,6 +381,35 @@ enum GameLauncher {
         }
         DebugLog.log("Standalone launch failed for path=\(standardizedPath)")
         throw GameLaunchError.unsupportedStandaloneTarget
+    }
+
+    /// Steam always goes through `steam://rungameid` (Steam offers install when needed). Epic uses the launcher URI.
+    /// GOG opens the installed app directly, otherwise the game page in GOG Galaxy.
+    private static func launchStorefrontGame(_ game: LibraryGame, store: Storefront, gameID: String) throws {
+        let installedPath = (game.romPath as NSString).standardizingPath
+        let hasInstalledFile = game.storefrontInstalled != false && FileManager.default.fileExists(atPath: installedPath)
+        DebugLog.log("Storefront launch store=\(store.rawValue) id=\(gameID) installed=\(hasInstalledFile)")
+        switch store {
+        case .steam:
+            guard let url = URL(string: "steam://rungameid/\(gameID)"), NSWorkspace.shared.open(url) else {
+                throw GameLaunchError.storefrontAppMissing("Steam")
+            }
+        case .epic:
+            if launchViaEpicLauncher(appName: gameID) { return }
+            if hasInstalledFile {
+                try launchStandaloneTarget(at: URL(fileURLWithPath: installedPath))
+                return
+            }
+            throw GameLaunchError.storefrontAppMissing("Epic Games Launcher")
+        case .gog:
+            if hasInstalledFile {
+                try launchStandaloneTarget(at: URL(fileURLWithPath: installedPath))
+                return
+            }
+            guard let url = URL(string: "goggalaxy://openGameView/\(gameID)"), NSWorkspace.shared.open(url) else {
+                throw GameLaunchError.storefrontAppMissing("GOG Galaxy")
+            }
+        }
     }
 
     private static func launchViaEpicLauncher(appName: String) -> Bool {

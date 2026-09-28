@@ -78,6 +78,7 @@ enum CoverImageCache {
 /// Cover tile that reads from disk cache (no network reload on every library visit).
 struct CachedCoverThumbnail: View {
     let urlString: String?
+    var contentMode: ContentMode = .fill
 
     @State private var image: NSImage?
 
@@ -86,7 +87,7 @@ struct CachedCoverThumbnail: View {
             if let image {
                 Image(nsImage: image)
                     .resizable()
-                    .scaledToFill()
+                    .aspectRatio(contentMode: contentMode)
             } else {
                 placeholder
             }

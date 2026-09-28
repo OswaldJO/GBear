@@ -12,6 +12,8 @@ public enum GamePathScanner {
         public var removedMissing: Int
         /// Previously imported files that now sit inside a folder treated as a single game.
         public var removedNested: Int
+        /// Found on disk but skipped because the user removed them (`LibraryBlocklist`).
+        public var skippedBlocked: Int
 
         public init(
             added: Int,
@@ -19,7 +21,8 @@ public enum GamePathScanner {
             linkedCovers: Int,
             autoLinkedDiscSets: Int = 0,
             removedMissing: Int = 0,
-            removedNested: Int = 0
+            removedNested: Int = 0,
+            skippedBlocked: Int = 0
         ) {
             self.added = added
             self.reassigned = reassigned
@@ -27,6 +30,7 @@ public enum GamePathScanner {
             self.autoLinkedDiscSets = autoLinkedDiscSets
             self.removedMissing = removedMissing
             self.removedNested = removedNested
+            self.skippedBlocked = skippedBlocked
         }
 
         public var hasAnyChanges: Bool {
@@ -435,6 +439,8 @@ public enum GamePathScanner {
         var reassignedExisting: Int
         var skippedAsExisting: Int
         var wantedPaths: Set<String>
+        var blockedPaths: Set<String>
+        var skippedBlocked: Int
     }
 
     @discardableResult
@@ -475,6 +481,11 @@ public enum GamePathScanner {
             } else {
                 state.skippedAsExisting += 1
             }
+            return false
+        }
+
+        if state.blockedPaths.contains(comparisonPath) {
+            state.skippedBlocked += 1
             return false
         }
 
@@ -585,7 +596,9 @@ public enum GamePathScanner {
             addedForEmulator: 0,
             reassignedExisting: 0,
             skippedAsExisting: 0,
-            wantedPaths: []
+            wantedPaths: [],
+            blockedPaths: LibraryBlocklist.blockedKeys,
+            skippedBlocked: 0
         )
         var removedNested = 0
 
@@ -778,7 +791,8 @@ public enum GamePathScanner {
             linkedCovers: linkedCovers,
             autoLinkedDiscSets: autoLinkedDiscSets,
             removedMissing: removedMissing,
-            removedNested: removedNested
+            removedNested: removedNested,
+            skippedBlocked: state.skippedBlocked
         )
     }
 

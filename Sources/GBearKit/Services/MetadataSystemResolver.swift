@@ -7,7 +7,7 @@ enum MetadataSystemResolver {
            let id = EmulatorPlatformResolver.resolve(emulator: emulator)?.primarySystemId {
             return id
         }
-        if game.librarySourceID == "epic" {
+        if game.storefront != nil {
             return ScreenScraperPlatformMap.systemId(forGBearSlug: "pc_windows")
         }
         if let hint = game.platformHint?.trimmingCharacters(in: .whitespacesAndNewlines),

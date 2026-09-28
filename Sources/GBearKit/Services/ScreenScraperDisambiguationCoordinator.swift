@@ -63,6 +63,7 @@ final class ScreenScraperDisambiguationCoordinator {
                 let preferRemote = game.emulator?.preferScreenScraperCovers == true
                 if forcePrimaryCover || preferRemote || game.coverImageURLString == nil {
                     game.coverImageURLString = persisted
+                    game.remoteCoverSource = CoverProvider.screenScraper.rawValue
                 }
             }
             game.metadataLastFetchAt = Date()

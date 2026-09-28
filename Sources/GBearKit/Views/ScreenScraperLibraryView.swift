@@ -15,6 +15,14 @@ struct ScreenScraperLibrarySettingsView: View {
     @State private var regionPriority: [String] = MetadataCredentials.screenScraperRegionPriority
     @State private var autoSelectAmbiguous = MetadataCredentials.screenScraperAutoSelectAmbiguousMatches
     @State private var onlyScanMissing = MetadataCredentials.screenScraperOnlyScanMissing
+    @State private var theGamesDBAPIKey = MetadataCredentials.theGamesDBAPIKey ?? ""
+    @State private var theGamesDBKeySaved = MetadataCredentials.hasTheGamesDBAPIKey
+    @State private var igdbClientID = MetadataCredentials.igdbClientID ?? ""
+    @State private var igdbClientSecret = MetadataCredentials.igdbClientSecret ?? ""
+    @State private var igdbKeysSaved = MetadataCredentials.hasIGDBCredentials
+    @State private var igdbStatus: String?
+    @State private var igdbStatusIsError = false
+    @State private var igdbVerifying = false
     @State private var showClearCoversConfirmation = false
     @State private var clearCoversStatus: String?
 
@@ -29,6 +37,8 @@ struct ScreenScraperLibrarySettingsView: View {
                     disambiguationCard
                 }
                 loginStatusCard
+                igdbKeysCard
+                theGamesDBKeyCard
                 actionsCard
                 if fetcher.libraryScrapeInProgress {
                     scrapeProgressCard
@@ -69,7 +79,7 @@ struct ScreenScraperLibrarySettingsView: View {
         VStack(alignment: .leading, spacing: 6) {
             Text("Screen Scrapper")
                 .font(.title3.weight(.semibold))
-            Text("Fetch cover art and titles from ScreenScraper for your library.")
+            Text("Fetch cover art and titles from ScreenScraper. IGDB, then TheGamesDB, fill in a cover with your own keys when ScreenScraper has none or you are not signed in.")
                 .font(.subheadline)
                 .foregroundStyle(.secondary)
         }
@@ -95,6 +105,14 @@ struct ScreenScraperLibrarySettingsView: View {
                         Label("ScreenScraper unavailable in this build", systemImage: "exclamationmark.triangle")
                             .font(.caption)
                             .foregroundStyle(.orange)
+                    } else if !isLoggedIn, theGamesDBKeySaved || igdbKeysSaved {
+                        Text("Covers come from your IGDB / TheGamesDB keys until you sign in.")
+                            .font(.caption)
+                            .foregroundStyle(.secondary)
+                    } else if !isLoggedIn {
+                        Text("Save IGDB or TheGamesDB keys to fetch covers without a ScreenScraper login.")
+                            .font(.caption)
+                            .foregroundStyle(.secondary)
                     }
                 }
 
@@ -120,6 +138,134 @@ struct ScreenScraperLibrarySettingsView: View {
             .padding(.vertical, 4)
         } label: {
             Label("ScreenScraper login", systemImage: "person.badge.key")
+        }
+    }
+
+    private var theGamesDBKeyCard: some View {
+        GroupBox {
+            VStack(alignment: .leading, spacing: 10) {
+                Text("TheGamesDB is the last fallback because each key has a small monthly allowance. It uses your own API key; paste it here, then scrape.")
+                    .font(.subheadline)
+                    .foregroundStyle(.secondary)
+
+                TextField("API key", text: $theGamesDBAPIKey)
+                    .textFieldStyle(.roundedBorder)
+
+                HStack(spacing: 8) {
+                    Link("Request an API key", destination: URL(string: "https://api.thegamesdb.net/key.php")!)
+                    Spacer(minLength: 8)
+                    if theGamesDBKeySaved {
+                        Button("Remove", role: .destructive) {
+                            theGamesDBAPIKey = ""
+                            MetadataCredentials.theGamesDBAPIKey = nil
+                            theGamesDBKeySaved = false
+                        }
+                        .buttonStyle(.bordered)
+                    }
+                    Button("Save key") {
+                        let trimmed = theGamesDBAPIKey.trimmingCharacters(in: .whitespacesAndNewlines)
+                        MetadataCredentials.theGamesDBAPIKey = trimmed
+                        theGamesDBAPIKey = trimmed
+                        theGamesDBKeySaved = !trimmed.isEmpty
+                    }
+                    .buttonStyle(.borderedProminent)
+                    .disabled(theGamesDBAPIKey.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty)
+                }
+
+                if theGamesDBKeySaved {
+                    Label("API key saved", systemImage: "checkmark.circle.fill")
+                        .font(.caption)
+                        .foregroundStyle(.green)
+                }
+            }
+            .padding(.vertical, 4)
+        } label: {
+            Label("TheGamesDB API key", systemImage: "key")
+        }
+    }
+
+    private var igdbKeysCard: some View {
+        GroupBox {
+            VStack(alignment: .leading, spacing: 10) {
+                Text(
+                    "IGDB runs when ScreenScraper has no cover, before TheGamesDB. It uses your own Twitch application: " +
+                        "create one in the Twitch developer console and paste its Client ID and Client Secret."
+                )
+                .font(.subheadline)
+                .foregroundStyle(.secondary)
+
+                TextField("Client ID", text: $igdbClientID)
+                    .textFieldStyle(.roundedBorder)
+                SecureField("Client Secret", text: $igdbClientSecret)
+                    .textFieldStyle(.roundedBorder)
+
+                HStack(spacing: 8) {
+                    Link("How to get IGDB keys", destination: URL(string: "https://api-docs.igdb.com/#account-creation")!)
+                    Spacer(minLength: 8)
+                    if igdbKeysSaved {
+                        Button("Remove", role: .destructive) {
+                            igdbClientID = ""
+                            igdbClientSecret = ""
+                            MetadataCredentials.igdbClientID = nil
+                            MetadataCredentials.igdbClientSecret = nil
+                            igdbKeysSaved = false
+                            igdbStatus = nil
+                            Task { await IGDBTokenStore.shared.clear() }
+                        }
+                        .buttonStyle(.bordered)
+                    }
+                    Button("Save keys") { saveIGDBKeys() }
+                        .buttonStyle(.borderedProminent)
+                        .disabled(
+                            igdbVerifying
+                                || igdbClientID.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty
+                                || igdbClientSecret.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty
+                        )
+                }
+
+                if igdbVerifying {
+                    HStack(spacing: 6) {
+                        ProgressView().controlSize(.small)
+                        Text("Checking keys with Twitch…")
+                            .font(.caption)
+                            .foregroundStyle(.secondary)
+                    }
+                } else if let igdbStatus {
+                    Label(igdbStatus, systemImage: igdbStatusIsError ? "exclamationmark.triangle.fill" : "checkmark.circle.fill")
+                        .font(.caption)
+                        .foregroundStyle(igdbStatusIsError ? .orange : .green)
+                } else if igdbKeysSaved {
+                    Label("Keys saved", systemImage: "checkmark.circle.fill")
+                        .font(.caption)
+                        .foregroundStyle(.green)
+                }
+            }
+            .padding(.vertical, 4)
+        } label: {
+            Label("IGDB keys", systemImage: "key")
+        }
+    }
+
+    private func saveIGDBKeys() {
+        let id = igdbClientID.trimmingCharacters(in: .whitespacesAndNewlines)
+        let secret = igdbClientSecret.trimmingCharacters(in: .whitespacesAndNewlines)
+        MetadataCredentials.igdbClientID = id
+        MetadataCredentials.igdbClientSecret = secret
+        igdbClientID = id
+        igdbClientSecret = secret
+        igdbKeysSaved = MetadataCredentials.hasIGDBCredentials
+        igdbStatus = nil
+        igdbVerifying = true
+        Task { @MainActor in
+            defer { igdbVerifying = false }
+            do {
+                try await IGDBClient.verifyCredentials()
+                igdbStatus = "Keys saved and accepted by Twitch"
+                igdbStatusIsError = false
+            } catch {
+                igdbStatus = "Saved, but \(error.localizedDescription)"
+                igdbStatusIsError = true
+            }
         }
     }
 
@@ -313,7 +459,7 @@ struct ScreenScraperLibrarySettingsView: View {
                 .foregroundStyle(.secondary)
 
                 Text(
-                    "Only Scan Missing skips games that already have ScreenScraper cover art. Uncheck it to scrape every game again."
+                    "Only Scan Missing skips games that already have scraped cover art. Uncheck it to scrape every game again."
                 )
                 .font(.subheadline)
                 .foregroundStyle(.secondary)
@@ -326,9 +472,10 @@ struct ScreenScraperLibrarySettingsView: View {
 
     private var helpText: some View {
         Text(
-            "Scrape uses your emulator (and RetroArch core) to pick the right ScreenScraper console; " +
-                "that mapping is cached for the session. Cover art is saved locally after the first download. " +
-                "Per-emulator “prioritize ScreenScraper art” is in Paths. Use the info button on a game for manual ScreenScraper search."
+            "Scrape uses your emulator (and RetroArch core) to pick the right console. " +
+                "ScreenScraper runs when you are signed in. IGDB, then TheGamesDB, run when their keys are saved, including when you are not signed in. " +
+                "Cover art is saved locally after the first download. " +
+                "Per-emulator “prioritize ScreenScraper art” is in Paths. Use the info button on a game for Search for Covers."
         )
         .font(.caption)
         .foregroundStyle(.tertiary)
@@ -355,7 +502,11 @@ struct ScreenScraperSidebarRow: View {
                 Image(systemName: "person.crop.circle")
                     .font(.caption)
                     .foregroundStyle(.secondary)
-                    .help("No personal ScreenScraper login")
+                    .help(
+                        MetadataCredentials.hasTheGamesDBAPIKey || MetadataCredentials.hasIGDBCredentials
+                            ? "No personal ScreenScraper login. Covers fall back to IGDB / TheGamesDB."
+                            : "No personal ScreenScraper login. Add IGDB or TheGamesDB keys to fetch covers."
+                    )
             }
         }
     }

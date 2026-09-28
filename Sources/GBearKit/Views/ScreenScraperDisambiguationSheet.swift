@@ -49,7 +49,7 @@ struct ScreenScraperDisambiguationSheet: View {
                 }
             }
             .sheet(item: $manualSearchRequest) { request in
-                ScreenScraperManualSearchSheet(
+                CoverSearchSheet(
                     libraryGameId: request.libraryGameId,
                     initialTitle: request.searchQuery,
                     initialSystemId: request.candidates.first?.systemId

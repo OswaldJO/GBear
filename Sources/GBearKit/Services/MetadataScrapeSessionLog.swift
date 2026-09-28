@@ -15,10 +15,15 @@ enum MetadataScrapeSessionLog {
             FileManager.default.createFile(atPath: url.path, contents: nil)
             do {
                 writer = try FileHandle(forWritingTo: url)
-                writeLocked("I", "=== ScreenScraper library scrape started ===")
+                writeLocked("I", "=== Library cover scrape started ===")
                 writeLocked("I", "host=\(ProcessInfo.processInfo.hostName)")
                 writeLocked("I", "games=\(totalGames) regionPriority=\(preferredRegion)")
-                writeLocked("I", "credentialsConfigured=\(MetadataCredentials.isConfigured) userLogin=\(MetadataCredentials.hasUserCredentials)")
+                writeLocked("I", "fallbackOrder=\(CoverProvider.allCases.map(\.rawValue).joined(separator: ","))")
+                writeLocked(
+                    "I",
+                    "credentialsConfigured=\(MetadataCredentials.isConfigured) userLogin=\(MetadataCredentials.hasUserCredentials) " +
+                        "thegamesdb=\(MetadataCredentials.hasTheGamesDBAPIKey) igdb=\(MetadataCredentials.hasIGDBCredentials)"
+                )
             } catch {
                 writer = nil
                 sessionActive = false
@@ -43,7 +48,8 @@ enum MetadataScrapeSessionLog {
         queue.sync {
             if sessionActive {
                 writeLocked("I", "processed=\(summary.processed) updated=\(summary.updated)")
-                writeLocked("I", "=== ScreenScraper library scrape ended ===")
+                writeProviderUsageLocked(summary.usage)
+                writeLocked("I", "=== Library cover scrape ended ===")
             }
             sessionActive = false
             closeWriterLocked()
@@ -71,6 +77,31 @@ enum MetadataScrapeSessionLog {
         let line = "\(stamp) [\(level)] \(message)\n"
         guard let data = line.data(using: .utf8) else { return }
         writer?.write(data)
+    }
+
+    private static func writeProviderUsageLocked(_ usage: [CoverProvider: MetadataBackgroundFetcher.ProviderUsage]) {
+        writeLocked("I", "--- Cover provider usage ---")
+        for provider in CoverProvider.allCases {
+            let stats = usage[provider] ?? MetadataBackgroundFetcher.ProviderUsage()
+            let configured: Bool = switch provider {
+            case .screenScraper: MetadataCredentials.hasUserCredentials && MetadataCredentials.isConfigured
+            case .igdb: MetadataCredentials.hasIGDBCredentials
+            case .theGamesDB: MetadataCredentials.hasTheGamesDBAPIKey
+            }
+            var line = "usage provider=\(provider.rawValue) configured=\(configured) searched=\(stats.searched) " +
+                "covers=\(stats.covers) no_match=\(stats.noMatch) errors=\(stats.errors) skipped=\(stats.skipped)"
+            if provider == .screenScraper {
+                line += " ambiguous=\(stats.ambiguous)"
+            }
+            if provider == .theGamesDB {
+                line += " requests=\(stats.requests) remaining_monthly_allowance=\(stats.remainingAllowance.map(String.init) ?? "unknown")"
+            }
+            writeLocked("I", line)
+        }
+        let totals = CoverProvider.allCases
+            .map { "\($0.rawValue)=\(usage[$0]?.covers ?? 0)" }
+            .joined(separator: " ")
+        writeLocked("I", "covers_by_provider \(totals)")
     }
 
     private static func closeWriterLocked() {

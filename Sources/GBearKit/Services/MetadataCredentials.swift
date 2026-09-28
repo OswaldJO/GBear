@@ -10,6 +10,9 @@ enum MetadataCredentials {
     private static let regionPriorityKey = "Metadata.ScreenScraper.RegionPriority"
     private static let autoSelectAmbiguityKey = "Metadata.ScreenScraper.AutoSelectAmbiguity"
     private static let onlyScanMissingKey = "Metadata.ScreenScraper.OnlyScanMissing"
+    private static let theGamesDBAPIKeyKey = "Metadata.TheGamesDB.APIKey"
+    private static let igdbClientIDKey = "Metadata.IGDB.ClientID"
+    private static let igdbClientSecretKey = "Metadata.IGDB.ClientSecret"
 
     /// Effective developer id for API calls (UserDefaults override, else obfuscated built-in).
     static var screenScraperDevID: String? {
@@ -49,6 +52,32 @@ enum MetadataCredentials {
 
     static var hasUserCredentials: Bool {
         screenScraperUserID != nil && screenScraperUserPassword != nil
+    }
+
+    /// Personal TheGamesDB API key. Covers are fetched only when this is set.
+    static var theGamesDBAPIKey: String? {
+        get { UserDefaults.standard.string(forKey: theGamesDBAPIKeyKey)?.trimmingCharacters(in: .whitespacesAndNewlines).nilIfEmpty }
+        set { UserDefaults.standard.set(newValue, forKey: theGamesDBAPIKeyKey) }
+    }
+
+    static var hasTheGamesDBAPIKey: Bool {
+        theGamesDBAPIKey != nil
+    }
+
+    /// Twitch application Client ID for IGDB.
+    static var igdbClientID: String? {
+        get { storedCredential(forKey: igdbClientIDKey) }
+        set { UserDefaults.standard.set(newValue, forKey: igdbClientIDKey) }
+    }
+
+    /// Twitch application Client Secret for IGDB.
+    static var igdbClientSecret: String? {
+        get { storedCredential(forKey: igdbClientSecretKey) }
+        set { UserDefaults.standard.set(newValue, forKey: igdbClientSecretKey) }
+    }
+
+    static var hasIGDBCredentials: Bool {
+        igdbClientID != nil && igdbClientSecret != nil
     }
 
     /// When true, ambiguous multi-platform matches are resolved by the algorithm instead of prompting the user.
