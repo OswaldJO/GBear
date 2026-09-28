@@ -25,12 +25,14 @@ public final class LibraryGame {
     public var screenScraperSystemId: Int?
     /// User skipped automatic ScreenScraper disambiguation for this game.
     public var screenScraperSelectionSkipped: Bool = false
-    /// Remote cover provider for the current scraped art: `screenscraper`, `thegamesdb`, or `igdb`.
+    /// Remote cover provider for the current scraped art: `screenscraper`, `igdb`, `steamgriddb`, or `thegamesdb`.
     public var remoteCoverSource: String?
     /// Last TheGamesDB search for this game, including a miss, so background passes do not repeat it.
     public var theGamesDBCheckedAt: Date?
     /// Last IGDB search for this game, including a miss, so background passes do not repeat it.
     public var igdbCheckedAt: Date?
+    /// Last SteamGridDB search for this game, including a miss, so background passes do not repeat it.
+    public var steamGridDBCheckedAt: Date?
     /// Storefront raw value (`epic`, `steam`, `gog`) for launcher-imported games; nil for ROMs and manual Mac games.
     public var librarySourceID: String?
     /// Epic app name used to launch via Epic Games Launcher URI protocol.

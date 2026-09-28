@@ -22,7 +22,8 @@ enum MetadataScrapeSessionLog {
                 writeLocked(
                     "I",
                     "credentialsConfigured=\(MetadataCredentials.isConfigured) userLogin=\(MetadataCredentials.hasUserCredentials) " +
-                        "thegamesdb=\(MetadataCredentials.hasTheGamesDBAPIKey) igdb=\(MetadataCredentials.hasIGDBCredentials)"
+                        "thegamesdb=\(MetadataCredentials.hasTheGamesDBAPIKey) igdb=\(MetadataCredentials.hasIGDBCredentials) " +
+                        "steamgriddb=\(MetadataCredentials.hasSteamGridDBAPIKey)"
                 )
             } catch {
                 writer = nil
@@ -86,6 +87,7 @@ enum MetadataScrapeSessionLog {
             let configured: Bool = switch provider {
             case .screenScraper: MetadataCredentials.hasUserCredentials && MetadataCredentials.isConfigured
             case .igdb: MetadataCredentials.hasIGDBCredentials
+            case .steamGridDB: MetadataCredentials.hasSteamGridDBAPIKey
             case .theGamesDB: MetadataCredentials.hasTheGamesDBAPIKey
             }
             var line = "usage provider=\(provider.rawValue) configured=\(configured) searched=\(stats.searched) " +
@@ -95,6 +97,9 @@ enum MetadataScrapeSessionLog {
             }
             if provider == .theGamesDB {
                 line += " requests=\(stats.requests) remaining_monthly_allowance=\(stats.remainingAllowance.map(String.init) ?? "unknown")"
+            }
+            if let limitNote = stats.limitNote {
+                line += " limit=\(limitNote)"
             }
             writeLocked("I", line)
         }

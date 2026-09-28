@@ -31,7 +31,7 @@ enum IGDBClient {
             case .http(let code):
                 return "IGDB HTTP \(code)"
             case .rateLimited:
-                return "IGDB rate limit reached (4 requests per second)."
+                return "IGDB rate limit reached (4 requests per second); it is paused briefly."
             case .decoding:
                 return "IGDB response could not be decoded."
             }
@@ -134,9 +134,11 @@ enum IGDBClient {
         let credentials = try currentCredentials()
         guard let url = URL(string: gamesURL) else { throw IGDBError.invalidURL }
 
+        guard await CoverProviderQuota.shared.isAvailable(.igdb) else { throw IGDBError.rateLimited }
         var refreshedToken = false
         var retriedRateLimit = false
         while true {
+            await IGDBRequestSpacing.shared.wait()
             let token = try await IGDBTokenStore.shared.accessToken(clientID: credentials.id, clientSecret: credentials.secret)
             var request = URLRequest(url: url)
             request.httpMethod = "POST"
@@ -155,7 +157,10 @@ enum IGDBClient {
                 refreshedToken = true
                 await IGDBTokenStore.shared.clear()
             case 429:
-                guard !retriedRateLimit else { throw IGDBError.rateLimited }
+                guard !retriedRateLimit else {
+                    await CoverProviderQuota.shared.block(.igdb, until: Date().addingTimeInterval(30), reason: "rate limit (4 requests per second)")
+                    throw IGDBError.rateLimited
+                }
                 retriedRateLimit = true
                 try? await Task.sleep(for: .seconds(1))
             default:
@@ -287,6 +292,22 @@ enum IGDBClient {
 }
 
 /// Caches the Twitch app access token for IGDB until shortly before it expires.
+/// IGDB allows 4 requests per second; requests wait so they are at least 260 ms apart.
+actor IGDBRequestSpacing {
+    static let shared = IGDBRequestSpacing()
+    private var nextAllowed = Date.distantPast
+
+    func wait() async {
+        let now = Date()
+        let start = max(now, nextAllowed)
+        nextAllowed = start.addingTimeInterval(0.26)
+        let delay = start.timeIntervalSince(now)
+        if delay > 0 {
+            try? await Task.sleep(for: .seconds(delay))
+        }
+    }
+}
+
 actor IGDBTokenStore {
     static let shared = IGDBTokenStore()
 

@@ -8,6 +8,15 @@ For release notes style summaries, see `source control log.md`. For architecture
 
 ## Mac library — scanning & covers
 
+### BJ-103 — Scrapes kept calling cover providers past their API limits
+| | |
+|---|---|
+| **When** | Sep 28 2026 (**in progress**) |
+| **Symptom** | No visible limit handling: a ScreenScraper daily quota error only counted as an error, and the scrape kept sending requests for every remaining game. |
+| **Cause** | ScreenScraper had no quota handling: HTTP 430 / 431 / 429 were generic errors, and `MetadataService` swallows errors and tries more queries per game. TheGamesDB's pause lasted only one batch, so the 45 s background pass and every relaunch tried again. IGDB 429 was retried once and then counted as an error. Nothing stopped a scrape, or prevented one starting, when every provider was used up. |
+| **Fix** | `CoverProviderQuota` stores a per-provider block with a reset time. It is fed by ScreenScraper `ssuser` counts and 430 / 431 / 429 / 401 / 423, TheGamesDB allowance / 403 / `allowance_refresh_timer`, and IGDB repeated 429. Clients refuse requests while blocked; the fetcher skips blocked providers, stops or refuses a scrape when all are blocked, and the background pass idles. IGDB requests are spaced 260 ms apart. Limits are shown in Manage Providers → Actions and in the scrape log. |
+| **Commit** | *in progress* |
+
 ### BJ-102 — ROMM games did not blend with local games (disc duplicates, messy local names)
 | | |
 |---|---|

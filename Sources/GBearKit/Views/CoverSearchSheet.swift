@@ -208,7 +208,7 @@ struct CoverSearchSheet: View {
     private func runSearch() async {
         let providers = CoverProvider.configured
         guard !providers.isEmpty else {
-            errorMessage = "No cover providers are set up. Add IGDB or TheGamesDB keys under Cover Art and Metadata → Manage Providers."
+            errorMessage = "No cover providers are set up. Add IGDB, SteamGridDB, or TheGamesDB keys under Cover Art and Metadata → Manage Providers."
             return
         }
         let query = RomTitleNormalizer.strippingTrailingParentheticalTags(
@@ -335,6 +335,20 @@ struct CoverSearchSheet: View {
                             screenScraperMatch: nil
                         )
                     }
+
+            case .steamGridDB:
+                let hits = try await SteamGridDBClient.searchCoverList(name: query)
+                results = hits.map { hit in
+                    CoverSearchResult(
+                        provider: .steamGridDB,
+                        gameId: hit.gridId,
+                        title: hit.title,
+                        platformName: nil,
+                        regionCode: nil,
+                        coverURL: hit.coverURL,
+                        screenScraperMatch: nil
+                    )
+                }
             }
             return ProviderSection(provider: provider, results: results, message: results.isEmpty ? "No matches" : nil)
         } catch {

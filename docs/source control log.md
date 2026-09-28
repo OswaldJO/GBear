@@ -9,6 +9,17 @@ For the **living product and architecture handbook**, see `Features and Inner Wo
 current release: 1  
 
 ## Updates
+- **SteamGridDB cover provider (Sep 28 2026, in progress):** SteamGridDB is a new bring-your-own-key cover source. The fallback order is now ScreenScraper → IGDB → **SteamGridDB** → TheGamesDB, so TheGamesDB and its small allowance stay last.
+  - **Manage Providers** has a **SteamGridDB API key** card with a link to the key page. **Save key** runs a test search to confirm the key.
+  - Covers are static portrait grids (600×900, 342×482, 660×930), with NSFW and humor art filtered out, best score first. SteamGridDB has no console filter, so automatic matches use the same strict title check as the other backups. Steam storefront games are looked up by their Steam app id first.
+  - **Search for Covers** has a SteamGridDB section: the top 6 games, up to 3 covers each.
+  - SteamGridDB has no published quota. An HTTP 429 pauses it for `Retry-After` seconds (60 s by default), and a rejected key pauses it for the rest of the batch. The scrape log includes it in its header and usage lines.
+  - Code: `SteamGridDBClient`, `CoverProvider.steamGridDB`, `MetadataCredentials.steamGridDBAPIKey`, `LibraryGame.steamGridDBCheckedAt`.
+- **Cover provider API limits (Sep 28 2026, in progress):** GBear now tracks each cover provider's limit and skips a provider that has hit it until the limit resets (`CoverProviderQuota`, saved across launches).
+  - **ScreenScraper:** reads today's request counts from every reply and pauses until midnight Paris time at the daily limit (or HTTP 430 / 431). It pauses briefly when too fast or when the API is closed.
+  - **TheGamesDB:** pauses until its monthly allowance refreshes.
+  - **IGDB:** requests are spaced to 4 per second, with a short pause on repeated 429s.
+  - When every provider is at its limit, **Scrape library** won't start and a running scrape stops. Manage Providers → Actions shows each provider's allowance or resume time, and the scrape log records it (BJ-103).
 - **Sidebar: Manage Providers (Sep 28 2026, in progress):** The **Screen Scrapper** row under **Cover Art and Metadata** is now **Manage Providers**, because the pane also holds the IGDB and TheGamesDB keys. The Search for Covers "no providers" message points there.
 - **Launch with, per game (Sep 28 2026, in progress):** The info panel has a **Launch with** section, between ROMM and Multi-disc set, with a menu of emulator profiles. Picking one makes that emulator open the game. The game stays in its library section, and the default is its library emulator (`LibraryGame.launchEmulatorIDString`, `GameLauncher.launch(game:launchEmulator:)`).
 - **ROMM server integration (Sep 28 2026, in progress):** A new **ROMM** section in the Library sidebar, between Storefront Manager and Cover Art and Metadata, opens a pane to connect to a ROMM server (address, username, Keychain password) and link each ROMM platform to an emulator (for example GameCube to Dolphin).

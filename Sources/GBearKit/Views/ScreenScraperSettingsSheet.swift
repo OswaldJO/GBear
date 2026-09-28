@@ -53,7 +53,11 @@ struct ScreenScraperSettingsSheet: View {
                 }
                 ToolbarItem(placement: .confirmationAction) {
                     Button("Save") {
-                        MetadataCredentials.screenScraperUserID = userID.trimmingCharacters(in: .whitespacesAndNewlines)
+                        let newUserID = userID.trimmingCharacters(in: .whitespacesAndNewlines)
+                        if newUserID != MetadataCredentials.screenScraperUserID {
+                            CoverProviderQuota.shared.reset(.screenScraper)
+                        }
+                        MetadataCredentials.screenScraperUserID = newUserID
                         MetadataCredentials.screenScraperUserPassword = userPassword.trimmingCharacters(in: .whitespacesAndNewlines)
                         dismiss()
                     }

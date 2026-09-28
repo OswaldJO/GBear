@@ -13,6 +13,7 @@ enum MetadataCredentials {
     private static let theGamesDBAPIKeyKey = "Metadata.TheGamesDB.APIKey"
     private static let igdbClientIDKey = "Metadata.IGDB.ClientID"
     private static let igdbClientSecretKey = "Metadata.IGDB.ClientSecret"
+    private static let steamGridDBAPIKeyKey = "Metadata.SteamGridDB.APIKey"
 
     /// Effective developer id for API calls (UserDefaults override, else obfuscated built-in).
     static var screenScraperDevID: String? {
@@ -78,6 +79,16 @@ enum MetadataCredentials {
 
     static var hasIGDBCredentials: Bool {
         igdbClientID != nil && igdbClientSecret != nil
+    }
+
+    /// Personal SteamGridDB API key (Bearer token from the SteamGridDB API preferences page).
+    static var steamGridDBAPIKey: String? {
+        get { storedCredential(forKey: steamGridDBAPIKeyKey) }
+        set { UserDefaults.standard.set(newValue, forKey: steamGridDBAPIKeyKey) }
+    }
+
+    static var hasSteamGridDBAPIKey: Bool {
+        steamGridDBAPIKey != nil
     }
 
     /// When true, ambiguous multi-platform matches are resolved by the algorithm instead of prompting the user.

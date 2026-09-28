@@ -35,7 +35,7 @@ enum TheGamesDBClient {
             case .http(let code):
                 return "TheGamesDB HTTP \(code)"
             case .quota:
-                return "TheGamesDB monthly allowance is used up."
+                return "TheGamesDB monthly allowance is used up; it is paused until the allowance refreshes."
             case .decoding:
                 return "TheGamesDB response could not be decoded."
             }
@@ -127,10 +127,14 @@ enum TheGamesDBClient {
         }
         components?.queryItems = items
         guard let url = components?.url else { throw TheGamesDBError.invalidURL }
+        guard await CoverProviderQuota.shared.isAvailable(.theGamesDB) else { throw TheGamesDBError.quota }
 
         let (data, response) = try await URLSession.shared.data(from: url)
         guard let http = response as? HTTPURLResponse else { throw TheGamesDBError.http(-1) }
-        if http.statusCode == 403 { throw TheGamesDBError.quota }
+        if http.statusCode == 403 {
+            await blockForQuota(refreshSeconds: nil)
+            throw TheGamesDBError.quota
+        }
         guard (200 ... 299).contains(http.statusCode) else { throw TheGamesDBError.http(http.statusCode) }
 
         let jsonObject: Any
@@ -140,8 +144,25 @@ enum TheGamesDBClient {
             throw TheGamesDBError.decoding
         }
         guard let root = jsonObject as? [String: Any] else { throw TheGamesDBError.decoding }
-        if intValue(root["code"]) == 403 { throw TheGamesDBError.quota }
-        return FetchPayload(games: parseGames(root), allowance: intValue(root["remaining_monthly_allowance"]))
+        let refreshSeconds = intValue(root["allowance_refresh_timer"])
+        if intValue(root["code"]) == 403 {
+            await blockForQuota(refreshSeconds: refreshSeconds)
+            throw TheGamesDBError.quota
+        }
+        let monthly = intValue(root["remaining_monthly_allowance"])
+        let allowance = monthly.map { $0 + (intValue(root["extra_allowance"]) ?? 0) }
+        if let allowance {
+            await CoverProviderQuota.shared.recordCounts(.theGamesDB, used: nil, limit: nil, remaining: allowance)
+            if allowance <= 0 { await blockForQuota(refreshSeconds: refreshSeconds) }
+        }
+        return FetchPayload(games: parseGames(root), allowance: allowance)
+    }
+
+    private static func blockForQuota(refreshSeconds: Int?) async {
+        let until = refreshSeconds.flatMap { $0 > 0 ? Date().addingTimeInterval(TimeInterval($0)) : nil }
+            ?? CoverProviderQuota.startOfNextMonthUTC()
+        await CoverProviderQuota.shared.recordCounts(.theGamesDB, used: nil, limit: nil, remaining: 0)
+        await CoverProviderQuota.shared.block(.theGamesDB, until: until, reason: "monthly allowance used up")
     }
 
     /// TheGamesDB `region_id` → the same short codes as Screen Scrapper region priority.

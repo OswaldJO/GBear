@@ -17,9 +17,12 @@ enum ScreenScraperClient {
         case http(Int)
         case decoding
         case noResults
+        case limitReached(String)
 
         var errorDescription: String? {
             switch self {
+            case .limitReached(let message):
+                return message
             case .missingCredentials:
                 return "ScreenScraper credentials are missing."
             case .invalidURL:
@@ -158,16 +161,84 @@ enum ScreenScraperClient {
         queryItems.append(contentsOf: extraQueryItems)
         components?.queryItems = queryItems
         guard let url = components?.url else { throw ScreenScraperError.invalidURL }
+        try await checkLimit()
 
         let (data, response) = try await URLSession.shared.data(from: url)
         guard let http = response as? HTTPURLResponse else { throw ScreenScraperError.http(-1) }
+        if let block = limitBlock(forStatus: http.statusCode) {
+            await CoverProviderQuota.shared.block(.screenScraper, until: block.until, reason: block.reason)
+            throw ScreenScraperError.limitReached("ScreenScraper: \(block.reason)")
+        }
         guard (200 ... 299).contains(http.statusCode) else { throw ScreenScraperError.http(http.statusCode) }
 
+        let object: Any
         do {
-            return try JSONSerialization.jsonObject(with: data, options: [])
+            object = try JSONSerialization.jsonObject(with: data, options: [])
         } catch {
             throw ScreenScraperError.decoding
         }
+        await recordQuota(from: object)
+        return object
+    }
+
+    // MARK: - API limits
+
+    @MainActor
+    private static func checkLimit() throws {
+        let quota = CoverProviderQuota.shared
+        guard !quota.isAvailable(.screenScraper) else { return }
+        let status = quota.status(.screenScraper)
+        let until = status.blockedUntil.map { " until \(CoverProviderQuota.describe($0))" } ?? ""
+        throw ScreenScraperError.limitReached("ScreenScraper is paused\(until): \(status.reason ?? "API limit reached").")
+    }
+
+    private static func limitBlock(forStatus code: Int) -> (until: Date, reason: String)? {
+        switch code {
+        case 430:
+            return (CoverProviderQuota.nextScreenScraperReset(), "daily request quota used up")
+        case 431:
+            return (CoverProviderQuota.nextScreenScraperReset(), "daily quota for unrecognized games used up")
+        case 429:
+            return (Date().addingTimeInterval(60), "too many requests per minute")
+        case 401, 423:
+            return (Date().addingTimeInterval(30 * 60), "API closed by ScreenScraper (server busy)")
+        default:
+            return nil
+        }
+    }
+
+    /// `response.ssuser` carries today's counts for the signed-in user.
+    private static func recordQuota(from object: Any) async {
+        guard let root = object as? [String: Any],
+              let responseObject = root["response"] as? [String: Any],
+              let user = responseObject["ssuser"] as? [String: Any] else { return }
+        await recordQuota(
+            used: quotaInt(user["requeststoday"]),
+            limit: quotaInt(user["maxrequestsperday"]),
+            usedKO: quotaInt(user["requestskotoday"]),
+            limitKO: quotaInt(user["maxrequestskoperday"])
+        )
+    }
+
+    @MainActor
+    private static func recordQuota(used: Int?, limit: Int?, usedKO: Int?, limitKO: Int?) {
+        let quota = CoverProviderQuota.shared
+        quota.recordCounts(.screenScraper, used: used, limit: limit, remaining: used.flatMap { u in limit.map { max($0 - u, 0) } })
+        if let used, let limit, limit > 0, used >= limit {
+            quota.block(.screenScraper, until: CoverProviderQuota.nextScreenScraperReset(), reason: "daily request quota used up (\(used)/\(limit))")
+        } else if let usedKO, let limitKO, limitKO > 0, usedKO >= limitKO {
+            quota.block(
+                .screenScraper,
+                until: CoverProviderQuota.nextScreenScraperReset(),
+                reason: "daily quota for unrecognized games used up (\(usedKO)/\(limitKO))"
+            )
+        }
+    }
+
+    private static func quotaInt(_ value: Any?) -> Int? {
+        if let number = value as? NSNumber { return number.intValue }
+        if let string = value as? String { return Int(string.trimmingCharacters(in: .whitespaces)) }
+        return nil
     }
 
     private static func buildBaseQueryItems(devID: String, devPassword: String) -> [URLQueryItem] {

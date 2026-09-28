@@ -2,7 +2,7 @@ import AppKit
 import Foundation
 import SwiftData
 
-/// Background metadata passes: periodically fills missing covers from local folders, ScreenScraper when a user is signed in, then IGDB and finally TheGamesDB (user keys) when that leaves no cover.
+/// Background metadata passes: periodically fills missing covers from local folders, ScreenScraper when a user is signed in, then IGDB, SteamGridDB, and finally TheGamesDB (user keys) when that leaves no cover.
 @Observable
 @MainActor
 final class MetadataBackgroundFetcher {
@@ -18,6 +18,8 @@ final class MetadataBackgroundFetcher {
         /// API calls (TheGamesDB only; each counts against the monthly allowance).
         var requests = 0
         var remainingAllowance: Int?
+        /// API limit state at the end of the batch, for the scrape log.
+        var limitNote: String?
     }
 
     struct ScrapeSummary: Sendable {
@@ -40,10 +42,12 @@ final class MetadataBackgroundFetcher {
     private var loopTask: Task<Void, Never>?
     private var libraryScrapeTask: Task<Void, Never>?
     private var container: ModelContainer?
-    /// Set for the rest of a batch after TheGamesDB returns HTTP 403 (monthly allowance).
-    private var theGamesDBPausedForQuota = false
+    /// Why the last Scrape library request did not start or stopped early (every provider at its API limit).
+    private(set) var libraryScrapeLimitMessage: String?
     /// Set for the rest of a batch after Twitch rejects the IGDB keys.
     private var igdbPausedForCredentials = false
+    /// Set for the rest of a batch after SteamGridDB rejects the API key.
+    private var steamGridDBPausedForKey = false
     private var providerUsage: [CoverProvider: ProviderUsage] = [:]
 
     private struct BackupCover {
@@ -80,6 +84,11 @@ final class MetadataBackgroundFetcher {
     /// Starts a user-requested full-library scrape; observe [libraryScrapeInProgress] and counters for UI.
     func startLibraryScrape(container: ModelContainer) {
         guard !libraryScrapeInProgress else { return }
+        libraryScrapeLimitMessage = nil
+        if CoverProviderQuota.shared.allScrapeProvidersBlocked {
+            libraryScrapeLimitMessage = Self.allBlockedMessage(stopped: false)
+            return
+        }
         self.container = container
         libraryScrapeTask?.cancel()
         libraryScrapeInProgress = true
@@ -140,6 +149,7 @@ final class MetadataBackgroundFetcher {
                 || game.remoteCoverSource != nil
                 || game.theGamesDBCheckedAt != nil
                 || game.igdbCheckedAt != nil
+                || game.steamGridDBCheckedAt != nil
             guard hadData else { continue }
             game.coverImageURLString = nil
             game.coverImageOptionsJSON = nil
@@ -150,6 +160,7 @@ final class MetadataBackgroundFetcher {
             game.remoteCoverSource = nil
             game.theGamesDBCheckedAt = nil
             game.igdbCheckedAt = nil
+            game.steamGridDBCheckedAt = nil
             cleared += 1
         }
         try context.save()
@@ -166,9 +177,17 @@ final class MetadataBackgroundFetcher {
         return await processBatch(container: container, forceAll: true, maxGames: nil, reportLibraryProgress: false)
     }
 
+    static func allBlockedMessage(stopped: Bool) -> String {
+        let quota = CoverProviderQuota.shared
+        let names = CoverProviderQuota.scrapeProviders.map(\.displayName).joined(separator: ", ")
+        let resume = quota.nextScrapeProviderReset.map { " The first one resumes \(CoverProviderQuota.describe($0))." } ?? ""
+        return (stopped ? "Scrape stopped: " : "Scrape not started: ") +
+            "every cover provider (\(names)) has reached its API limit.\(resume)"
+    }
+
     private func runLoop() async {
         while !Task.isCancelled {
-            if let c = container, !libraryScrapeInProgress {
+            if let c = container, !libraryScrapeInProgress, !CoverProviderQuota.shared.allScrapeProvidersBlocked {
                 backgroundPassInProgress = true
                 defer { backgroundPassInProgress = false }
                 _ = await processBatch(container: c, forceAll: false, maxGames: 3, reportLibraryProgress: false)
@@ -183,8 +202,8 @@ final class MetadataBackgroundFetcher {
         maxGames: Int?,
         reportLibraryProgress: Bool
     ) async -> ScrapeSummary {
-        theGamesDBPausedForQuota = false
         igdbPausedForCredentials = false
+        steamGridDBPausedForKey = false
         providerUsage = [:]
         let context = container.mainContext
         var descriptor = FetchDescriptor<LibraryGame>(sortBy: [SortDescriptor(\.sortOrder)])
@@ -237,6 +256,13 @@ final class MetadataBackgroundFetcher {
         var updated = 0
         for game in selectedCandidates {
             if Task.isCancelled { break }
+            if CoverProviderQuota.shared.allScrapeProvidersBlocked {
+                if reportLibraryProgress {
+                    libraryScrapeLimitMessage = Self.allBlockedMessage(stopped: true)
+                    MetadataScrapeSessionLog.w("all_providers_at_limit stopping processed=\(processed) remaining=\(selectedCandidates.count - processed)")
+                }
+                break
+            }
             if reportLibraryProgress {
                 libraryScrapeCurrentTitle = game.libraryListTitle
             }
@@ -254,6 +280,14 @@ final class MetadataBackgroundFetcher {
                 libraryScrapeUpdated = updated
             }
             try? await Task.sleep(for: .milliseconds(450))
+        }
+        let quota = CoverProviderQuota.shared
+        for provider in CoverProviderQuota.scrapeProviders {
+            let status = quota.status(provider)
+            var note = quota.isAvailable(provider) ? "ok" : "blocked_until=\(status.blockedUntil.map { ISO8601DateFormatter().string(from: $0) } ?? "unknown")"
+            if let used = status.used, let limit = status.limit { note += " used_today=\(used)/\(limit)" }
+            if !quota.isAvailable(provider), let reason = status.reason { note += " reason=\"\(reason)\"" }
+            recordUsage(provider) { $0.limitNote = note }
         }
         return ScrapeSummary(processed: processed, updated: updated, usage: providerUsage)
     }
@@ -281,7 +315,13 @@ final class MetadataBackgroundFetcher {
         let localCoverURL = localCoverForGame(path: game.romPath, title: searchTitle, romStem: romStem)
         var remoteResult: MetadataResult?
         var awaitingDisambiguation = false
-        if MetadataCredentials.hasUserCredentials && MetadataCredentials.isConfigured {
+        let quota = CoverProviderQuota.shared
+        if MetadataCredentials.hasUserCredentials && MetadataCredentials.isConfigured, !quota.isAvailable(.screenScraper) {
+            recordUsage(.screenScraper) { $0.skipped += 1 }
+            if logToSession {
+                MetadataScrapeSessionLog.i("screenscraper_skipped title=\(searchTitle) reason=limit_reached")
+            }
+        } else if MetadataCredentials.hasUserCredentials && MetadataCredentials.isConfigured {
             recordUsage(.screenScraper) { $0.searched += 1 }
             do {
                 if let outcome = try await MetadataService.fetchMetadata(
@@ -321,6 +361,15 @@ final class MetadataBackgroundFetcher {
                                     "systems=\(Set(request.candidates.map(\.systemName)).sorted().joined(separator: ", "))"
                             )
                         }
+                    case .unavailable where !quota.isAvailable(.screenScraper):
+                        recordUsage(.screenScraper) { $0.skipped += 1 }
+                        if logToSession {
+                            let status = quota.status(.screenScraper)
+                            MetadataScrapeSessionLog.w(
+                                "screenscraper_limit_reached title=\(searchTitle) reason=\(status.reason ?? "limit") " +
+                                    "until=\(status.blockedUntil.map { ISO8601DateFormatter().string(from: $0) } ?? "unknown")"
+                            )
+                        }
                     case .unavailable:
                         recordUsage(.screenScraper) { $0.noMatch += 1 }
                         if logToSession {
@@ -357,7 +406,7 @@ final class MetadataBackgroundFetcher {
                 .igdb,
                 game: game,
                 hasKey: MetadataCredentials.hasIGDBCredentials,
-                paused: igdbPausedForCredentials,
+                paused: igdbPausedForCredentials || !quota.isAvailable(.igdb),
                 checkedAt: game.igdbCheckedAt,
                 allowRetry: allowBackupRetry
             ) {
@@ -372,10 +421,26 @@ final class MetadataBackgroundFetcher {
             }
             if backupCover == nil,
                shouldQueryBackup(
+                   .steamGridDB,
+                   game: game,
+                   hasKey: MetadataCredentials.hasSteamGridDBAPIKey,
+                   paused: steamGridDBPausedForKey || !quota.isAvailable(.steamGridDB),
+                   checkedAt: game.steamGridDBCheckedAt,
+                   allowRetry: allowBackupRetry
+               ) {
+                backupCover = await querySteamGridDB(
+                    game: game,
+                    query: query,
+                    searchTitle: searchTitle,
+                    logToSession: logToSession
+                )
+            }
+            if backupCover == nil,
+               shouldQueryBackup(
                    .theGamesDB,
                    game: game,
                    hasKey: MetadataCredentials.hasTheGamesDBAPIKey,
-                   paused: theGamesDBPausedForQuota,
+                   paused: !quota.isAvailable(.theGamesDB),
                    checkedAt: game.theGamesDBCheckedAt,
                    allowRetry: allowBackupRetry
                ) {
@@ -539,7 +604,6 @@ final class MetadataBackgroundFetcher {
             }
             let allowance = found.remainingMonthlyAllowance.map(String.init) ?? "nil"
             if let allowanceValue = found.remainingMonthlyAllowance, allowanceValue <= 0 {
-                theGamesDBPausedForQuota = true
                 if logToSession {
                     MetadataScrapeSessionLog.w("thegamesdb_quota_exhausted")
                 }
@@ -570,11 +634,54 @@ final class MetadataBackgroundFetcher {
                 usage.requests += 1
             }
             if case TheGamesDBClient.TheGamesDBError.quota = error {
-                theGamesDBPausedForQuota = true
                 recordUsage(.theGamesDB) { $0.remainingAllowance = 0 }
             }
             if logToSession {
                 MetadataScrapeSessionLog.e("thegamesdb_error title=\(searchTitle) message=\(error.localizedDescription)")
+            }
+            return nil
+        }
+    }
+
+    /// No platform filter exists on SteamGridDB; Steam games are looked up by app id first.
+    private func querySteamGridDB(
+        game: LibraryGame,
+        query: String,
+        searchTitle: String,
+        logToSession: Bool
+    ) async -> BackupCover? {
+        let steamAppID = game.storefront == .steam ? game.storefrontGameID : nil
+        recordUsage(.steamGridDB) { $0.searched += 1 }
+        do {
+            let match = try await SteamGridDBClient.searchFrontCover(name: query, steamAppID: steamAppID)
+            game.steamGridDBCheckedAt = Date()
+            recordUsage(.steamGridDB) { usage in
+                if match != nil { usage.covers += 1 } else { usage.noMatch += 1 }
+            }
+            guard let match else {
+                if logToSession {
+                    MetadataScrapeSessionLog.w("steamgriddb_no_match title=\(searchTitle) query=\(query)")
+                }
+                return nil
+            }
+            if logToSession {
+                MetadataScrapeSessionLog.i(
+                    "steamgriddb title=\(searchTitle) query=\(query) steamappid=\(steamAppID ?? "nil") " +
+                        "pick=\(match.title ?? "nil") id=\(match.gameId) cover=\(match.coverURL.absoluteString)"
+                )
+            }
+            return BackupCover(
+                url: match.coverURL,
+                title: match.replacesLibraryTitle ? match.title : nil,
+                source: CoverProvider.steamGridDB.rawValue
+            )
+        } catch {
+            recordUsage(.steamGridDB) { $0.errors += 1 }
+            if case SteamGridDBClient.SteamGridDBError.keyRejected = error {
+                steamGridDBPausedForKey = true
+            }
+            if logToSession {
+                MetadataScrapeSessionLog.e("steamgriddb_error title=\(searchTitle) message=\(error.localizedDescription)")
             }
             return nil
         }

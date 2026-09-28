@@ -23,6 +23,11 @@ struct ScreenScraperLibrarySettingsView: View {
     @State private var igdbStatus: String?
     @State private var igdbStatusIsError = false
     @State private var igdbVerifying = false
+    @State private var steamGridDBAPIKey = MetadataCredentials.steamGridDBAPIKey ?? ""
+    @State private var steamGridDBKeySaved = MetadataCredentials.hasSteamGridDBAPIKey
+    @State private var steamGridDBStatus: String?
+    @State private var steamGridDBStatusIsError = false
+    @State private var steamGridDBVerifying = false
     @State private var showClearCoversConfirmation = false
     @State private var clearCoversStatus: String?
 
@@ -38,6 +43,7 @@ struct ScreenScraperLibrarySettingsView: View {
                 }
                 loginStatusCard
                 igdbKeysCard
+                steamGridDBKeyCard
                 theGamesDBKeyCard
                 actionsCard
                 if fetcher.libraryScrapeInProgress {
@@ -79,7 +85,7 @@ struct ScreenScraperLibrarySettingsView: View {
         VStack(alignment: .leading, spacing: 6) {
             Text("Screen Scrapper")
                 .font(.title3.weight(.semibold))
-            Text("Fetch cover art and titles from ScreenScraper. IGDB, then TheGamesDB, fill in a cover with your own keys when ScreenScraper has none or you are not signed in.")
+            Text("Fetch cover art and titles from ScreenScraper. IGDB, SteamGridDB, then TheGamesDB fill in a cover with your own keys when ScreenScraper has none or you are not signed in.")
                 .font(.subheadline)
                 .foregroundStyle(.secondary)
         }
@@ -105,12 +111,12 @@ struct ScreenScraperLibrarySettingsView: View {
                         Label("ScreenScraper unavailable in this build", systemImage: "exclamationmark.triangle")
                             .font(.caption)
                             .foregroundStyle(.orange)
-                    } else if !isLoggedIn, theGamesDBKeySaved || igdbKeysSaved {
-                        Text("Covers come from your IGDB / TheGamesDB keys until you sign in.")
+                    } else if !isLoggedIn, theGamesDBKeySaved || igdbKeysSaved || steamGridDBKeySaved {
+                        Text("Covers come from your IGDB / SteamGridDB / TheGamesDB keys until you sign in.")
                             .font(.caption)
                             .foregroundStyle(.secondary)
                     } else if !isLoggedIn {
-                        Text("Save IGDB or TheGamesDB keys to fetch covers without a ScreenScraper login.")
+                        Text("Save IGDB, SteamGridDB, or TheGamesDB keys to fetch covers without a ScreenScraper login.")
                             .font(.caption)
                             .foregroundStyle(.secondary)
                     }
@@ -164,6 +170,9 @@ struct ScreenScraperLibrarySettingsView: View {
                     }
                     Button("Save key") {
                         let trimmed = theGamesDBAPIKey.trimmingCharacters(in: .whitespacesAndNewlines)
+                        if trimmed != MetadataCredentials.theGamesDBAPIKey {
+                            CoverProviderQuota.shared.reset(.theGamesDB)
+                        }
                         MetadataCredentials.theGamesDBAPIKey = trimmed
                         theGamesDBAPIKey = trimmed
                         theGamesDBKeySaved = !trimmed.isEmpty
@@ -188,7 +197,7 @@ struct ScreenScraperLibrarySettingsView: View {
         GroupBox {
             VStack(alignment: .leading, spacing: 10) {
                 Text(
-                    "IGDB runs when ScreenScraper has no cover, before TheGamesDB. It uses your own Twitch application: " +
+                    "IGDB runs when ScreenScraper has no cover, before SteamGridDB and TheGamesDB. It uses your own Twitch application: " +
                         "create one in the Twitch developer console and paste its Client ID and Client Secret."
                 )
                 .font(.subheadline)
@@ -246,9 +255,88 @@ struct ScreenScraperLibrarySettingsView: View {
         }
     }
 
+    private var steamGridDBKeyCard: some View {
+        GroupBox {
+            VStack(alignment: .leading, spacing: 10) {
+                Text(
+                    "SteamGridDB runs after IGDB and before TheGamesDB. It has community-made portrait covers and finds Steam games by app id. " +
+                        "It uses your own API key from your SteamGridDB account preferences."
+                )
+                .font(.subheadline)
+                .foregroundStyle(.secondary)
+
+                SecureField("API key", text: $steamGridDBAPIKey)
+                    .textFieldStyle(.roundedBorder)
+
+                HStack(spacing: 8) {
+                    Link("Get an API key", destination: URL(string: "https://www.steamgriddb.com/profile/preferences/api")!)
+                    Spacer(minLength: 8)
+                    if steamGridDBKeySaved {
+                        Button("Remove", role: .destructive) {
+                            steamGridDBAPIKey = ""
+                            MetadataCredentials.steamGridDBAPIKey = nil
+                            steamGridDBKeySaved = false
+                            steamGridDBStatus = nil
+                        }
+                        .buttonStyle(.bordered)
+                    }
+                    Button("Save key") { saveSteamGridDBKey() }
+                        .buttonStyle(.borderedProminent)
+                        .disabled(steamGridDBVerifying || steamGridDBAPIKey.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty)
+                }
+
+                if steamGridDBVerifying {
+                    HStack(spacing: 6) {
+                        ProgressView().controlSize(.small)
+                        Text("Checking key with SteamGridDB…")
+                            .font(.caption)
+                            .foregroundStyle(.secondary)
+                    }
+                } else if let steamGridDBStatus {
+                    Label(steamGridDBStatus, systemImage: steamGridDBStatusIsError ? "exclamationmark.triangle.fill" : "checkmark.circle.fill")
+                        .font(.caption)
+                        .foregroundStyle(steamGridDBStatusIsError ? .orange : .green)
+                } else if steamGridDBKeySaved {
+                    Label("API key saved", systemImage: "checkmark.circle.fill")
+                        .font(.caption)
+                        .foregroundStyle(.green)
+                }
+            }
+            .padding(.vertical, 4)
+        } label: {
+            Label("SteamGridDB API key", systemImage: "key")
+        }
+    }
+
+    private func saveSteamGridDBKey() {
+        let trimmed = steamGridDBAPIKey.trimmingCharacters(in: .whitespacesAndNewlines)
+        if trimmed != MetadataCredentials.steamGridDBAPIKey {
+            CoverProviderQuota.shared.reset(.steamGridDB)
+        }
+        MetadataCredentials.steamGridDBAPIKey = trimmed
+        steamGridDBAPIKey = trimmed
+        steamGridDBKeySaved = MetadataCredentials.hasSteamGridDBAPIKey
+        steamGridDBStatus = nil
+        steamGridDBVerifying = true
+        Task { @MainActor in
+            defer { steamGridDBVerifying = false }
+            do {
+                try await SteamGridDBClient.verifyKey()
+                steamGridDBStatus = "API key saved and accepted by SteamGridDB"
+                steamGridDBStatusIsError = false
+            } catch {
+                steamGridDBStatus = "Saved, but \(error.localizedDescription)"
+                steamGridDBStatusIsError = true
+            }
+        }
+    }
+
     private func saveIGDBKeys() {
         let id = igdbClientID.trimmingCharacters(in: .whitespacesAndNewlines)
         let secret = igdbClientSecret.trimmingCharacters(in: .whitespacesAndNewlines)
+        if id != MetadataCredentials.igdbClientID {
+            CoverProviderQuota.shared.reset(.igdb)
+        }
         MetadataCredentials.igdbClientID = id
         MetadataCredentials.igdbClientSecret = secret
         igdbClientID = id
@@ -365,7 +453,22 @@ struct ScreenScraperLibrarySettingsView: View {
                     Label("Scrape library", systemImage: "sparkle.magnifyingglass")
                 }
                 .buttonStyle(.borderedProminent)
-                .disabled(!isConfigured || fetcher.libraryScrapeInProgress || fetcher.libraryScrapeWaitingForBackground)
+                .disabled(
+                    !isConfigured || fetcher.libraryScrapeInProgress || fetcher.libraryScrapeWaitingForBackground
+                        || CoverProviderQuota.shared.allScrapeProvidersBlocked
+                )
+
+                if CoverProviderQuota.shared.allScrapeProvidersBlocked {
+                    Label(MetadataBackgroundFetcher.allBlockedMessage(stopped: false), systemImage: "hourglass")
+                        .font(.caption)
+                        .foregroundStyle(.orange)
+                } else if let message = fetcher.libraryScrapeLimitMessage {
+                    Label(message, systemImage: "hourglass")
+                        .font(.caption)
+                        .foregroundStyle(.orange)
+                }
+
+                apiLimitsList
 
                 Button("Clear scraped covers…", role: .destructive) {
                     showClearCoversConfirmation = true
@@ -382,6 +485,62 @@ struct ScreenScraperLibrarySettingsView: View {
             .padding(.vertical, 4)
         } label: {
             Label("Actions", systemImage: "slider.horizontal.3")
+        }
+    }
+
+    /// One line per provider the scrape uses: remaining allowance, or when a used-up provider resumes.
+    private var apiLimitsList: some View {
+        let quota = CoverProviderQuota.shared
+        return VStack(alignment: .leading, spacing: 4) {
+            Text("API limits")
+                .font(.caption.weight(.semibold))
+                .foregroundStyle(.secondary)
+            if CoverProviderQuota.scrapeProviders.isEmpty {
+                Text("No cover provider is set up.")
+                    .font(.caption)
+                    .foregroundStyle(.secondary)
+            }
+            ForEach(CoverProviderQuota.scrapeProviders, id: \.self) { provider in
+                let status = quota.status(provider)
+                HStack(spacing: 6) {
+                    Image(systemName: quota.isAvailable(provider) ? "checkmark.circle.fill" : "pause.circle.fill")
+                        .foregroundStyle(quota.isAvailable(provider) ? .green : .orange)
+                    Text(provider.displayName).fontWeight(.medium)
+                    Text(limitDescription(provider, status: status, available: quota.isAvailable(provider)))
+                        .foregroundStyle(.secondary)
+                }
+                .font(.caption)
+            }
+            Text(
+                "A provider that reaches its limit is skipped until it resets (ScreenScraper daily at midnight Paris time, " +
+                    "TheGamesDB monthly, IGDB and SteamGridDB after a short pause). When every provider is at its limit, scrapes stop and don't start."
+            )
+            .font(.caption2)
+            .foregroundStyle(.tertiary)
+        }
+        .padding(.top, 4)
+    }
+
+    private func limitDescription(_ provider: CoverProvider, status: CoverProviderQuota.Status, available: Bool) -> String {
+        if !available {
+            let until = status.blockedUntil.map { "resumes \(CoverProviderQuota.describe($0))" } ?? "paused"
+            return "\(status.reason ?? "limit reached") — \(until)"
+        }
+        switch provider {
+        case .screenScraper:
+            if let used = status.used, let limit = status.limit {
+                return "\(used.formatted()) of \(limit.formatted()) requests used today"
+            }
+            return "daily limit shown after the first request"
+        case .theGamesDB:
+            if let remaining = status.remaining {
+                return "\(remaining.formatted()) requests left this month"
+            }
+            return "monthly allowance shown after the first request"
+        case .igdb:
+            return "no daily limit; requests are spaced to 4 per second"
+        case .steamGridDB:
+            return "no published limit; paused briefly if it asks the app to slow down"
         }
     }
 
@@ -473,7 +632,7 @@ struct ScreenScraperLibrarySettingsView: View {
     private var helpText: some View {
         Text(
             "Scrape uses your emulator (and RetroArch core) to pick the right console. " +
-                "ScreenScraper runs when you are signed in. IGDB, then TheGamesDB, run when their keys are saved, including when you are not signed in. " +
+                "ScreenScraper runs when you are signed in. IGDB, SteamGridDB, then TheGamesDB run when their keys are saved, including when you are not signed in. " +
                 "Cover art is saved locally after the first download. " +
                 "Per-emulator “prioritize ScreenScraper art” is in Paths. Use the info button on a game for Search for Covers."
         )
@@ -504,8 +663,9 @@ struct ScreenScraperSidebarRow: View {
                     .foregroundStyle(.secondary)
                     .help(
                         MetadataCredentials.hasTheGamesDBAPIKey || MetadataCredentials.hasIGDBCredentials
-                            ? "No personal ScreenScraper login. Covers fall back to IGDB / TheGamesDB."
-                            : "No personal ScreenScraper login. Add IGDB or TheGamesDB keys to fetch covers."
+                            || MetadataCredentials.hasSteamGridDBAPIKey
+                            ? "No personal ScreenScraper login. Covers fall back to IGDB / SteamGridDB / TheGamesDB."
+                            : "No personal ScreenScraper login. Add IGDB, SteamGridDB, or TheGamesDB keys to fetch covers."
                     )
             }
         }

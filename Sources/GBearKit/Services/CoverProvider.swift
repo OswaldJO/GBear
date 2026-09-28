@@ -5,6 +5,7 @@ import Foundation
 enum CoverProvider: String, CaseIterable, Sendable {
     case screenScraper = "screenscraper"
     case igdb
+    case steamGridDB = "steamgriddb"
     case theGamesDB = "thegamesdb"
 
     var displayName: String {
@@ -12,6 +13,7 @@ enum CoverProvider: String, CaseIterable, Sendable {
         case .screenScraper: return "ScreenScraper"
         case .theGamesDB: return "TheGamesDB"
         case .igdb: return "IGDB"
+        case .steamGridDB: return "SteamGridDB"
         }
     }
 
@@ -21,6 +23,7 @@ enum CoverProvider: String, CaseIterable, Sendable {
         case .screenScraper: return MetadataCredentials.isConfigured
         case .theGamesDB: return MetadataCredentials.hasTheGamesDBAPIKey
         case .igdb: return MetadataCredentials.hasIGDBCredentials
+        case .steamGridDB: return MetadataCredentials.hasSteamGridDBAPIKey
         }
     }
 
