@@ -259,6 +259,15 @@ For release notes style summaries, see `source control log.md`. For architecture
 
 ## Streaming — architecture (Sunshine → native GBear)
 
+### BJ-113 — Remote co-op audio tore and lagged at 1080p
+| | |
+|---|---|
+| **When** | Sep 28 2026 |
+| **Symptom** | On v1.2.8, the companion's audio crackled and fell behind during play, and the bitrate sat near 20 Mbit/s. The bitrate log showed the target at 20 000 kbps while the screen was still (measured under 1 Mbit/s), then when the game got busy measured jumped to 18–24 Mbit/s and the relay round trip went from ~60 ms to 1.1–1.2 s, twice. |
+| **Cause** | Three things. `GBearRelayBitrateController` raised the target whenever pings showed no queue, and a nearly idle stream never queues, so the target reached the 20 Mbit/s ceiling untested; busy scenes then overran the link. The host's audio `GBearRelaySendPump` kept one pending packet and replaced it on every new 10 ms chunk, so any large video frame ahead of it on the WebSocket discarded audio (tearing). The companion's `GBearAudioReceiver` queued up to 96 chunks (~1 s), so audio that arrived late after a stall stayed late. |
+| **Fix** | The target only climbs while the encoder sends at least 60% of it (`noteVideoSent`); ceiling 16 Mbit/s; back off 30% past 150 ms of queue (was 250) and halve past 500 ms. Audio pump keeps a 20-chunk FIFO (drops oldest only beyond 200 ms). Companion caps queued audio at 200 ms and skips ahead. Verified with a harness (idle screen holds the target, busy stream climbs, severe queue halves, audio order kept, video still skips to keyframes); not yet tested in a live session. |
+| **Commit** | release **v1.2.9** |
+
 ### BJ-112 — Remote co-op picture looked like 480p
 | | |
 |---|---|

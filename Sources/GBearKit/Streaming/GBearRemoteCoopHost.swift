@@ -16,7 +16,8 @@ final class GBearRemoteCoopHost {
     private var tunnelProcess: Process?
     private var tunnelOutput: OutputCollector?
     nonisolated private let videoPump = GBearRelaySendPump(dependentFrames: true)
-    nonisolated private let audioPump = GBearRelaySendPump(dependentFrames: false)
+    /// 20 chunks = 200 ms of sound can wait behind a large video frame.
+    nonisolated private let audioPump = GBearRelaySendPump(dependentFrames: false, maxPending: 20)
     nonisolated private let bitrate = GBearRelayBitrateController()
     private var pingTask: Task<Void, Never>?
     private(set) var pictureNote = ""
@@ -294,9 +295,10 @@ final class GBearRemoteCoopHost {
         if guests.isEmpty {
             bitrate.reset()
             await GBearStreamHostManager.shared.setRelaySinks(
-                video: { [videoPump] packet in
+                video: { [videoPump, bitrate] packet in
                     let frame = GBearTunnelFrame.pack(channel: .video, payload: packet)
                     let keyframe = packet.count > 8 && (packet[8] & 1) != 0
+                    bitrate.noteVideoSent(bytes: frame.count)
                     videoPump.enqueue(frame, keyframe: keyframe)
                 },
                 audio: { [audioPump] packet in
@@ -488,18 +490,21 @@ private final class PeerSeatTable: @unchecked Sendable {
 /// Drops stale frames so a slow link cannot queue seconds of picture.
 /// H.264 frames depend on the one before, so once a video frame is dropped every frame up to
 /// the next keyframe is dropped too; sending them would smear the picture until then.
+/// Audio arrives as 10 ms chunks, 100 a second, so it keeps a short FIFO instead: a big video
+/// frame on the same socket would otherwise make it discard chunk after chunk (audible tearing).
 final class GBearRelaySendPump: @unchecked Sendable {
     private let lock = NSLock()
     private let dependentFrames: Bool
+    private let maxPending: Int
     private var sending = false
-    private var pending: Data?
-    private var pendingIsKeyframe = false
+    private var pending: [Data] = []
     private var awaitingKeyframe = false
     var send: (@Sendable (Data, @escaping @Sendable () -> Void) -> Void)?
     var onDrop: (@Sendable () -> Void)?
 
-    init(dependentFrames: Bool) {
+    init(dependentFrames: Bool, maxPending: Int = 1) {
         self.dependentFrames = dependentFrames
+        self.maxPending = max(1, maxPending)
     }
 
     func enqueue(_ data: Data, keyframe: Bool) {
@@ -513,16 +518,24 @@ final class GBearRelaySendPump: @unchecked Sendable {
         }
         let deliver = send
         if sending {
-            if !dependentFrames || keyframe || pending == nil {
-                pending = data
-                pendingIsKeyframe = keyframe
+            if dependentFrames {
+                if keyframe || pending.isEmpty {
+                    pending = [data]
+                    lock.unlock()
+                    return
+                }
+                awaitingKeyframe = true
+                pending.removeAll()
+                let dropped = onDrop
                 lock.unlock()
+                dropped?()
                 return
             }
-            awaitingKeyframe = true
-            let dropped = onDrop
+            pending.append(data)
+            if pending.count > maxPending {
+                pending.removeFirst(pending.count - maxPending)
+            }
             lock.unlock()
-            dropped?()
             return
         }
         sending = true
@@ -540,17 +553,16 @@ final class GBearRelaySendPump: @unchecked Sendable {
 
     private func complete() {
         lock.lock()
-        let next = pending
-        pending = nil
-        pendingIsKeyframe = false
         let deliver = send
-        if next == nil || deliver == nil {
+        guard deliver != nil, !pending.isEmpty else {
+            pending.removeAll()
             sending = false
             lock.unlock()
             return
         }
+        let next = pending.removeFirst()
         lock.unlock()
-        deliver?(next!) { [weak self] in
+        deliver?(next) { [weak self] in
             self?.complete()
         }
     }

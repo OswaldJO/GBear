@@ -222,6 +222,19 @@ class GBearAudioReceiver(
             pcmQueue.poll()
             pcmQueue.offer(pcm)
         }
+        // After a network stall the late audio arrives in one burst. Playing all of it would
+        // leave the sound that far behind the picture for the rest of the session, so skip ahead.
+        val maxQueuedBytes = rate * frameBytes / 1000 * MAX_QUEUED_MS
+        var queuedBytes = pcmQueue.sumOf { it.size }
+        var skipped = 0
+        while (queuedBytes > maxQueuedBytes) {
+            val dropped = pcmQueue.poll() ?: break
+            queuedBytes -= dropped.size
+            skipped += dropped.size
+        }
+        if (skipped > 0) {
+            GBearStreamLog.w("Audio behind; skipped ${skipped / (rate * frameBytes / 1000)} ms to catch up")
+        }
     }
 
     private fun ensureAudioTrack(rate: Int, ch: Int, channels: Int) {
@@ -271,5 +284,9 @@ class GBearAudioReceiver(
         trackChannels = channels
         lockedSampleRate = true
         GBearStreamLog.i("AudioTrack started ${rate}Hz ch=$channels buf=$bufSize (min=$minBuf)")
+    }
+
+    private companion object {
+        const val MAX_QUEUED_MS = 200
     }
 }
