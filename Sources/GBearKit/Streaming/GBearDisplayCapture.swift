@@ -16,7 +16,9 @@ final class GBearDisplayCapture: NSObject, @unchecked Sendable {
     private let audioHandler: AudioHandler?
     #if canImport(ScreenCaptureKit)
     private var stream: SCStream?
+    private var displayID: CGDirectDisplayID?
     #endif
+    private var exclusionObserver: NSObjectProtocol?
     private let queue = DispatchQueue(label: "com.gbear.display-capture", qos: .userInitiated)
 
     init(encodedHandler: @escaping EncodedHandler, audioHandler: AudioHandler? = nil) {
@@ -41,7 +43,8 @@ final class GBearDisplayCapture: NSObject, @unchecked Sendable {
         }
         GBearStreamDisplayContext.update(for: display.displayID)
 
-        let filter = SCContentFilter(display: display, excludingWindows: [])
+        displayID = display.displayID
+        let filter = Self.filter(display: display, content: content)
         let config = SCStreamConfiguration()
         config.width = width
         config.height = height
@@ -67,6 +70,13 @@ final class GBearDisplayCapture: NSObject, @unchecked Sendable {
         }
         try await stream.startCapture()
         self.stream = stream
+        exclusionObserver = NotificationCenter.default.addObserver(
+            forName: GBearCaptureExclusions.didChange,
+            object: nil,
+            queue: nil
+        ) { [weak self] _ in
+            Task { await self?.refreshExclusions() }
+        }
         #else
         throw NSError(domain: "GBearDisplayCapture", code: 2, userInfo: [NSLocalizedDescriptionKey: "ScreenCaptureKit unavailable"])
         #endif
@@ -81,6 +91,10 @@ final class GBearDisplayCapture: NSObject, @unchecked Sendable {
     }
 
     func stop() async {
+        if let exclusionObserver {
+            NotificationCenter.default.removeObserver(exclusionObserver)
+            self.exclusionObserver = nil
+        }
         #if canImport(ScreenCaptureKit)
         if let activeStream = stream {
             stream = nil
@@ -98,6 +112,29 @@ final class GBearDisplayCapture: NSObject, @unchecked Sendable {
         }
         #endif
         encoder.invalidate()
+    }
+
+    #if canImport(ScreenCaptureKit)
+    private static func filter(display: SCDisplay, content: SCShareableContent) -> SCContentFilter {
+        let excluded = GBearCaptureExclusions.windowIDs
+        let windows = excluded.isEmpty ? [] : content.windows.filter { excluded.contains($0.windowID) }
+        return SCContentFilter(display: display, excludingWindows: windows)
+    }
+    #endif
+
+    private func refreshExclusions() async {
+        #if canImport(ScreenCaptureKit)
+        // A window that was just ordered front can take a moment to show up in shareable content.
+        try? await Task.sleep(nanoseconds: 300_000_000)
+        guard let stream, let displayID,
+              let content = try? await SCShareableContent.excludingDesktopWindows(false, onScreenWindowsOnly: true),
+              let display = content.displays.first(where: { $0.displayID == displayID }) else { return }
+        do {
+            try await stream.updateContentFilter(Self.filter(display: display, content: content))
+        } catch {
+            print("[GBearVideo] could not update capture exclusions: \(error.localizedDescription)")
+        }
+        #endif
     }
 }
 

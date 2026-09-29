@@ -326,7 +326,11 @@ final class GBearStreamHostManager {
         await video.noteBitrateEvent(event)
     }
 
+    /// Latest remote co-op ping round trip; nil when no friend has answered a ping this stream.
+    private(set) var relayRoundTripMillis: Double?
+
     func noteRelayRoundTrip(millis: Double) async {
+        relayRoundTripMillis = millis
         await video.noteRelayRoundTrip(millis: millis)
     }
 
@@ -451,6 +455,7 @@ final class GBearStreamHostManager {
         if let bitrateLog = await video.stopStream() {
             lastBitrateLogURL = bitrateLog
         }
+        relayRoundTripMillis = nil
         isVideoStreaming = false
         await server.setVideoStreaming(false)
         GBearKeyboardPlayback.resetModifierState()

@@ -6,6 +6,7 @@ struct StreamingView: View {
     @State private var hostManager = GBearStreamHostManager.shared
     @State private var guestManager = GBearStreamGuestManager.shared
     @State private var remoteHost = GBearRemoteCoopHost.shared
+    @State private var bitrateOverlay = GBearBitrateOverlay.shared
     @State private var confirmDisconnect = false
     @State private var streamLogSavedPath: String?
     private let timer = Timer.publish(every: 1, on: .main, in: .common).autoconnect()
@@ -123,9 +124,20 @@ struct StreamingView: View {
                 .foregroundStyle(.secondary)
             }
             LabeledContent("Bitrate") {
-                Text(bitRateText)
-                    .font(.caption.monospacedDigit())
-                    .foregroundStyle(.secondary)
+                HStack(spacing: 8) {
+                    Text(bitRateText)
+                        .font(.caption.monospacedDigit())
+                        .foregroundStyle(.secondary)
+                    Button {
+                        bitrateOverlay.toggle()
+                    } label: {
+                        Image(systemName: bitrateOverlay.isOpen ? "pip.exit" : "pip.enter")
+                    }
+                    .buttonStyle(.borderless)
+                    .help(bitrateOverlay.isOpen
+                        ? "Close the floating bitrate window"
+                        : "Detach: show the bitrate in a small window that stays on top, even over a game. Friends watching the stream do not see it.")
+                }
             }
             .help("Measured is the video actually encoded over the last second. Target is what the encoder is asked for; remote co-op adjusts it to your friend's connection.")
             if let bitrateLog = hostManager.lastBitrateLogURL {
