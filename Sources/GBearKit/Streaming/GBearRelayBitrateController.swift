@@ -49,10 +49,12 @@ final class GBearRelayBitrateController: @unchecked Sendable {
         ["type": "ping", "t": Self.now() * 1000]
     }
 
-    func handlePong(sentMillis: Double) {
+    /// Returns the round trip in milliseconds, or nil for a pong that makes no sense.
+    @discardableResult
+    func handlePong(sentMillis: Double) -> Double? {
         let now = Self.now()
         let rtt = now * 1000 - sentMillis
-        guard rtt >= 0, rtt < 60_000 else { return }
+        guard rtt >= 0, rtt < 60_000 else { return nil }
         lock.lock()
         hasPongs = true
         // Creep the baseline up slowly so a route change does not look like a permanent queue.
@@ -69,6 +71,7 @@ final class GBearRelayBitrateController: @unchecked Sendable {
         }
         lock.unlock()
         if let change { onBitRateChange?(change) }
+        return rtt
     }
 
     /// A video frame was dropped on this Mac or in the relay because the link fell behind.

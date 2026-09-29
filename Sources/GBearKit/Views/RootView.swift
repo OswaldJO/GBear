@@ -72,6 +72,8 @@ public struct RootView: View {
     @State private var actionOverlayGameID: UUID?
     /// Game open in the trailing inspector column.
     @State private var inspectorGameID: UUID?
+    /// Toolbar search; narrows the selected sidebar section.
+    @State private var librarySearchText = ""
 
     private var activeEmulatorIDs: Set<UUID> {
         Set(emulators.map(\.id))
@@ -130,6 +132,23 @@ public struct RootView: View {
     }
 
     private var filteredGames: [LibraryGame] {
+        let terms = librarySearchText.split(whereSeparator: \.isWhitespace).map(String.init)
+        let section = sectionGames
+        guard !terms.isEmpty else { return section }
+        let emulatorNames = Dictionary(uniqueKeysWithValues: emulators.map { ($0.id, $0.name) })
+        return section.filter { game in
+            let haystack = [
+                game.libraryListTitle,
+                game.title,
+                (game.romPath as NSString).lastPathComponent,
+                game.platformHint ?? "",
+                game.emulatorUUID.flatMap { emulatorNames[$0] } ?? "Mac",
+            ].joined(separator: " ")
+            return terms.allSatisfy { haystack.localizedStandardContains($0) }
+        }
+    }
+
+    private var sectionGames: [LibraryGame] {
         let sortedVisible = visibleLibraryGames.sorted { DiscGroupService.librarySort(lhs: $0, rhs: $1) }
         switch sidebarSelection {
         case .all:
@@ -239,6 +258,7 @@ public struct RootView: View {
             HStack(spacing: 0) {
                 LibraryGamesGridView(
                     games: filteredGames,
+                    searchText: librarySearchText,
                     coverAspects: coverAspectsByEmulatorID,
                     actionOverlayGameID: $actionOverlayGameID,
                     inspectorGameID: $inspectorGameID,
@@ -268,6 +288,11 @@ public struct RootView: View {
             }
             .animation(.easeInOut(duration: 0.22), value: inspectorGameID)
             .frame(maxWidth: .infinity, maxHeight: .infinity)
+            .searchable(
+                text: $librarySearchText,
+                placement: .toolbar,
+                prompt: "Search \(selectedLibrarySidebarTitle ?? "games")"
+            )
         }
     }
 
@@ -815,6 +840,7 @@ public struct RootView: View {
 
 private struct LibraryGamesGridView: View {
     let games: [LibraryGame]
+    let searchText: String
     let coverAspects: [UUID: CoverAspectRatio]
     @Binding var actionOverlayGameID: UUID?
     @Binding var inspectorGameID: UUID?
@@ -827,7 +853,9 @@ private struct LibraryGamesGridView: View {
 
     var body: some View {
         Group {
-            if games.isEmpty {
+            if games.isEmpty, !searchText.trimmingCharacters(in: .whitespaces).isEmpty {
+                ContentUnavailableView.search(text: searchText)
+            } else if games.isEmpty {
                 ContentUnavailableView(
                     "No games",
                     systemImage: "gamecontroller",

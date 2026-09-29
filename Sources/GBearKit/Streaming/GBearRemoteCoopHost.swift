@@ -39,7 +39,10 @@ final class GBearRemoteCoopHost {
     }
 
     private init() {
-        videoPump.onDrop = { [bitrate] in bitrate.handleDrop() }
+        videoPump.onDrop = { [bitrate] in
+            bitrate.handleDrop()
+            Task { await GBearStreamHostManager.shared.noteStreamEvent("relay: frame dropped on this Mac") }
+        }
         bitrate.onKeyframeNeeded = {
             Task { await GBearStreamHostManager.shared.requestRelayKeyframe() }
         }
@@ -160,6 +163,10 @@ final class GBearRemoteCoopHost {
               let type = json["type"] as? String else { return }
         if type == "congestion" {
             bitrate.handleDrop()
+            let who = (json["peer"] as? Int).flatMap(UInt8.init(exactly:))
+                .flatMap { peer in guests.values.first { $0.peer == peer } }
+                .map { "Player \($0.seat)" } ?? "a friend"
+            Task { await GBearStreamHostManager.shared.noteStreamEvent("relay: congestion to \(who)") }
         } else if type == "peer_left", let peer = (json["peer"] as? Int).flatMap(UInt8.init(exactly:)) {
             guard let (deviceID, guest) = guests.first(where: { $0.value.peer == peer }) else { return }
             statusMessage = "\(guest.name) (Player \(guest.seat)) disconnected. Waiting for them to reconnect…"
@@ -208,7 +215,9 @@ final class GBearRemoteCoopHost {
             if let json = try? JSONSerialization.jsonObject(with: payload) as? [String: Any],
                json["type"] as? String == "pong",
                let sent = json["t"] as? Double {
-                bitrate.handlePong(sentMillis: sent)
+                if let rtt = bitrate.handlePong(sentMillis: sent) {
+                    Task { await GBearStreamHostManager.shared.noteRelayRoundTrip(millis: rtt) }
+                }
                 return
             }
             Task { @MainActor in await self.handleControl(payload, peer: peer) }
@@ -322,6 +331,7 @@ final class GBearRemoteCoopHost {
         }
         guests[deviceID] = RelayGuest(name: name, seat: seat, peer: peer)
         peerSeats.set(peer: peer, seat: seat)
+        await GBearStreamHostManager.shared.noteStreamEvent("friend joined as Player \(seat)")
         sendControl(["type": "welcome", "seat": seat], to: peer)
         updatePictureNote(bitrate.currentBitRate)
         if pingTask == nil { startPings() }
@@ -334,6 +344,7 @@ final class GBearRemoteCoopHost {
     private func dropGuest(deviceID: String) async {
         guard let guest = guests.removeValue(forKey: deviceID) else { return }
         guest.dropTask?.cancel()
+        await GBearStreamHostManager.shared.noteStreamEvent("friend left (Player \(guest.seat))")
         peerSeats.remove(peer: guest.peer)
         if guests.isEmpty {
             stopPings()

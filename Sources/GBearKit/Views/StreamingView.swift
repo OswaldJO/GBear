@@ -128,6 +128,22 @@ struct StreamingView: View {
                     .foregroundStyle(.secondary)
             }
             .help("Measured is the video actually encoded over the last second. Target is what the encoder is asked for; remote co-op adjusts it to your friend's connection.")
+            if let bitrateLog = hostManager.lastBitrateLogURL {
+                LabeledContent("Bitrate log") {
+                    HStack(spacing: 8) {
+                        Text(bitrateLog.lastPathComponent)
+                            .font(.caption)
+                            .foregroundStyle(.secondary)
+                            .lineLimit(1)
+                            .truncationMode(.middle)
+                        Button("Show in Finder") {
+                            NSWorkspace.shared.activateFileViewerSelecting([bitrateLog])
+                        }
+                        .controlSize(.small)
+                    }
+                }
+                .help("Saved to Downloads each time a stream ends: one row per second with measured and target bitrate, frames, keyframes, dropped frames, viewers, remote co-op round trip, and events. A summary is at the top.")
+            }
             if hostManager.isVideoStreaming {
                 Label("Streaming video to phone", systemImage: "dot.radiowaves.left.and.right")
                     .font(.caption)

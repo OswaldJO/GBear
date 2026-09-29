@@ -18,6 +18,8 @@ final class GBearStreamHostManager {
     private(set) var isVideoStreaming = false
     private(set) var coopSession: GBearCoopSessionState?
     private(set) var lastStreamLogURL: URL?
+    /// CSV in Downloads from the most recent capture (one row per second).
+    private(set) var lastBitrateLogURL: URL?
     private(set) var pairedDevices: [GBearStreamControlServer.PairedDevice] = []
     private(set) var hostPlayerDeviceID: String = GBearCoopSessionState.localHostDeviceID
 
@@ -320,6 +322,14 @@ final class GBearStreamHostManager {
         await self.audio.setExtraSink(audio)
     }
 
+    func noteStreamEvent(_ event: String) async {
+        await video.noteBitrateEvent(event)
+    }
+
+    func noteRelayRoundTrip(millis: Double) async {
+        await video.noteRelayRoundTrip(millis: millis)
+    }
+
     func requestRelayKeyframe() async {
         await video.requestKeyframe()
     }
@@ -438,7 +448,9 @@ final class GBearStreamHostManager {
     private func endVideoStreamUnlocked(reason: String) async {
         captureTask?.cancel()
         captureTask = nil
-        await video.stopStream()
+        if let bitrateLog = await video.stopStream() {
+            lastBitrateLogURL = bitrateLog
+        }
         isVideoStreaming = false
         await server.setVideoStreaming(false)
         GBearKeyboardPlayback.resetModifierState()

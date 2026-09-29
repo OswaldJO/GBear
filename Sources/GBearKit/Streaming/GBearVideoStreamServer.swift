@@ -29,6 +29,8 @@ actor GBearVideoStreamServer {
     private var rateWindowStart = Date()
     private var rateWindowBytes = 0
     private var lastFrameAt: Date?
+    private var bitrateLog: GBearBitrateLog?
+    private var bitrateSampler: Task<Void, Never>?
 
     func bitRateSnapshot() -> BitRateSnapshot? {
         guard capture != nil else { return nil }
@@ -86,12 +88,29 @@ actor GBearVideoStreamServer {
 
     func requestKeyframe() {
         capture?.requestKeyframe()
+        bitrateLog?.note("keyframe requested")
     }
 
     func setBitRate(_ bitrate: Int) {
         guard let capture else { return }
         capture.setBitRate(bitrate)
+        if bitrate != targetBitRate {
+            bitrateLog?.note("target \(bitrate / 1000) kbps")
+        }
         targetBitRate = bitrate
+    }
+
+    /// Adds a line to this second's `events` column in the bitrate log.
+    func noteBitrateEvent(_ event: String) {
+        bitrateLog?.note(event)
+    }
+
+    func noteRelayRoundTrip(millis: Double) {
+        bitrateLog?.recordRelayRoundTrip(millis: millis)
+    }
+
+    private func sampleBitrate() {
+        bitrateLog?.closeSecond(target: targetBitRate, lanViewers: clients.count, relayActive: extraSink != nil)
     }
 
     func startCapture(
@@ -114,6 +133,15 @@ actor GBearVideoStreamServer {
         try await capture.start(width: width, height: height, fps: fps, bitrate: bitrate, tuning: tuning)
         self.capture = capture
         resetBitRateStats(target: bitrate)
+        bitrateLog = GBearBitrateLog(width: width, height: height, fps: fps, tuning: tuning)
+        bitrateSampler?.cancel()
+        bitrateSampler = Task { [weak self] in
+            while !Task.isCancelled {
+                try? await Task.sleep(nanoseconds: 1_000_000_000)
+                guard !Task.isCancelled else { return }
+                await self?.sampleBitrate()
+            }
+        }
     }
 
     func startStream(
@@ -126,7 +154,24 @@ actor GBearVideoStreamServer {
         try await startCapture(width: width, height: height, fps: fps, audioHandler: audioHandler)
     }
 
-    func stopStream() async {
+    /// Returns the bitrate log saved to Downloads for this capture, if it ran long enough to be useful.
+    @discardableResult
+    func stopStream() async -> URL? {
+        bitrateSampler?.cancel()
+        bitrateSampler = nil
+        var savedLog: URL?
+        if var log = bitrateLog {
+            log.closeSecond(target: targetBitRate, lanViewers: clients.count, relayActive: extraSink != nil)
+            if log.isWorthSaving,
+               let downloads = FileManager.default.urls(for: .downloadsDirectory, in: .userDomainMask).first {
+                do {
+                    savedLog = try log.write(to: downloads)
+                } catch {
+                    print("[GBearVideo] could not save bitrate log: \(error.localizedDescription)")
+                }
+            }
+        }
+        bitrateLog = nil
         if let capture {
             await capture.stop()
         }
@@ -136,6 +181,7 @@ actor GBearVideoStreamServer {
             slot.connection.cancel()
         }
         clients.removeAll()
+        return savedLog
     }
 
     func stopListener() async {
@@ -189,6 +235,7 @@ actor GBearVideoStreamServer {
             "Phone connected to TCP video (viewers=\(clients.count)/\(Self.maxClients)); requesting keyframe"
         )
         print("[GBearVideo] phone connected; viewers=\(clients.count)/\(Self.maxClients)")
+        bitrateLog?.note("LAN viewer joined")
         capture?.requestKeyframe()
     }
 
@@ -209,12 +256,15 @@ actor GBearVideoStreamServer {
     }
 
     private func dropClient(id: ObjectIdentifier) {
-        clients.removeValue(forKey: id)
+        if clients.removeValue(forKey: id) != nil {
+            bitrateLog?.note("LAN viewer left")
+        }
     }
 
     private func sendFrame(data: Data, isKeyframe: Bool, width: UInt16, height: UInt16) {
         let packet = GBearVideoFrameFormat.pack(payload: data, width: width, height: height, isKeyframe: isKeyframe)
         recordEncodedBytes(data.count)
+        bitrateLog?.recordFrame(bytes: data.count, keyframe: isKeyframe)
         extraSink?(packet)
         guard !clients.isEmpty else { return }
         let pending = PendingPacket(
@@ -237,6 +287,7 @@ actor GBearVideoStreamServer {
             if slot.pendingPackets.count > maxQueuedPackets {
                 let dropped = slot.pendingPackets.count - maxQueuedPackets
                 slot.pendingPackets.removeFirst(dropped)
+                bitrateLog?.recordLANDrops(dropped)
             }
             clients[id] = slot
             flushPendingSends(id: id)
