@@ -9,6 +9,7 @@ For the **living product and architecture handbook**, see `Features and Inner Wo
 current release: 1  
 
 ## Updates
+- **Library sources release (Sep 28 2026):** Release **v1.2.0** ships everything below since v1.1.7: ROMM server sync and downloads, linked emulators, per-game **Launch with**, Storefront Manager (Steam, Epic, GOG), IGDB / SteamGridDB / TheGamesDB cover backups with API-limit tracking, multi-provider **Search for Covers**, and the blocked list. Android and Windows installers are unchanged from v1.1.5. **Action:** install **GBear-macOS.zip** from v1.2.0.
 - **Linked emulators (Sep 28 2026, in progress):** Emulator profiles for the same platform can be linked (Emulators → link button → **Link emulators**). For example, Flycast + Redream become one **Dreamcast** section in the Library sidebar.
   - Only profiles with the same platform can be linked, and you must pick a **Default emulator** that opens the group's games. **Launch with** in the info panel still overrides it per game.
   - A game in a folder both emulators scan shows once. Scans no longer move shared games between linked emulators.
