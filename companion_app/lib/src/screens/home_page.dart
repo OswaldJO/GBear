@@ -22,7 +22,6 @@ import '../widgets/stream_shortcuts_picker_sheet.dart';
 import '../widgets/companion_appearance_section.dart';
 import '../widgets/stream_shortcuts_section.dart';
 import '../services/stream_shortcuts_store.dart';
-import '../services/gbear_session_client.dart';
 
 class HomePage extends StatefulWidget {
   const HomePage({super.key});
@@ -57,6 +56,8 @@ class _HomePageState extends State<HomePage> with WidgetsBindingObserver {
   String _controllerStatus = 'Connect a telescopic or Bluetooth gamepad to this phone.';
   bool _controllersRefreshing = false;
   bool _startingStream = false;
+  bool _remoteCoop = false;
+  final TextEditingController _inviteCtrl = TextEditingController();
 
   @override
   void initState() {
@@ -261,6 +262,7 @@ class _HomePageState extends State<HomePage> with WidgetsBindingObserver {
     final lower = status.toLowerCase();
     return lower == 'streaming' ||
         lower.contains('stream running') ||
+        lower.startsWith('remote co-op as player') ||
         lower.contains('opening stream') ||
         lower.contains('starting desktop') ||
         lower.contains('stopping stream');
@@ -272,16 +274,20 @@ class _HomePageState extends State<HomePage> with WidgetsBindingObserver {
     if (!mounted) return;
     final active = session['hostStreamActive'] == true;
     final viewerOpen = session['viewerOpen'] == true;
+    final remote = active && session['remoteCoop'] == true;
     final wasActive = _streamActive;
     final host = _hosts.where((h) => h.id == _selectedHostId).firstOrNull;
     await GBearStreamNotification.syncSession(
       active: active,
-      hostLabel: host?.name ?? (session['host'] as String?),
+      hostLabel: remote ? null : host?.name ?? (session['host'] as String?),
     );
     if (!mounted) return;
     setState(() {
       _streamActive = active;
       _streamViewerOpen = viewerOpen;
+      if (active) {
+        _remoteCoop = remote;
+      }
       if (!active) {
         _startingStream = false;
       }
@@ -317,6 +323,7 @@ class _HomePageState extends State<HomePage> with WidgetsBindingObserver {
   void dispose() {
     WidgetsBinding.instance.removeObserver(this);
     _tabIndex.dispose();
+    _inviteCtrl.dispose();
     super.dispose();
   }
 
@@ -597,14 +604,60 @@ class _HomePageState extends State<HomePage> with WidgetsBindingObserver {
     }
   }
 
+  Future<void> _joinRemoteCoop() async {
+    if (_startingStream || _streamActive) return;
+    _dismissCompanionKeyboard();
+    _startingStream = true;
+    setState(() => _sessionStatus = 'Connecting to your friend\'s Mac…');
+    try {
+      await GBearStreamNotification.ensureNotificationPermission();
+      final mappingStore = await StreamControllerMappingStore.load();
+      final outcome = await _bridge.startRemoteCoop(
+        inviteLine: _inviteCtrl.text,
+        controllerSettings: _controllerSettings,
+        touchSettings: _touchSettings,
+        controllerBindingsJson: mappingStore.bindingsJson(),
+      );
+      if (!mounted) return;
+      setState(() {
+        _streamActive = outcome.ok;
+        _streamViewerOpen = outcome.ok;
+        _remoteCoop = outcome.ok;
+        _sessionStatus = outcome.ok
+            ? 'Remote co-op as Player ${outcome.seat ?? 2}. Your friend binds your buttons in the emulator while you press each one.'
+            : (outcome.message ?? 'Could not join remote co-op.');
+      });
+      if (!outcome.ok) {
+        await GBearStreamNotification.syncSession(active: false);
+      }
+    } finally {
+      _startingStream = false;
+    }
+    if (_streamActive) {
+      await _refreshStreamSessionState();
+    }
+  }
+
+  Future<void> _pasteInvite() async {
+    final data = await Clipboard.getData(Clipboard.kTextPlain);
+    final text = data?.text?.trim() ?? '';
+    if (text.isEmpty || !mounted) return;
+    setState(() => _inviteCtrl.text = text);
+  }
+
   Future<void> _onStreamStoppedExternally({String? logPath}) async {
     if (!mounted || _startingStream) return;
     _startingStream = false;
-    await _bridge.ensureHostStreamStopped();
+    final remote = _remoteCoop;
+    await _bridge.ensureHostStreamStopped(remoteCoop: remote);
     if (!mounted) return;
     setState(() {
       _streamActive = false;
       _streamViewerOpen = false;
+      _remoteCoop = false;
+      if (remote) {
+        _sessionStatus = 'Remote co-op ended. If your friend is still hosting, paste the invite and join again.';
+      }
       if (_isLiveStreamSessionStatus(_sessionStatus)) {
         _sessionStatus = 'Stream stopped';
       }
@@ -621,13 +674,15 @@ class _HomePageState extends State<HomePage> with WidgetsBindingObserver {
   Future<void> _stopStream() async {
     setState(() => _sessionStatus = 'Stopping stream…');
     try {
+      final remote = _remoteCoop;
       final logPath = await _bridge.stopStream();
-      await _bridge.ensureHostStreamStopped();
+      await _bridge.ensureHostStreamStopped(remoteCoop: remote);
       if (!mounted) return;
       setState(() {
         _streamActive = false;
         _streamViewerOpen = false;
-        _sessionStatus = 'Stream stopped';
+        _remoteCoop = false;
+        _sessionStatus = remote ? 'Left remote co-op' : 'Stream stopped';
       });
       if (logPath != null && logPath.isNotEmpty) {
         _lastOfferedStreamLogPath = logPath;
@@ -754,8 +809,8 @@ class _HomePageState extends State<HomePage> with WidgetsBindingObserver {
 
   Widget _buildSessionTab() {
     final selected = _hosts.where((h) => h.id == _selectedHostId).firstOrNull;
-    final canStart = selected?.paired == true && (!_streamActive || !_streamViewerOpen);
     final canReenter = _streamActive && !_streamViewerOpen;
+    final canStart = canReenter || (selected?.paired == true && !_streamActive);
 
     return SingleChildScrollView(
       padding: CompanionInsets.listPadding(context),
@@ -846,6 +901,44 @@ class _HomePageState extends State<HomePage> with WidgetsBindingObserver {
               ),
             ],
           ),
+          if (Platform.isAndroid) ...[
+            const SizedBox(height: 28),
+            const Text(
+              'Remote co-op with a friend',
+              style: TextStyle(fontSize: 18, fontWeight: FontWeight.w600),
+            ),
+            const SizedBox(height: 8),
+            Text(
+              'For a Mac that is not on this Wi‑Fi. Your friend clicks Start remote co-op in GBear → '
+              'Streaming, then Copy invite, and sends you the line. Paste the whole line here. '
+              'No pairing or IP address needed. The picture is 1280×720, and Stop above leaves the session.',
+              style: TextStyle(color: Theme.of(context).colorScheme.onSurfaceVariant),
+            ),
+            const SizedBox(height: 12),
+            TextField(
+              controller: _inviteCtrl,
+              minLines: 1,
+              maxLines: 3,
+              autocorrect: false,
+              enableSuggestions: false,
+              decoration: InputDecoration(
+                labelText: 'Invite line',
+                hintText: 'GBEAR1 ABC234 https://….trycloudflare.com',
+                border: const OutlineInputBorder(),
+                suffixIcon: IconButton(
+                  icon: const Icon(Icons.content_paste),
+                  tooltip: 'Paste',
+                  onPressed: _pasteInvite,
+                ),
+              ),
+            ),
+            const SizedBox(height: 10),
+            FilledButton.icon(
+              onPressed: _streamActive || _startingStream ? null : _joinRemoteCoop,
+              icon: const Icon(Icons.public),
+              label: const Text('Join with invite'),
+            ),
+          ],
         ],
       ),
     );
@@ -1208,144 +1301,6 @@ class _HomePageState extends State<HomePage> with WidgetsBindingObserver {
           ),
         const SizedBox(height: 28),
         const StreamShortcutsSection(),
-        const SizedBox(height: 28),
-        const _RemoteSessionSection(),
-      ],
-    );
-  }
-}
-
-class _RemoteSessionSection extends StatefulWidget {
-  const _RemoteSessionSection();
-
-  @override
-  State<_RemoteSessionSection> createState() => _RemoteSessionSectionState();
-}
-
-class _RemoteSessionSectionState extends State<_RemoteSessionSection> {
-  GBearSessionClient? _client;
-  final _baseCtrl = TextEditingController();
-  final _tokenCtrl = TextEditingController();
-  final _inviteCtrl = TextEditingController();
-  String _status = '';
-
-  @override
-  void initState() {
-    super.initState();
-    unawaited(_load());
-  }
-
-  @override
-  void dispose() {
-    _baseCtrl.dispose();
-    _tokenCtrl.dispose();
-    _inviteCtrl.dispose();
-    super.dispose();
-  }
-
-  Future<void> _load() async {
-    final client = await GBearSessionClient.load();
-    if (!mounted) return;
-    setState(() {
-      _client = client;
-      _baseCtrl.text = client.baseUrl;
-      _status = client.isSignedIn
-          ? 'Signed in as ${client.email ?? "account"}'
-          : 'Not signed in — use coordinator with GBEAR_DEV_AUTH=1 or a Google ID token.';
-    });
-  }
-
-  @override
-  Widget build(BuildContext context) {
-    return Column(
-      crossAxisAlignment: CrossAxisAlignment.stretch,
-      children: [
-        const Text(
-          'Remote co-op (session tunnel)',
-          style: TextStyle(fontSize: 18, fontWeight: FontWeight.w600),
-        ),
-        const SizedBox(height: 8),
-        Text(
-          'Join a friend’s Mac off-LAN without port forwarding. Sign in (same Google as the host) '
-          'or redeem an invite code from the Mac Streaming tab.',
-          style: TextStyle(color: Theme.of(context).colorScheme.onSurfaceVariant),
-        ),
-        const SizedBox(height: 12),
-        TextField(
-          controller: _baseCtrl,
-          decoration: const InputDecoration(
-            labelText: 'Coordinator URL',
-            hintText: 'http://127.0.0.1:8787',
-          ),
-        ),
-        const SizedBox(height: 8),
-        TextField(
-          controller: _tokenCtrl,
-          decoration: const InputDecoration(
-            labelText: 'ID token',
-            hintText: 'dev:you@gmail.com',
-          ),
-        ),
-        const SizedBox(height: 8),
-        Wrap(
-          spacing: 8,
-          children: [
-            OutlinedButton(
-              onPressed: () async {
-                final client = _client ?? await GBearSessionClient.load();
-                await client.setBaseUrl(_baseCtrl.text.trim());
-                final ok = await client.signIn(_tokenCtrl.text.trim());
-                if (!mounted) return;
-                setState(() {
-                  _client = client;
-                  _status = ok
-                      ? 'Signed in as ${client.email}'
-                      : 'Sign-in failed — is the coordinator running?';
-                });
-              },
-              child: const Text('Sign in'),
-            ),
-            OutlinedButton(
-              onPressed: () async {
-                await _client?.signOut();
-                if (!mounted) return;
-                setState(() => _status = 'Signed out');
-              },
-              child: const Text('Sign out'),
-            ),
-          ],
-        ),
-        const SizedBox(height: 12),
-        TextField(
-          controller: _inviteCtrl,
-          decoration: const InputDecoration(
-            labelText: 'Friend invite code',
-            hintText: 'ABCDEF',
-          ),
-          textCapitalization: TextCapitalization.characters,
-        ),
-        const SizedBox(height: 8),
-        FilledButton(
-          onPressed: () async {
-            final client = _client ?? await GBearSessionClient.load();
-            final json = await client.redeemInvite(_inviteCtrl.text);
-            if (!mounted) return;
-            setState(() {
-              _client = client;
-              _status = json == null
-                  ? 'Invite redeem failed'
-                  : 'Joined remote session as Player ${json['seat'] ?? 2}';
-            });
-          },
-          child: const Text('Redeem invite'),
-        ),
-        if (_status.isNotEmpty) ...[
-          const SizedBox(height: 8),
-          Text(
-            _status,
-            style: TextStyle(color: Theme.of(context).colorScheme.primary),
-          ),
-        ],
       ],
     );
   }

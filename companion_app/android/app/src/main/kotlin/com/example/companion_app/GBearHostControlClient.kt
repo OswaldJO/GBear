@@ -10,6 +10,11 @@ object GBearHostControlClient {
     /** Blocks until the Mac acknowledges stream stop (or times out). */
     fun stopStreamOnHost(host: String, controlPort: Int = DEFAULT_CONTROL_PORT) {
         if (host.isEmpty()) return
+        if (GBearRelayBridge.handlesHost(host)) {
+            // Leaving the relay is the stop: the host drops the guest when its socket goes away.
+            GBearRelayBridge.stop()
+            return
+        }
         try {
             val url = URL("http://$host:$controlPort/gbear/v1/stream/stop")
             val connection = url.openConnection() as HttpURLConnection

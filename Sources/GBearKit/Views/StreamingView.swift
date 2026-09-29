@@ -50,6 +50,9 @@ struct StreamingView: View {
         .onDisappear {
             session.stopListeningForRequests()
         }
+        .onReceive(timer) { _ in
+            Task { await hostManager.refreshVideoBitRate() }
+        }
         .onReceive(NotificationCenter.default.publisher(for: NSApplication.didBecomeActiveNotification)) { _ in
             Task {
                 if !hostManager.isVideoStreaming {
@@ -119,6 +122,12 @@ struct StreamingView: View {
                 .font(.caption.monospaced())
                 .foregroundStyle(.secondary)
             }
+            LabeledContent("Bitrate") {
+                Text(bitRateText)
+                    .font(.caption.monospacedDigit())
+                    .foregroundStyle(.secondary)
+            }
+            .help("Measured is the video actually encoded over the last second. Target is what the encoder is asked for; remote co-op adjusts it to your friend's connection.")
             if hostManager.isVideoStreaming {
                 Label("Streaming video to phone", systemImage: "dot.radiowaves.left.and.right")
                     .font(.caption)
@@ -166,6 +175,15 @@ struct StreamingView: View {
                 }
             }
         }
+    }
+
+    private var bitRateText: String {
+        guard hostManager.isVideoStreaming, let rate = hostManager.videoBitRate else {
+            return "Not streaming"
+        }
+        let target = String(format: "target %.1f Mbit/s", Double(rate.target) / 1_000_000)
+        guard rate.measured > 0 else { return "Measuring… (\(target))" }
+        return String(format: "%.1f Mbit/s", Double(rate.measured) / 1_000_000) + " (\(target))"
     }
 
     @ViewBuilder

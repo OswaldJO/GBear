@@ -302,6 +302,16 @@ final class GBearStreamHostManager {
         await video.setBitRate(bitrate)
     }
 
+    /// Nil when no capture is running.
+    private(set) var videoBitRate: GBearVideoStreamServer.BitRateSnapshot?
+
+    func refreshVideoBitRate() async {
+        let snapshot = await video.bitRateSnapshot()
+        if snapshot != videoBitRate {
+            videoBitRate = snapshot
+        }
+    }
+
     func setRelaySinks(
         video: (@Sendable (Data) -> Void)?,
         audio: (@Sendable (Data) -> Void)?

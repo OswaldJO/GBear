@@ -14,6 +14,7 @@ import androidx.core.content.ContextCompat
 import java.util.concurrent.atomic.AtomicBoolean
 import io.flutter.embedding.android.FlutterActivity
 import io.flutter.embedding.engine.FlutterEngine
+import io.flutter.plugin.common.MethodCall
 import io.flutter.plugin.common.MethodChannel
 
 class MainActivity : FlutterActivity() {
@@ -111,52 +112,56 @@ class MainActivity : FlutterActivity() {
 
                 "startStream" -> {
                     val host = call.argument<String>("host").orEmpty()
-                    val port = call.argument<Int>("videoPort") ?: 28766
-                    val audioPort = call.argument<Int>("audioPort") ?: 28767
-                    val audioTcpPort = call.argument<Int>("audioTcpPort") ?: 28769
-                    val inputPort = call.argument<Int>("inputPort") ?: 28768
-                    val width = call.argument<Int>("width") ?: 1920
-                    val height = call.argument<Int>("height") ?: 1080
-                    val cursorSpeed = (call.argument<Double>("cursorSpeed") ?: 1.0).toFloat()
-                    val swapStickSensitivity =
-                        (call.argument<Double>("swapStickSensitivity") ?: 0.05).toFloat()
-                    val tapSlopPercent = call.argument<Int>("tapSlopPercent") ?: 100
-                    val tapTimeoutMs = call.argument<Int>("tapTimeoutMs")?.toLong()
-                        ?: GBearInputSender.TAP_TIMEOUT_MS
-                    val tapPressure = (call.argument<Double>("tapPressure") ?: 0.35).toFloat()
-                    val bindingsJson = call.argument<String>("controllerBindingsJson").orEmpty()
-                    val seat = (call.argument<Int>("seat") ?: 1).coerceIn(1, 8)
-                    val coopPadMode = call.argument<Boolean>("coopPadMode") ?: true
-                    val swapFaceButtons = call.argument<Boolean>("swapFaceButtons") ?: false
-                    val deadZonePercent = call.argument<Int>("deadZonePercent") ?: 12
                     if (host.isEmpty()) {
                         result.error("invalid_args", "Missing host", null)
                         return@setMethodCallHandler
                     }
+                    GBearRelayBridge.stop()
                     GBearStreamSession.host = host
-                    GBearStreamSession.videoPort = port
-                    GBearStreamSession.audioPort = audioPort
-                    GBearStreamSession.audioTcpPort = audioTcpPort
-                    GBearStreamSession.inputPort = inputPort
-                    GBearStreamSession.width = width
-                    GBearStreamSession.height = height
-                    GBearStreamSession.cursorSpeed = cursorSpeed
-                    GBearStreamSession.swapStickSensitivity = swapStickSensitivity
-                    GBearStreamSession.tapSlopPercent = tapSlopPercent
-                    GBearStreamSession.tapTimeoutMs = tapTimeoutMs
-                    GBearStreamSession.tapPressure = tapPressure
-                    GBearStreamSession.controllerBindingsJson = bindingsJson
-                    GBearStreamSession.seat = seat
-                    GBearStreamSession.coopPadMode = coopPadMode
-                    GBearStreamSession.swapFaceButtons = swapFaceButtons
-                    GBearStreamSession.deadZonePercent = deadZonePercent
-                    GBearStreamSession.appContext = applicationContext
-                    GBearStreamSession.releaseGamepadSender()
-                    cancelPendingFlutterStreamStoppedNotify()
-                    GBearStreamSession.clearPendingExternalStopLog()
-                    GBearStreamSession.cancelPendingMacStop()
-                    GBearStreamSession.hostStreamActive = true
+                    GBearStreamSession.videoPort = call.argument<Int>("videoPort") ?: 28766
+                    GBearStreamSession.audioPort = call.argument<Int>("audioPort") ?: 28767
+                    GBearStreamSession.audioTcpPort = call.argument<Int>("audioTcpPort") ?: 28769
+                    GBearStreamSession.inputPort = call.argument<Int>("inputPort") ?: 28768
+                    GBearStreamSession.width = call.argument<Int>("width") ?: 1920
+                    GBearStreamSession.height = call.argument<Int>("height") ?: 1080
+                    GBearStreamSession.seat = (call.argument<Int>("seat") ?: 1).coerceIn(1, 8)
+                    applyPlayerSettings(call)
+                    beginStreamSession()
                     launchStreamActivity(result)
+                }
+
+                "startRelayStream" -> {
+                    val relayUrl = call.argument<String>("relayUrl").orEmpty()
+                    val deviceId = call.argument<String>("deviceId").orEmpty()
+                    if (relayUrl.isEmpty() || deviceId.isEmpty()) {
+                        result.error("invalid_args", "Missing relay address", null)
+                        return@setMethodCallHandler
+                    }
+                    GBearRelayBridge.start(
+                        applicationContext,
+                        url = relayUrl,
+                        deviceId = deviceId,
+                        deviceName = call.argument<String>("deviceName").orEmpty().ifEmpty { "Android phone" },
+                        preferredSeat = call.argument<Int>("preferredSeat") ?: 0,
+                    ) { outcome ->
+                        when (outcome) {
+                            is GBearRelayBridge.JoinResult.Failed ->
+                                result.error("relay_failed", outcome.message, null)
+                            is GBearRelayBridge.JoinResult.Joined -> {
+                                GBearStreamSession.host = GBearRelayBridge.LOOPBACK_HOST
+                                GBearStreamSession.videoPort = GBearRelayBridge.videoPort
+                                GBearStreamSession.audioPort = GBearRelayBridge.audioTcpPort
+                                GBearStreamSession.audioTcpPort = GBearRelayBridge.audioTcpPort
+                                GBearStreamSession.inputPort = GBearRelayBridge.inputPort
+                                GBearStreamSession.width = 1280
+                                GBearStreamSession.height = 720
+                                GBearStreamSession.seat = outcome.seat
+                                applyPlayerSettings(call)
+                                beginStreamSession()
+                                launchStreamActivity(result)
+                            }
+                        }
+                    }
                 }
 
                 "resumeStream" -> {
@@ -378,6 +383,29 @@ class MainActivity : FlutterActivity() {
     private fun completeStopStreamFromSession(result: MethodChannel.Result) {
         val stop = GBearStreamStopCoordinator.stopSession(applicationContext, notifyFlutter = false)
         result.success(hashMapOf("logPath" to (stop.logPath ?: "")))
+    }
+
+    private fun applyPlayerSettings(call: MethodCall) {
+        GBearStreamSession.cursorSpeed = (call.argument<Double>("cursorSpeed") ?: 1.0).toFloat()
+        GBearStreamSession.swapStickSensitivity =
+            (call.argument<Double>("swapStickSensitivity") ?: 0.05).toFloat()
+        GBearStreamSession.tapSlopPercent = call.argument<Int>("tapSlopPercent") ?: 100
+        GBearStreamSession.tapTimeoutMs = call.argument<Int>("tapTimeoutMs")?.toLong()
+            ?: GBearInputSender.TAP_TIMEOUT_MS
+        GBearStreamSession.tapPressure = (call.argument<Double>("tapPressure") ?: 0.35).toFloat()
+        GBearStreamSession.controllerBindingsJson = call.argument<String>("controllerBindingsJson").orEmpty()
+        GBearStreamSession.coopPadMode = call.argument<Boolean>("coopPadMode") ?: true
+        GBearStreamSession.swapFaceButtons = call.argument<Boolean>("swapFaceButtons") ?: false
+        GBearStreamSession.deadZonePercent = call.argument<Int>("deadZonePercent") ?: 12
+        GBearStreamSession.appContext = applicationContext
+        GBearStreamSession.releaseGamepadSender()
+    }
+
+    private fun beginStreamSession() {
+        cancelPendingFlutterStreamStoppedNotify()
+        GBearStreamSession.clearPendingExternalStopLog()
+        GBearStreamSession.cancelPendingMacStop()
+        GBearStreamSession.hostStreamActive = true
     }
 
     private fun launchStreamActivity(result: MethodChannel.Result) {

@@ -259,6 +259,15 @@ For release notes style summaries, see `source control log.md`. For architecture
 
 ## Streaming — architecture (Sunshine → native GBear)
 
+### BJ-106 — Companion could not use the remote co-op invite line
+| | |
+|---|---|
+| **When** | Sep 28 2026 |
+| **Symptom** | Pasting the host Mac's invite line into the companion's **Friend invite code** box (Settings → Remote co-op) always ended in "Invite redeem failed". |
+| **Cause** | That box belonged to an early design: it upper-cased a 6-letter code and sent it to a separate coordinator whose default address, `http://127.0.0.1:8787`, is the phone itself. The Mac's invite is a whole line with its own tunnel address. Even a successful redeem would only have shown a message, because nothing on the phone could carry video or controller data over the relay (`gbear_session_tunnel.dart` was never called). |
+| **Fix** | **Session → Remote co-op with a friend** parses the `GBEAR1` line and redeems the code at the line's address (`RemoteCoopInvite`). `GBearRelayBridge` joins the relay WebSocket and serves video, audio, and input on loopback ports, so the existing player runs unchanged. The old Settings box and `GBearSessionClient` were removed. |
+| **Commit** | release **v1.2.1** |
+
 ### BJ-091 — Remote co-op could not cross networks
 | | |
 |---|---|

@@ -7,6 +7,7 @@ import '../models/host_info.dart';
 import 'companion_device_identity.dart';
 import 'pairing_cancellation.dart';
 import 'gbear_host_client.dart';
+import 'remote_coop_invite.dart';
 import 'stream_controller_settings.dart';
 import 'stream_touch_settings.dart';
 import 'stream_debug_log.dart';
@@ -281,6 +282,67 @@ class StreamingBridge {
     }
   }
 
+  /// Joins a friend's Mac through its invite line (Android). The native relay bridge serves the
+  /// stream on loopback ports, so the usual player, audio, and controller code runs unchanged.
+  Future<StreamStartOutcome> startRemoteCoop({
+    required String inviteLine,
+    StreamControllerSettings? controllerSettings,
+    StreamTouchSettings? touchSettings,
+    String? controllerBindingsJson,
+  }) async {
+    final invite = RemoteCoopInvite.parse(inviteLine);
+    if (invite == null) {
+      return StreamStartOutcome.failed(
+        'Paste the whole invite line from your friend. It starts with GBEAR1.',
+      );
+    }
+    await prepareForNewStream();
+    final deviceId = await CompanionDeviceIdentity.deviceId();
+    final deviceName = await CompanionDeviceIdentity.deviceName();
+    final Uri relayUrl;
+    try {
+      gbearStreamDebug('Remote co-op: redeeming invite at ${invite.baseUrl.host}');
+      relayUrl = await invite.join(deviceId: deviceId, deviceName: deviceName);
+    } on RemoteCoopJoinException catch (e) {
+      return StreamStartOutcome.failed(e.message);
+    }
+    final settings = controllerSettings ?? await StreamControllerSettings.load();
+    final touch = touchSettings ?? await StreamTouchSettings.load();
+    try {
+      final started = await _channel.invokeMethod<bool>('startRelayStream', {
+        'relayUrl': relayUrl.toString(),
+        'deviceId': deviceId,
+        'deviceName': deviceName,
+        'preferredSeat': settings.preferredSeat,
+        'controllerBindingsJson': controllerBindingsJson ?? '',
+        'coopPadMode': settings.coopPadMode,
+        'swapFaceButtons': settings.swapFaceButtons,
+        'deadZonePercent': settings.deadZonePercent,
+        ...touch.toMethodChannelMap(),
+      }).timeout(const Duration(seconds: 75));
+      if (started != true) {
+        return StreamStartOutcome.failed('The video player did not start. Tap Stop, then join again.');
+      }
+      final session = await getStreamSession();
+      return StreamStartOutcome.success(
+        host: 'remote',
+        videoPort: 0,
+        audioPort: 0,
+        audioTcpPort: 0,
+        inputPort: 0,
+        width: 1280,
+        height: 720,
+        seat: (session['seat'] as num?)?.toInt() ?? 2,
+      );
+    } on TimeoutException {
+      await stopStream();
+      return StreamStartOutcome.failed('Your friend\'s Mac did not start the picture. Try joining again.');
+    } on PlatformException catch (e) {
+      gbearStreamDebug('Remote co-op join failed: ${e.code} ${e.message}');
+      return StreamStartOutcome.failed(e.message ?? 'Could not join remote co-op.');
+    }
+  }
+
   /// Best-effort Mac teardown (notification Stop may have already called native HTTP stop).
   Future<void> updateSwapStickSensitivity(double sensitivity) async {
     try {
@@ -290,7 +352,9 @@ class StreamingBridge {
     } catch (_) {}
   }
 
-  Future<void> ensureHostStreamStopped() async {
+  /// Remote co-op sessions end when the relay socket closes; the LAN control API is not reachable.
+  Future<void> ensureHostStreamStopped({bool remoteCoop = false}) async {
+    if (remoteCoop) return;
     final client = await _client();
     await client.stopStreamOnHost();
     await client.waitForMacStreamIdle();

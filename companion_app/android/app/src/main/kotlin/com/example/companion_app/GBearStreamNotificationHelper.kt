@@ -33,7 +33,11 @@ object GBearStreamNotificationHelper {
     }
 
     private fun streamStatusText(hostLabel: String, viewerOpenHint: Boolean): String {
-        val base = if (hostLabel.isNotEmpty()) "Streaming from $hostLabel" else "Streaming Mac desktop"
+        val base = when {
+            GBearRelayBridge.handlesHost(hostLabel) -> "Remote co-op with a friend's Mac"
+            hostLabel.isNotEmpty() -> "Streaming from $hostLabel"
+            else -> "Streaming Mac desktop"
+        }
         return buildString {
             append(base)
             if (GBearStreamSession.swapMouseModeActive) {

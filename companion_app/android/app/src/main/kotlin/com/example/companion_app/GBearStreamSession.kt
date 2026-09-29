@@ -187,6 +187,7 @@ object GBearStreamSession {
     fun toMap(): Map<String, Any?> = mapOf(
         "hostStreamActive" to hostStreamActive,
         "viewerOpen" to viewerOpen,
+        "remoteCoop" to GBearRelayBridge.handlesHost(host),
         "pendingExternalStopLogPath" to pendingExternalStopLogPath,
         "host" to host,
         "videoPort" to videoPort,

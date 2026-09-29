@@ -17,6 +17,45 @@ actor GBearVideoStreamServer {
         var framesSent: Int
     }
 
+    struct BitRateSnapshot: Sendable, Equatable {
+        /// What the encoder is asked for (fixed on LAN, adaptive for remote co-op).
+        let target: Int
+        /// Encoded output over the last full second.
+        let measured: Int
+    }
+
+    private var targetBitRate = 0
+    private var measuredBitRate = 0
+    private var rateWindowStart = Date()
+    private var rateWindowBytes = 0
+    private var lastFrameAt: Date?
+
+    func bitRateSnapshot() -> BitRateSnapshot? {
+        guard capture != nil else { return nil }
+        let stale = lastFrameAt.map { Date().timeIntervalSince($0) > 2 } ?? true
+        return BitRateSnapshot(target: targetBitRate, measured: stale ? 0 : measuredBitRate)
+    }
+
+    private func recordEncodedBytes(_ count: Int) {
+        let now = Date()
+        lastFrameAt = now
+        rateWindowBytes += count
+        let elapsed = now.timeIntervalSince(rateWindowStart)
+        if elapsed >= 1 {
+            measuredBitRate = Int(Double(rateWindowBytes * 8) / elapsed)
+            rateWindowBytes = 0
+            rateWindowStart = now
+        }
+    }
+
+    private func resetBitRateStats(target: Int) {
+        targetBitRate = target
+        measuredBitRate = 0
+        rateWindowBytes = 0
+        rateWindowStart = Date()
+        lastFrameAt = nil
+    }
+
     var isStreaming: Bool { capture != nil }
 
     var hasActiveListener: Bool { listener != nil }
@@ -50,7 +89,9 @@ actor GBearVideoStreamServer {
     }
 
     func setBitRate(_ bitrate: Int) {
-        capture?.setBitRate(bitrate)
+        guard let capture else { return }
+        capture.setBitRate(bitrate)
+        targetBitRate = bitrate
     }
 
     func startCapture(
@@ -72,6 +113,7 @@ actor GBearVideoStreamServer {
         )
         try await capture.start(width: width, height: height, fps: fps, bitrate: bitrate, tuning: tuning)
         self.capture = capture
+        resetBitRateStats(target: bitrate)
     }
 
     func startStream(
@@ -89,6 +131,7 @@ actor GBearVideoStreamServer {
             await capture.stop()
         }
         capture = nil
+        resetBitRateStats(target: 0)
         for (_, slot) in clients {
             slot.connection.cancel()
         }
@@ -171,6 +214,7 @@ actor GBearVideoStreamServer {
 
     private func sendFrame(data: Data, isKeyframe: Bool, width: UInt16, height: UInt16) {
         let packet = GBearVideoFrameFormat.pack(payload: data, width: width, height: height, isKeyframe: isKeyframe)
+        recordEncodedBytes(data.count)
         extraSink?(packet)
         guard !clients.isEmpty else { return }
         let pending = PendingPacket(
