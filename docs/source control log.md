@@ -9,6 +9,14 @@ For the **living product and architecture handbook**, see `Features and Inner Wo
 current release: 1  
 
 ## Updates
+- **Linked emulators (Sep 28 2026, in progress):** Emulator profiles for the same platform can be linked (Emulators → link button → **Link emulators**). For example, Flycast + Redream become one **Dreamcast** section in the Library sidebar.
+  - Only profiles with the same platform can be linked, and you must pick a **Default emulator** that opens the group's games. **Launch with** in the info panel still overrides it per game.
+  - A game in a folder both emulators scan shows once. Scans no longer move shared games between linked emulators.
+  - ROMM matching looks at every linked emulator's games. This fixes Dreamcast games showing twice, once as a Flycast ROMM copy and once as Redream's local file (BJ-104).
+  - Linking or unlinking now runs a path scan and ROMM sync automatically, so duplicates merge right away without **Scan Paths**.
+  - Changing a linked profile's platform or deleting it repairs the group.
+  - After unlinking, the emulator linked to ROMM no longer gets "Not present" copies of games that sit in its own game folders but belong to the other emulator. ROMM-only disc games keep their disc number in the title (BJ-105).
+  - Code: `EmulatorLinkService`, `LinkEmulatorsSheet`, `EmulatorProfile.linkGroupIDString` / `isLinkGroupDefault`.
 - **SteamGridDB cover provider (Sep 28 2026, in progress):** SteamGridDB is a new bring-your-own-key cover source. The fallback order is now ScreenScraper → IGDB → **SteamGridDB** → TheGamesDB, so TheGamesDB and its small allowance stay last.
   - **Manage Providers** has a **SteamGridDB API key** card with a link to the key page. **Save key** runs a test search to confirm the key.
   - Covers are static portrait grids (600×900, 342×482, 660×930), with NSFW and humor art filtered out, best score first. SteamGridDB has no console filter, so automatic matches use the same strict title check as the other backups. Steam storefront games are looked up by their Steam app id first.

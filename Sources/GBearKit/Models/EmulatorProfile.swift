@@ -21,6 +21,10 @@ public final class EmulatorProfile {
     public var coverAspectRatioRaw: String = CoverAspectRatio.default.rawValue
     /// ScreenScraper `systemeid` for this emulator’s library (manual cover search + scrape). `nil` = infer from catalog/name.
     public var screenScraperSystemId: Int? = nil
+    /// Shared by linked profiles (same platform); they appear as one library section named after the platform.
+    public var linkGroupIDString: String? = nil
+    /// The linked profile that opens the group's games unless a game picks another in **Launch with**.
+    public var isLinkGroupDefault: Bool = false
     public var sortOrder: Int
     public var dateCreated: Date
 

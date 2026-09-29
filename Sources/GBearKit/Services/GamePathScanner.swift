@@ -441,6 +441,17 @@ public enum GamePathScanner {
         var wantedPaths: Set<String>
         var blockedPaths: Set<String>
         var skippedBlocked: Int
+        /// Emulator id → link group id, for linked profiles that share folders.
+        var linkGroupByEmulatorID: [UUID: UUID] = [:]
+        /// Every emulator that wanted each path during this scan.
+        var wantedByEmulator: [String: Set<UUID>] = [:]
+        /// Unwanted rows owned by linked emulators, settled after all roots are scanned (a linked profile may still want them).
+        var deferredStale: [String: LibraryGame] = [:]
+
+        func areLinked(_ lhs: UUID, _ rhs: UUID) -> Bool {
+            guard let group = linkGroupByEmulatorID[lhs] else { return false }
+            return linkGroupByEmulatorID[rhs] == group
+        }
     }
 
     @discardableResult
@@ -455,11 +466,18 @@ public enum GamePathScanner {
         let standardized = (romURL.path as NSString).standardizingPath
         let comparisonPath = normalizedPathForComparison(standardized)
         state.wantedPaths.insert(comparisonPath)
+        state.wantedByEmulator[comparisonPath, default: []].insert(emulator.id)
 
         if state.existingPaths.contains(comparisonPath) {
             if let existing = state.existingByPath[comparisonPath] {
                 var changed = false
-                if existing.emulator == nil
+                let ownedByLinkedEmulator = existing.emulatorUUID.map { $0 != emulator.id && state.areLinked($0, emulator.id) } ?? false
+                if ownedByLinkedEmulator {
+                    if existing.platformHint == nil {
+                        existing.platformHint = EmulatorPlatformResolver.resolve(emulator: emulator)?.primaryPlatformHint
+                        changed = true
+                    }
+                } else if existing.emulator == nil
                     || existing.emulatorUUID == nil
                     || existing.emulatorUUID != emulator.id
                     || existing.platformHint == nil {
@@ -535,6 +553,10 @@ public enum GamePathScanner {
             if !moreSpecificRoots.isEmpty, isPath(gamePath, insideAny: moreSpecificRoots) {
                 continue
             }
+            if state.linkGroupByEmulatorID[emulator.id] != nil {
+                state.deferredStale[gamePath] = game
+                continue
+            }
             deleteStaleGame(game, gamePath: gamePath, modelContext: modelContext, state: &state, removed: &removed)
         }
         return removed
@@ -600,6 +622,12 @@ public enum GamePathScanner {
             blockedPaths: LibraryBlocklist.blockedKeys,
             skippedBlocked: 0
         )
+        let allEmulators = (try? modelContext.fetch(FetchDescriptor<EmulatorProfile>())) ?? []
+        for group in EmulatorLinkService.groups(in: allEmulators) {
+            for member in group.members {
+                state.linkGroupByEmulatorID[member.id] = group.id
+            }
+        }
         var removedNested = 0
 
         let pathsFetch = FetchDescriptor<GameFolderPath>()
@@ -752,6 +780,20 @@ public enum GamePathScanner {
             DebugLog.log(
                 "Scan done: emulator=\(emulator.name) root=\(root.path) scanned=\(scannedItems) added=\(state.addedForEmulator) reassigned=\(state.reassignedExisting) skipExcluded=\(skippedByExclude) skipExtension=\(skippedByExtension) skipExisting=\(state.skippedAsExisting) skipEmptyFolders=\(skippedEmptyFolders) removedNested=\(nestedRemoved)"
             )
+        }
+
+        for (gamePath, game) in state.deferredStale {
+            guard state.existingByPath[gamePath] === game, let owner = game.emulatorUUID else { continue }
+            let wanters = state.wantedByEmulator[gamePath] ?? []
+            if wanters.contains(owner) { continue }
+            if let linkedID = wanters.first(where: { state.areLinked($0, owner) }),
+               let linked = allEmulators.first(where: { $0.id == linkedID }) {
+                game.emulator = linked
+                game.emulatorIDString = linked.id.uuidString
+                state.reassignedTotal += 1
+                continue
+            }
+            deleteStaleGame(game, gamePath: gamePath, modelContext: modelContext, state: &state, removed: &removedNested)
         }
 
         let sidecarRemoved = removeSidecarTrackLibraryRows(modelContext: modelContext)

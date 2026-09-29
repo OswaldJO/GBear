@@ -94,6 +94,7 @@ struct EmulatorsView: View {
     @State private var importStatusMessage: String?
     /// Sheet uses a stable `Identifiable` token (not a managed object) to avoid SwiftData invalidation crashes.
     @State private var editingEmulator: EditingEmulatorToken?
+    @State private var linkingEmulator: EditingEmulatorToken?
 
     private func filteredCustomEntries(search: String) -> [CustomEmulatorLibraryEntry] {
         let all = CustomEmulatorLibraryStore.allEntries()
@@ -311,9 +312,23 @@ struct EmulatorsView: View {
                                 Text("Cover art: \(emu.coverAspectRatio.pickerLabel)")
                                     .font(.caption2)
                                     .foregroundStyle(.tertiary)
+                                if let group = linkGroups.first(where: { $0.contains(emu.id) }) {
+                                    Label(linkSummary(for: emu, in: group), systemImage: "link")
+                                        .font(.caption2)
+                                        .foregroundStyle(.secondary)
+                                }
                             }
                             Spacer(minLength: 8)
                             HStack(spacing: 2) {
+                                Button {
+                                    linkingEmulator = EditingEmulatorToken(emulatorID: emu.id)
+                                } label: {
+                                    Label("Link", systemImage: "link")
+                                        .labelStyle(.iconOnly)
+                                }
+                                .buttonStyle(.borderless)
+                                .help("Link with other emulators for the same platform")
+
                                 Button {
                                     editingEmulator = EditingEmulatorToken(emulatorID: emu.id)
                                 } label: {
@@ -337,6 +352,15 @@ struct EmulatorsView: View {
                         .contextMenu {
                             Button("Edit…") {
                                 editingEmulator = EditingEmulatorToken(emulatorID: emu.id)
+                            }
+                            Button("Link Emulators…", systemImage: "link") {
+                                linkingEmulator = EditingEmulatorToken(emulatorID: emu.id)
+                            }
+                            if let group = linkGroups.first(where: { $0.contains(emu.id) }) {
+                                Button("Unlink from \(group.name)", systemImage: "xmark.circle") {
+                                    EmulatorLinkService.unlink(emu, all: emulators)
+                                    refreshLibraryAfterLinkChange()
+                                }
                             }
                             Divider()
                             Button("Delete", systemImage: "trash", role: .destructive) {
@@ -521,6 +545,9 @@ struct EmulatorsView: View {
             EditEmulatorSheet(emulatorID: token.emulatorID) {
                 editingEmulator = nil
             }
+        }
+        .sheet(item: $linkingEmulator) { token in
+            LinkEmulatorsSheet(emulatorID: token.emulatorID)
         }
         .sheet(isPresented: $showAddCustomLibraryEntrySheet) {
             AddCustomEmulatorLibraryEntrySheet { displayTitle, startupArguments, supportedFileTypesCSV in
@@ -970,14 +997,37 @@ struct EmulatorsView: View {
         }
     }
 
+    private var linkGroups: [EmulatorLinkService.Group] {
+        EmulatorLinkService.groups(in: emulators)
+    }
+
+    private func linkSummary(for emulator: EmulatorProfile, in group: EmulatorLinkService.Group) -> String {
+        let partners = group.members.filter { $0.id != emulator.id }.map(\.name).joined(separator: ", ")
+        let role = group.defaultEmulator.id == emulator.id ? "opens \(group.name) games by default" : "default is \(group.defaultEmulator.name)"
+        return "Linked with \(partners) in \(group.name) · \(role)"
+    }
+
     private func deleteEmulator(_ emu: EmulatorProfile) {
         if editingEmulator?.emulatorID == emu.id {
             editingEmulator = nil
         }
+        let remaining = emulators.filter { $0.id != emu.id }
+        let wasLinked = emu.linkGroupIDString != nil
         modelContext.delete(emu)
+        EmulatorLinkService.normalize(remaining)
+        if wasLinked { refreshLibraryAfterLinkChange() }
+    }
+
+    private func refreshLibraryAfterLinkChange() {
+        let context = modelContext
+        Task { @MainActor in
+            await EmulatorLinkService.refreshLibraryAfterLinkChange(modelContext: context)
+        }
     }
 
     private func deleteEmulators(at offsets: IndexSet) {
+        let removedIDs = Set(offsets.map { emulators[$0].id })
+        let wasLinked = offsets.contains { emulators[$0].linkGroupIDString != nil }
         for index in offsets {
             let emu = emulators[index]
             if editingEmulator?.emulatorID == emu.id {
@@ -985,6 +1035,8 @@ struct EmulatorsView: View {
             }
             modelContext.delete(emu)
         }
+        EmulatorLinkService.normalize(emulators.filter { !removedIDs.contains($0.id) })
+        if wasLinked { refreshLibraryAfterLinkChange() }
     }
 }
 
@@ -1170,6 +1222,7 @@ private struct EditEmulatorSheet: View {
     @State private var coverAspectRatio: CoverAspectRatio = .default
     @State private var screenScraperSystemId: Int?
     @State private var loadFailed = false
+    @State private var linkedPartners: String?
 
     var body: some View {
         NavigationStack {
@@ -1188,6 +1241,11 @@ private struct EditEmulatorSheet: View {
                             TextField("Launch arguments (GBear: {ImagePath}; {ROM} and {rom} also work)", text: $launchArgumentTemplate)
                             TextField("Supported File Types (comma-separated)", text: $supportedFileTypesCSV)
                             ScreenScraperPlatformPicker(selection: $screenScraperSystemId)
+                            if let linkedPartners {
+                                Text("Linked with \(linkedPartners). Choosing a different platform unlinks it.")
+                                    .font(.caption)
+                                    .foregroundStyle(.secondary)
+                            }
                             CoverAspectRatioPicker(selection: $coverAspectRatio)
                         }
                     }
@@ -1235,6 +1293,10 @@ private struct EditEmulatorSheet: View {
         coverAspectRatio = profile.coverAspectRatio
         screenScraperSystemId = profile.screenScraperSystemId
             ?? EmulatorPlatformResolver.resolve(emulator: profile)?.primarySystemId
+        let all = (try? modelContext.fetch(FetchDescriptor<EmulatorProfile>())) ?? []
+        linkedPartners = EmulatorLinkService.group(containing: uid, in: all).map { group in
+            group.members.filter { $0.id != uid }.map(\.name).joined(separator: ", ")
+        }
         loadFailed = false
     }
 
@@ -1257,7 +1319,14 @@ private struct EditEmulatorSheet: View {
         profile.supportedFileTypesCSV = normalized.isEmpty ? nil : normalized
         profile.coverAspectRatio = coverAspectRatio
         profile.screenScraperSystemId = screenScraperSystemId
+        let unlinked = EmulatorLinkService.normalize((try? modelContext.fetch(FetchDescriptor<EmulatorProfile>())) ?? [])
         try? modelContext.save()
+        if unlinked {
+            let context = modelContext
+            Task { @MainActor in
+                await EmulatorLinkService.refreshLibraryAfterLinkChange(modelContext: context)
+            }
+        }
         onFinished()
         dismiss()
     }

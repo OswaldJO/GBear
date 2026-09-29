@@ -127,10 +127,12 @@ final class RommSync {
         let emulators = (try? modelContext.fetch(FetchDescriptor<EmulatorProfile>())) ?? []
         let blocked = LibraryBlocklist.blockedKeys
         var linkedEmulatorIDs = Set<UUID>()
+        var sharedFolderGameIDs = Set<UUID>()
 
         for (platformID, emulatorID) in links.sorted(by: { $0.key < $1.key }) {
             guard let emulator = emulators.first(where: { $0.id == emulatorID }) else { continue }
-            linkedEmulatorIDs.insert(emulatorID)
+            let libraryEmulators = EmulatorLinkService.group(containing: emulatorID, in: emulators)?.members ?? [emulator]
+            linkedEmulatorIDs.formUnion(libraryEmulators.map(\.id))
             let platformName = platforms.first { $0.id == platformID }?.name ?? "platform \(platformID)"
             status = "Syncing \(platformName)…"
             let roms: [RommClient.Rom]
@@ -143,12 +145,21 @@ final class RommSync {
             let extensions = emulator.supportedFileTypesSet
             let games = roms.filter { Self.isGame($0, supportedExtensions: extensions) }
             summary.ignoredFiles += roms.count - games.count
-            blend(games, into: emulator, modelContext: modelContext, blocked: blocked, summary: &summary)
+            blend(
+                games,
+                into: emulator,
+                libraryEmulators: libraryEmulators,
+                modelContext: modelContext,
+                blocked: blocked,
+                sharedFolderGameIDs: &sharedFolderGameIDs,
+                summary: &summary
+            )
         }
 
         let allGames = (try? modelContext.fetch(FetchDescriptor<LibraryGame>())) ?? []
         for game in allGames {
-            guard let emulatorID = game.emulatorUUID, !linkedEmulatorIDs.contains(emulatorID) else { continue }
+            guard let emulatorID = game.emulatorUUID, !linkedEmulatorIDs.contains(emulatorID),
+                  !sharedFolderGameIDs.contains(game.id) else { continue }
             if game.rommImported == true, !FileManager.default.fileExists(atPath: game.romPath) {
                 modelContext.delete(game)
                 summary.removed += 1
@@ -163,19 +174,42 @@ final class RommSync {
         return summary
     }
 
+    /// Matches against the games of `libraryEmulators` (the emulator plus any linked profiles); new ROMM-only rows go to `emulator`.
+    /// A file in one of their game folders counts as on this Mac even when another emulator owns that library row
+    /// (unlinked emulators sharing a folder), so it never gets a "Not present" copy. Those rows go in `sharedFolderGameIDs`.
     private func blend(
         _ roms: [RommClient.Rom],
         into emulator: EmulatorProfile,
+        libraryEmulators: [EmulatorProfile],
         modelContext: ModelContext,
         blocked: Set<String>,
+        sharedFolderGameIDs: inout Set<UUID>,
         summary: inout Summary
     ) {
         let matcher = RommMatcher(roms: roms)
         let romsByID = Dictionary(roms.map { ($0.id, $0) }, uniquingKeysWith: { first, _ in first })
 
-        let emulatorID = emulator.id
-        let games = ((try? modelContext.fetch(FetchDescriptor<LibraryGame>())) ?? []).filter { $0.emulatorUUID == emulatorID }
+        let libraryEmulatorIDs = Set(libraryEmulators.map(\.id))
+        let allGames = (try? modelContext.fetch(FetchDescriptor<LibraryGame>())) ?? []
+        let games = allGames.filter { game in
+            game.emulatorUUID.map(libraryEmulatorIDs.contains) ?? false
+        }
         var matchedRomIDs = Set<Int>()
+
+        let folderRoots = libraryEmulators.flatMap { Self.downloadFolders(for: $0) }.map { Self.comparisonPath($0.path) }
+        for game in allGames where game.rommImported != true {
+            guard let owner = game.emulatorUUID, !libraryEmulatorIDs.contains(owner) else { continue }
+            let path = Self.comparisonPath(game.romPath)
+            guard folderRoots.contains(where: { path.hasPrefix($0 + "/") }) else { continue }
+            let hits = matcher.match(
+                fileName: URL(fileURLWithPath: game.romPath).lastPathComponent,
+                titles: [game.title, game.libraryListTitle]
+            )
+            guard let rom = hits.first else { continue }
+            apply(rom, to: game)
+            matchedRomIDs.formUnion(hits.map(\.id))
+            sharedFolderGameIDs.insert(game.id)
+        }
 
         for game in games where game.rommImported != true {
             let hits = matcher.match(
@@ -251,9 +285,12 @@ final class RommSync {
         }
     }
 
-    /// ROMM's name without a file extension (unidentified roms are named after their file).
+    /// ROMM's name without a file extension (unidentified roms are named after their file). ROMM names each disc of a set
+    /// the same, so the file's disc number is added back.
     static func displayTitle(for rom: RommClient.Rom) -> String {
-        RommMatcher.strippingExtension(rom.name)
+        let title = RommMatcher.strippingExtension(rom.name)
+        guard RommMatcher.discNumber(title) == nil, let disc = RommMatcher.discNumber(rom.fileName) else { return title }
+        return "\(title) (Disc \(disc))"
     }
 
     private func clearROMMFields(_ game: LibraryGame) {
@@ -297,6 +334,14 @@ final class RommSync {
         (emulator?.folderPaths ?? [])
             .filter { $0.resolvedPurpose == .games }
             .map { URL(fileURLWithPath: ($0.folderPath as NSString).standardizingPath, isDirectory: true) }
+    }
+
+    private static func comparisonPath(_ path: String) -> String {
+        var normalized = (path as NSString).standardizingPath
+        while normalized.count > 1, normalized.hasSuffix("/") {
+            normalized.removeLast()
+        }
+        return normalized.lowercased()
     }
 
     // MARK: Download

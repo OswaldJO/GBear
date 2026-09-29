@@ -8,6 +8,24 @@ For release notes style summaries, see `source control log.md`. For architecture
 
 ## Mac library — scanning & covers
 
+### BJ-105 — Flycast kept ROMM duplicates after unlinking from Redream
+| | |
+|---|---|
+| **When** | Sep 28 2026 (**in progress**) |
+| **Symptom** | After unlinking Flycast and Redream, the Flycast section (default emulator, linked to ROMM's Dreamcast platform) listed "Not present" ROMM copies of games that are on the drive. Disc sets like **Resident Evil 2** and **Skies of Arcadia** showed as two games with the same name. |
+| **Cause** | Unlinked, the scanner gives every file in the shared `/Volumes/PNY 512/Dreamcast` folder to Redream. `RommSync.blend` matched only Flycast's own games, found none, and added every ROMM rom as a ROMM-only row. ROMM names each disc of a set the same, so the disc rows had the same title. |
+| **Fix** | `blend` also matches local files inside the ROMM-linked emulator's game folders (and its linked partners' folders) that another emulator owns. Those roms are never added as ROMM-only rows, and existing copies are deleted on the next sync. The end-of-sync cleanup skips those rows. `RommSync.displayTitle` adds ` (Disc N)` from the file name. Separate ROMM files with the same title (two versions, two regions) still show separately. |
+| **Commit** | *in progress* |
+
+### BJ-104 — Dreamcast games showed twice (Flycast ROMM copies + Redream local files)
+| | |
+|---|---|
+| **When** | Sep 28 2026 (**in progress**) |
+| **Symptom** | Dreamcast games such as **Blue Stinger** appeared under both Flycast (ROMM, Path "Not present") and Redream (the local `.chd`), even though both emulators scan `/Volumes/PNY 512/Dreamcast`. |
+| **Cause** | The scanner keeps one row per file path and hands it to whichever emulator scans the folder last, so every shared local game ended up under Redream. ROMM's Dreamcast platform is linked to Flycast, and blending only matched Flycast's own games. Flycast had no local games left, so every ROMM rom became a ROMM-only row next to Redream's local copy. |
+| **Fix** | Emulator linking (`EmulatorLinkService`). Linked profiles share one library section. The scanner no longer moves rows between linked emulators, and it settles unwanted rows only after every root is scanned, so a linked emulator that still wants a file keeps it. ROMM blending matches across the whole group, and the library shows each file path once per group. At first the duplicates stayed until **Scan Paths**, because linking only changed the profiles. Now every link change runs the scan and ROMM sync by itself (`refreshLibraryAfterLinkChange`). |
+| **Commit** | *in progress* |
+
 ### BJ-103 — Scrapes kept calling cover providers past their API limits
 | | |
 |---|---|

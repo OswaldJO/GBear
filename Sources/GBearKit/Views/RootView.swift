@@ -21,9 +21,30 @@ private enum LibrarySidebarSelection: Hashable {
     case all
     case macGames
     case emulator(UUID)
+    /// Linked emulator profiles shown as one section named after their platform.
+    case emulatorGroup(UUID)
     case storefrontManager
     case romm
     case screenScraper
+}
+
+private enum LibrarySidebarSection: Identifiable {
+    case emulator(EmulatorProfile)
+    case group(EmulatorLinkService.Group)
+
+    var id: UUID {
+        switch self {
+        case .emulator(let emulator): return emulator.id
+        case .group(let group): return group.id
+        }
+    }
+
+    var title: String {
+        switch self {
+        case .emulator(let emulator): return emulator.name
+        case .group(let group): return group.name
+        }
+    }
 }
 
 public struct RootView: View {
@@ -56,10 +77,55 @@ public struct RootView: View {
         Set(emulators.map(\.id))
     }
 
+    private var linkGroups: [EmulatorLinkService.Group] {
+        EmulatorLinkService.groups(in: emulators)
+    }
+
+    /// Unlinked emulators and link groups, in one alphabetical list for the sidebar.
+    private var librarySidebarSections: [LibrarySidebarSection] {
+        let groups = linkGroups
+        let linkedIDs = Set(groups.flatMap(\.memberIDs))
+        let sections = emulators.filter { !linkedIDs.contains($0.id) }.map(LibrarySidebarSection.emulator)
+            + groups.map(LibrarySidebarSection.group)
+        return sections.sorted { $0.title.localizedStandardCompare($1.title) == .orderedAscending }
+    }
+
+    /// Every linked emulator id → its group's default, so the group's tiles share one crop.
+    private var coverAspectsByEmulatorID: [UUID: CoverAspectRatio] {
+        var aspects = Dictionary(uniqueKeysWithValues: emulators.map { ($0.id, $0.coverAspectRatio) })
+        for group in linkGroups {
+            for member in group.members {
+                aspects[member.id] = group.defaultEmulator.coverAspectRatio
+            }
+        }
+        return aspects
+    }
+
+    /// Linked emulators that scan the same folder show each file once, preferring the group default's row.
     private var visibleLibraryGames: [LibraryGame] {
-        games.filter { game in
+        let visible = games.filter { game in
             guard let emulatorID = game.emulatorUUID else { return StorefrontSettings.shared.isVisible(game) }
             return activeEmulatorIDs.contains(emulatorID)
+        }
+        let groups = linkGroups
+        guard !groups.isEmpty else { return visible }
+        var groupByEmulatorID: [UUID: EmulatorLinkService.Group] = [:]
+        for group in groups {
+            for member in group.members { groupByEmulatorID[member.id] = group }
+        }
+        var chosen: [String: LibraryGame] = [:]
+        for game in visible {
+            guard let emulatorID = game.emulatorUUID, let group = groupByEmulatorID[emulatorID] else { continue }
+            let key = group.id.uuidString + "|" + normalizedPathForComparison(game.romPath)
+            if let current = chosen[key], current.emulatorUUID == group.defaultEmulator.id || emulatorID != group.defaultEmulator.id {
+                continue
+            }
+            chosen[key] = game
+        }
+        let keptIDs = Set(chosen.values.map(\.id))
+        return visible.filter { game in
+            guard let emulatorID = game.emulatorUUID, groupByEmulatorID[emulatorID] != nil else { return true }
+            return keptIDs.contains(game.id)
         }
     }
 
@@ -72,6 +138,9 @@ public struct RootView: View {
             return sortedVisible.filter { $0.emulatorUUID == nil }
         case .emulator(let id):
             return sortedVisible.filter { $0.emulatorUUID == id }
+        case .emulatorGroup(let id):
+            guard let memberIDs = linkGroups.first(where: { $0.id == id })?.memberIDs else { return [] }
+            return sortedVisible.filter { $0.emulatorUUID.map(memberIDs.contains) ?? false }
         case .storefrontManager, .romm, .screenScraper:
             return []
         }
@@ -82,7 +151,26 @@ public struct RootView: View {
         case .all: return "All"
         case .macGames: return "Mac Games"
         case .emulator(let id): return emulators.first(where: { $0.id == id })?.name
+        case .emulatorGroup(let id): return linkGroups.first(where: { $0.id == id })?.name
         case .storefrontManager, .romm, .screenScraper: return nil
+        }
+    }
+
+    /// Keeps the sidebar selection valid after linking or unlinking: a linked emulator's row becomes its group's row.
+    private func reconcileSidebarSelection() {
+        switch sidebarSelection {
+        case .emulator(let id):
+            if let group = linkGroups.first(where: { $0.contains(id) }) {
+                sidebarSelection = .emulatorGroup(group.id)
+            } else if !activeEmulatorIDs.contains(id) {
+                sidebarSelection = .all
+            }
+        case .emulatorGroup(let id):
+            if !linkGroups.contains(where: { $0.id == id }) {
+                sidebarSelection = .all
+            }
+        default:
+            break
         }
     }
 
@@ -147,11 +235,11 @@ public struct RootView: View {
                 onResolveAmbiguous: { showScreenScraperDisambiguation = true },
                 onClearScrapedCovers: { clearAllScrapedCovers() }
             )
-        case .all, .macGames, .emulator:
+        case .all, .macGames, .emulator, .emulatorGroup:
             HStack(spacing: 0) {
                 LibraryGamesGridView(
                     games: filteredGames,
-                    coverAspects: Dictionary(uniqueKeysWithValues: emulators.map { ($0.id, $0.coverAspectRatio) }),
+                    coverAspects: coverAspectsByEmulatorID,
                     actionOverlayGameID: $actionOverlayGameID,
                     inspectorGameID: $inspectorGameID,
                     onPlay: { play($0) },
@@ -168,9 +256,7 @@ public struct RootView: View {
                             game: game,
                             allGames: games,
                             emulators: emulators,
-                            coverAspect: game.emulatorUUID.flatMap { id in
-                                emulators.first(where: { $0.id == id })?.coverAspectRatio
-                            } ?? .default,
+                            coverAspect: game.emulatorUUID.flatMap { coverAspectsByEmulatorID[$0] } ?? .default,
                             onDismiss: { inspectorGameID = nil },
                             onDownloadFromROMM: { downloadFromROMM(game, launchAfter: false) }
                         )
@@ -198,14 +284,33 @@ public struct RootView: View {
                             }
                         }
                     macGamesSidebarItem
-                    ForEach(emulators, id: \.id) { emu in
-                        Text(emu.name)
-                            .tag(LibrarySidebarSelection.emulator(emu.id))
-                            .contextMenu {
-                                Button("Clear Games for “\(emu.name)”…", systemImage: "trash", role: .destructive) {
-                                    clearEmulatorGamesID = emu.id
+                    ForEach(librarySidebarSections) { entry in
+                        switch entry {
+                        case .emulator(let emu):
+                            Text(emu.name)
+                                .tag(LibrarySidebarSelection.emulator(emu.id))
+                                .contextMenu {
+                                    Button("Clear Games for “\(emu.name)”…", systemImage: "trash", role: .destructive) {
+                                        clearEmulatorGamesID = emu.id
+                                    }
                                 }
+                        case .group(let group):
+                            HStack(spacing: 4) {
+                                Text(group.name)
+                                Image(systemName: "link")
+                                    .font(.caption)
+                                    .foregroundStyle(.secondary)
                             }
+                            .tag(LibrarySidebarSelection.emulatorGroup(group.id))
+                                .help("Linked: \(group.members.map(\.name).joined(separator: ", ")). Opens with \(group.defaultEmulator.name) by default.")
+                                .contextMenu {
+                                    ForEach(group.members, id: \.id) { member in
+                                        Button("Clear Games for “\(member.name)”…", systemImage: "trash", role: .destructive) {
+                                            clearEmulatorGamesID = member.id
+                                        }
+                                    }
+                                }
+                        }
                     }
                 }
                 Section("Storefront Manager") {
@@ -355,10 +460,8 @@ public struct RootView: View {
                 .tabItem { Label("Streaming", systemImage: "dot.radiowaves.left.and.right") }
                 .tag(MainSection.streaming)
         }
-        .onChange(of: emulators.map(\.id)) { _, ids in
-            if case .emulator(let selectedId) = sidebarSelection, !ids.contains(selectedId) {
-                sidebarSelection = .all
-            }
+        .onChange(of: emulators.map { "\($0.id)|\($0.linkGroupIDString ?? "")" }) { _, _ in
+            reconcileSidebarSelection()
         }
         .onChange(of: filteredGames.map(\.id)) { _, ids in
             if let id = inspectorGameID, !ids.contains(id) {
@@ -540,7 +643,12 @@ public struct RootView: View {
     private func downloadFromROMM(_ game: LibraryGame, launchAfter: Bool) {
         guard !RommSync.shared.downloading.contains(game.id) else { return }
         let emulator = game.emulatorUUID.flatMap { id in emulators.first { $0.id == id } }
-        let folders = RommSync.downloadFolders(for: emulator)
+        let libraryEmulators = game.emulatorUUID
+            .flatMap { EmulatorLinkService.group(containing: $0, in: emulators)?.members } ?? [emulator].compactMap { $0 }
+        var seenFolders = Set<String>()
+        let folders = libraryEmulators
+            .flatMap { RommSync.downloadFolders(for: $0) }
+            .filter { seenFolders.insert(normalizedPathForComparison($0.path)).inserted }
         switch folders.count {
         case 0:
             scanFeedback = "Add a game folder for \(emulator?.name ?? "this emulator") in Paths, then download again."
@@ -568,7 +676,10 @@ public struct RootView: View {
             let override = fresh.launchEmulatorIDString
                 .flatMap(UUID.init(uuidString:))
                 .flatMap { id in emulators.first { $0.id == id } }
-            try GameLauncher.launch(game: fresh, launchEmulator: override)
+            try GameLauncher.launch(
+                game: fresh,
+                launchEmulator: override ?? EmulatorLinkService.defaultLaunchEmulator(for: fresh, in: emulators)
+            )
             fresh.lastPlayed = Date()
             try modelContext.save()
         } catch {
@@ -987,18 +1098,23 @@ private struct LibraryGameInspectorView: View {
             }
 
             if let libraryEmulatorID = game.emulatorUUID {
+                let linkGroup = EmulatorLinkService.group(containing: libraryEmulatorID, in: emulators)
+                let defaultEmulatorID = linkGroup?.defaultEmulator.id ?? libraryEmulatorID
                 Section("Launch with") {
-                    Picker("Emulator", selection: launchEmulatorBinding(libraryEmulatorID: libraryEmulatorID)) {
-                        Text("\(emulators.first { $0.id == libraryEmulatorID }?.name ?? "Library emulator") (default)")
+                    Picker("Emulator", selection: launchEmulatorBinding(defaultEmulatorID: defaultEmulatorID)) {
+                        Text("\(emulators.first { $0.id == defaultEmulatorID }?.name ?? "Library emulator") (default)")
                             .tag(UUID?.none)
                         Divider()
-                        ForEach(emulators.filter { $0.id != libraryEmulatorID }, id: \.id) { emulator in
+                        ForEach(emulators.filter { $0.id != defaultEmulatorID }, id: \.id) { emulator in
                             Text(emulator.name).tag(UUID?.some(emulator.id))
                         }
                     }
-                    Text("Only changes which emulator opens this game. It stays in its current library section.")
-                        .font(.caption)
-                        .foregroundStyle(.secondary)
+                    Text(
+                        linkGroup.map { "Linked \($0.name) emulators open games with the default chosen in Emulators. Pick another here for this game only." }
+                            ?? "Only changes which emulator opens this game. It stays in its current library section."
+                    )
+                    .font(.caption)
+                    .foregroundStyle(.secondary)
                 }
             }
 
@@ -1235,12 +1351,12 @@ private struct LibraryGameInspectorView: View {
         }
     }
 
-    private func launchEmulatorBinding(libraryEmulatorID: UUID) -> Binding<UUID?> {
+    private func launchEmulatorBinding(defaultEmulatorID: UUID) -> Binding<UUID?> {
         Binding(
             get: {
                 game.launchEmulatorIDString
                     .flatMap(UUID.init(uuidString:))
-                    .flatMap { id in emulators.contains { $0.id == id } && id != libraryEmulatorID ? id : nil }
+                    .flatMap { id in emulators.contains { $0.id == id } && id != defaultEmulatorID ? id : nil }
             },
             set: { newValue in
                 game.launchEmulatorIDString = newValue?.uuidString
