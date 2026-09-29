@@ -25,6 +25,7 @@ object GBearOverlayUi {
         dialog?.setOnShowListener {
             dialog.getButton(AlertDialog.BUTTON_NEGATIVE)?.setTextColor(ACCENT)
             dialog.getButton(AlertDialog.BUTTON_POSITIVE)?.setTextColor(ACCENT)
+            dialog.getButton(AlertDialog.BUTTON_NEUTRAL)?.setTextColor(ACCENT)
         }
     }
 

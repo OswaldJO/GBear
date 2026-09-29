@@ -324,16 +324,21 @@ final class GBearStreamGuestManager {
         padSender = sender
     }
 
+    /// Messaging apps wrap the long address at hyphens, so a pasted line can arrive split across
+    /// lines. The address never contains spaces, so everything after the code is joined back together.
     private static func parseInviteLine(_ raw: String) -> (code: String, baseURL: URL)? {
-        let parts = raw.split(whereSeparator: { $0.isWhitespace }).map(String.init)
+        let invisible: Set<Character> = ["\u{200B}", "\u{200C}", "\u{200D}", "\u{2060}", "\u{FEFF}", "\u{00AD}"]
+        let parts = String(raw.filter { !invisible.contains($0) })
+            .split(whereSeparator: { $0.isWhitespace })
+            .map(String.init)
         let code: String
         let urlText: String
         if parts.count >= 3, parts[0].caseInsensitiveCompare("GBEAR1") == .orderedSame {
             code = parts[1]
-            urlText = parts[2]
+            urlText = parts[2...].joined()
         } else if parts.count >= 2, parts[1].contains("://") {
             code = parts[0]
-            urlText = parts[1]
+            urlText = parts[1...].joined()
         } else {
             return nil
         }

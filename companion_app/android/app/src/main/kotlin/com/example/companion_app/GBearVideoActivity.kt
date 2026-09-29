@@ -1,6 +1,7 @@
 package com.example.companion_app
 
 import android.app.Activity
+import android.app.AlertDialog
 import android.graphics.Color
 import android.media.AudioManager
 import android.media.MediaCodec
@@ -16,6 +17,7 @@ import android.view.SurfaceHolder
 import android.view.SurfaceView
 import android.view.KeyEvent
 import android.view.WindowManager
+import android.window.OnBackInvokedDispatcher
 import android.widget.FrameLayout
 import java.io.ByteArrayOutputStream
 import java.io.DataInputStream
@@ -65,6 +67,7 @@ class GBearVideoActivity : Activity(), SurfaceHolder.Callback {
     private var decodeProfileIndex = 0
 
     private var streamHost = ""
+    private var leaveDialog: AlertDialog? = null
     private var audioPort = 28767
     private var audioTcpPort = 28769
     private var inputPort = 28768
@@ -124,6 +127,13 @@ class GBearVideoActivity : Activity(), SurfaceHolder.Callback {
 
     override fun onCreate(savedInstanceState: Bundle?) {
         super.onCreate(savedInstanceState)
+        // With predictive back (default from target SDK 36), Back never reaches dispatchKeyEvent or
+        // onBackPressed; without this the system just finishes the player and ends the session.
+        if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.TIRAMISU) {
+            onBackInvokedDispatcher.registerOnBackInvokedCallback(OnBackInvokedDispatcher.PRIORITY_DEFAULT) {
+                handleStreamBackNavigation()
+            }
+        }
         volumeControlStream = AudioManager.STREAM_MUSIC
         window.addFlags(
             WindowManager.LayoutParams.FLAG_KEEP_SCREEN_ON or
@@ -354,12 +364,43 @@ class GBearVideoActivity : Activity(), SurfaceHolder.Callback {
             shortcutsOverlay?.dismiss()
             return
         }
+        if (GBearRelayBridge.handlesHost(streamHost)) {
+            showLeaveRemoteCoopDialog()
+            return
+        }
         GBearStreamLog.i("Back pressed — leaving stream view (host stream stays active)")
         leaveViewerOnly()
     }
 
+    /** Remote co-op has no Mac-side Stop for the guest, so Back offers to leave the session outright. */
+    private fun showLeaveRemoteCoopDialog() {
+        if (leaveDialog?.isShowing == true) return
+        leaveDialog = AlertDialog.Builder(this, android.R.style.Theme_DeviceDefault_Dialog_Alert)
+            .setTitle("Leave remote co-op?")
+            .setMessage(
+                "Leave gives up your player slot. The invite still works if you want to rejoin.\n\n" +
+                    "Hide keeps your slot and goes back to the app, where Resume stream view brings the picture back.",
+            )
+            .setPositiveButton("Leave") { _, _ -> leaveRemoteCoop() }
+            .setNeutralButton("Hide") { _, _ ->
+                GBearStreamLog.i("Back pressed — hiding remote co-op picture (still seated)")
+                leaveViewerOnly()
+            }
+            .setNegativeButton("Keep playing", null)
+            .create()
+        GBearOverlayUi.applyDialogWindow(leaveDialog)
+        leaveDialog?.show()
+    }
+
+    private fun leaveRemoteCoop() {
+        GBearStreamLog.i("Leaving remote co-op from the player")
+        GBearStreamStopCoordinator.stopSession(applicationContext, notifyFlutter = true)
+    }
+
     /** Closes the video UI; Mac host keeps streaming until Stop in the companion app. */
     private fun leaveViewerOnly() {
+        leaveDialog?.dismiss()
+        leaveDialog = null
         GBearStreamSession.leaveViewerWithoutMacStop = true
         teardownStream(
             "viewer closed (received=$framesReceived rendered=$framesRendered dropped=$framesDropped)",
@@ -418,6 +459,8 @@ class GBearVideoActivity : Activity(), SurfaceHolder.Callback {
         mappingOverlay = null
         shortcutsOverlay?.dismiss()
         shortcutsOverlay = null
+        leaveDialog?.dismiss()
+        leaveDialog = null
         GBearStreamSession.clear()
         teardownStream(
             "stopped from companion (received=$framesReceived rendered=$framesRendered dropped=$framesDropped)",
@@ -565,6 +608,8 @@ class GBearVideoActivity : Activity(), SurfaceHolder.Callback {
     }
 
     override fun onDestroy() {
+        leaveDialog?.dismiss()
+        leaveDialog = null
         val hostToStop = streamHost.ifEmpty { GBearStreamSession.host }
         val viewerExit = GBearStreamSession.leaveViewerWithoutMacStop
         GBearStreamSession.leaveViewerWithoutMacStop = false

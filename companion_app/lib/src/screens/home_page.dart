@@ -908,10 +908,36 @@ class _HomePageState extends State<HomePage> with WidgetsBindingObserver {
               style: TextStyle(fontSize: 18, fontWeight: FontWeight.w600),
             ),
             const SizedBox(height: 8),
+            if (_remoteCoop && _streamActive) ...[
+              Text(
+                _streamViewerOpen
+                    ? 'You are in remote co-op. Press Back in the picture to leave or hide it.'
+                    : 'You are still in remote co-op and keep your player slot. Resume the picture, or leave to free your slot.',
+                style: TextStyle(color: Theme.of(context).colorScheme.onSurfaceVariant),
+              ),
+              const SizedBox(height: 12),
+              Wrap(
+                spacing: 10,
+                runSpacing: 10,
+                children: [
+                  if (!_streamViewerOpen)
+                    FilledButton.icon(
+                      onPressed: _startStream,
+                      icon: const Icon(Icons.fullscreen),
+                      label: const Text('Resume stream view'),
+                    ),
+                  OutlinedButton.icon(
+                    onPressed: _stopStream,
+                    icon: const Icon(Icons.logout),
+                    label: const Text('Leave remote co-op'),
+                  ),
+                ],
+              ),
+            ] else ...[
             Text(
               'For a Mac that is not on this Wi‑Fi. Your friend clicks Start remote co-op in GBear → '
               'Streaming, then Copy invite, and sends you the line. Paste the whole line here. '
-              'No pairing or IP address needed. The picture is 1280×720, and Stop above leaves the session.',
+              'No pairing or IP address needed. The picture is 1280×720. Press Back in the picture to leave.',
               style: TextStyle(color: Theme.of(context).colorScheme.onSurfaceVariant),
             ),
             const SizedBox(height: 12),
@@ -938,6 +964,7 @@ class _HomePageState extends State<HomePage> with WidgetsBindingObserver {
               icon: const Icon(Icons.public),
               label: const Text('Join with invite'),
             ),
+            ],
           ],
         ],
       ),

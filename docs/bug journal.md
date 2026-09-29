@@ -259,6 +259,24 @@ For release notes style summaries, see `source control log.md`. For architecture
 
 ## Streaming — architecture (Sunshine → native GBear)
 
+### BJ-111 — Back in the companion player ended the stream on Android 16
+| | |
+|---|---|
+| **When** | Sep 28 2026 |
+| **Symptom** | On an Android 16 phone, Back in the stream player closed it and ended the session, with no "Back pressed" in the log. The new **Leave remote co-op?** prompt never showed, and on Wi‑Fi Back stopped the Mac stream instead of just hiding the picture. |
+| **Cause** | Flutter's default target SDK is 36, which turns on predictive back. Back then goes to `OnBackInvokedDispatcher` and never reaches `GBearVideoActivity.dispatchKeyEvent` or `onBackPressed`. With no callback registered, the system finishes the activity, and `onDestroy` calls `stopStreamOnHost`. |
+| **Fix** | `GBearVideoActivity.onCreate` registers an `OnBackInvokedCallback` (API 33+) that runs `handleStreamBackNavigation`. Verified on an SM-S908U1 (API 36): Back shows the prompt; **Hide**, **Resume stream view**, and **Leave** behave as intended. |
+| **Commit** | release **v1.2.5** |
+
+### BJ-110 — Pasted invite line split at a hyphen never joined
+| | |
+|---|---|
+| **When** | Sep 28 2026 |
+| **Symptom** | Tapping **Join with invite** did nothing useful, over and over. The companion logged `redeeming invite at accountability-gear-vault-` (address cut off) for each tap. Typing the same line by hand worked. |
+| **Cause** | Chat and messaging apps wrap the long `trycloudflare.com` address at hyphens, so the copied line had a line break inside the address. `RemoteCoopInvite.parse` split on whitespace and used only the first piece, a host that does not exist. The Mac guest's `parseInviteLine` had the same flaw. |
+| **Fix** | Both parsers join everything after the code back together (the address never contains spaces) and strip zero-width characters and soft hyphens. Verified on the phone with a line break typed inside the address. |
+| **Commit** | release **v1.2.5** |
+
 ### BJ-109 — Remote co-op invite worked for only one friend
 | | |
 |---|---|

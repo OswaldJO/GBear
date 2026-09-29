@@ -16,16 +16,21 @@ class RemoteCoopInvite {
   static const _timeout = Duration(seconds: 20);
 
   /// Accepts the full line, or just `<code> <address>`.
+  ///
+  /// Messaging apps wrap the long address at hyphens, so a pasted line can arrive as
+  /// `https://word-word-` + newline + `word.trycloudflare.com`. The address never contains spaces,
+  /// so everything after the code is joined back together.
   static RemoteCoopInvite? parse(String raw) {
-    final parts = raw.trim().split(RegExp(r'\s+')).where((p) => p.isNotEmpty).toList();
+    final cleaned = raw.replaceAll(RegExp('[\u200B-\u200D\u2060\uFEFF\u00AD]'), '');
+    final parts = cleaned.trim().split(RegExp(r'\s+')).where((p) => p.isNotEmpty).toList();
     String code;
     String address;
     if (parts.length >= 3 && parts[0].toUpperCase() == 'GBEAR1') {
       code = parts[1];
-      address = parts[2];
+      address = parts.sublist(2).join();
     } else if (parts.length >= 2 && parts[1].contains('://')) {
       code = parts[0];
-      address = parts[1];
+      address = parts.sublist(1).join();
     } else {
       return null;
     }
