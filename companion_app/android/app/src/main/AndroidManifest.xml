@@ -39,7 +39,7 @@
             android:exported="false"
             android:launchMode="singleTop"
             android:theme="@android:style/Theme.Black.NoTitleBar.Fullscreen"
-            android:configChanges="orientation|screenSize|keyboardHidden"
+            android:configChanges="orientation|screenSize|smallestScreenSize|screenLayout|keyboard|keyboardHidden|navigation|density|uiMode"
             android:screenOrientation="sensorLandscape" />
         <!-- Don't delete the meta-data below.
              This is used by the Flutter tool to generate GeneratedPluginRegistrant.java -->

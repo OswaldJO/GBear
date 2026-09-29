@@ -87,7 +87,7 @@ class MainActivity : FlutterActivity() {
 
     override fun onDestroy() {
         val host = GBearStreamSession.host
-        if (host.isNotEmpty() && GBearStreamSession.hostStreamActive) {
+        if (host.isNotEmpty() && GBearStreamSession.hostStreamActive && !isChangingConfigurations) {
             Thread { GBearHostControlClient.stopStreamOnHost(host) }.start()
         }
         super.onDestroy()
@@ -116,7 +116,7 @@ class MainActivity : FlutterActivity() {
                         result.error("invalid_args", "Missing host", null)
                         return@setMethodCallHandler
                     }
-                    GBearRelayBridge.stop()
+                    GBearRelayBridge.stop("LAN stream starting")
                     GBearStreamSession.host = host
                     GBearStreamSession.videoPort = call.argument<Int>("videoPort") ?: 28766
                     GBearStreamSession.audioPort = call.argument<Int>("audioPort") ?: 28767

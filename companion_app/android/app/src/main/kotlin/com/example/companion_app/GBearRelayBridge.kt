@@ -84,7 +84,7 @@ object GBearRelayBridge {
         preferredSeat: Int,
         onResult: (JoinResult) -> Unit,
     ) {
-        stop()
+        stop("new join")
         synchronized(lock) {
             appContext = context.applicationContext
             relayUrl = url
@@ -114,7 +114,7 @@ object GBearRelayBridge {
             startInputPump()
             val timeout = Runnable {
                 finishJoin(JoinResult.Failed("The host did not answer. Make sure remote co-op is still running on the Mac."))
-                stop()
+                stop("join timed out")
             }
             joinTimeout = timeout
             mainHandler.postDelayed(timeout, JOIN_TIMEOUT_MS)
@@ -123,7 +123,7 @@ object GBearRelayBridge {
         GBearStreamLog.i("Relay bridge ports video=$videoPort audio=$audioTcpPort input=$inputPort")
     }
 
-    fun stop() {
+    fun stop(reason: String) {
         val wasActive: Boolean
         synchronized(lock) {
             wasActive = active
@@ -138,7 +138,7 @@ object GBearRelayBridge {
             client = null
             closeLocalPorts()
         }
-        if (wasActive) GBearStreamLog.i("Relay bridge stopped")
+        if (wasActive) GBearStreamLog.i("Relay bridge stopped ($reason)")
     }
 
     private fun closeLocalPorts() {
@@ -233,7 +233,7 @@ object GBearRelayBridge {
                 val message = json.optString("error").ifEmpty { "The host rejected the join." }
                 GBearStreamLog.w("Relay error: $message")
                 finishJoin(JoinResult.Failed(message))
-                stop()
+                stop("host error")
             }
         }
     }
@@ -264,10 +264,10 @@ object GBearRelayBridge {
         val pending = synchronized(lock) { joinCallback != null }
         if (pending) {
             finishJoin(JoinResult.Failed("Could not reach the host ($reason). Check the invite line and try again."))
-            stop()
+            stop("relay unreachable")
             return
         }
-        val context = appContext ?: run { stop(); return }
+        val context = appContext ?: run { stop("relay lost"); return }
         GBearStreamStopper.stopAll(context, "remote co-op relay lost ($reason)", recordPendingLogForResume = true)
         MainActivity.notifyFlutterStreamStoppedExternally()
     }

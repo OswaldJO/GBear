@@ -568,7 +568,9 @@ class GBearVideoActivity : Activity(), SurfaceHolder.Callback {
         val hostToStop = streamHost.ifEmpty { GBearStreamSession.host }
         val viewerExit = GBearStreamSession.leaveViewerWithoutMacStop
         GBearStreamSession.leaveViewerWithoutMacStop = false
-        if (hostToStop.isNotEmpty() && !viewerExit) {
+        // A recreated or replaced viewer must not end the session the new one is joining.
+        val replaced = current != null && current !== this
+        if (hostToStop.isNotEmpty() && !viewerExit && !isChangingConfigurations && !replaced) {
             Thread {
                 GBearHostControlClient.stopStreamOnHost(hostToStop)
             }.start()

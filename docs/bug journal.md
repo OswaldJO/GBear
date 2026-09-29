@@ -259,6 +259,15 @@ For release notes style summaries, see `source control log.md`. For architecture
 
 ## Streaming — architecture (Sunshine → native GBear)
 
+### BJ-107 — Companion player closed right after joining with the invite line
+| | |
+|---|---|
+| **When** | Sep 28 2026 |
+| **Symptom** | After **Join with invite** succeeded (seat assigned), the player opened and closed at once. `gbear_stream.log` showed every video connect to `127.0.0.1:<port>` refused, then "stopped from companion". |
+| **Cause** | `GBearVideoActivity` only handled `orientation|screenSize|keyboardHidden`, so turning to `sensorLandscape` could recreate it. The old copy's `onDestroy` called `stopStreamOnHost("127.0.0.1")`, which closes `GBearRelayBridge` and its loopback ports while the new copy was connecting. On Wi‑Fi the same path only sent a harmless stop to the Mac, so it went unnoticed. |
+| **Fix** | The manifest handles all size, layout, and density changes for the player. `GBearVideoActivity.onDestroy` skips the stop when `isChangingConfigurations` or when a newer viewer has replaced it, and `MainActivity.onDestroy` skips it on configuration changes. `GBearRelayBridge.stop(reason)` logs why the bridge closed. |
+| **Commit** | release **v1.2.2** |
+
 ### BJ-106 — Companion could not use the remote co-op invite line
 | | |
 |---|---|

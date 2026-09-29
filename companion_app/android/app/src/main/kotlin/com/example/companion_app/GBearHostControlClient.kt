@@ -12,7 +12,7 @@ object GBearHostControlClient {
         if (host.isEmpty()) return
         if (GBearRelayBridge.handlesHost(host)) {
             // Leaving the relay is the stop: the host drops the guest when its socket goes away.
-            GBearRelayBridge.stop()
+            GBearRelayBridge.stop("stream stop")
             return
         }
         try {
