@@ -259,6 +259,15 @@ For release notes style summaries, see `source control log.md`. For architecture
 
 ## Streaming — architecture (Sunshine → native GBear)
 
+### BJ-108 — Companion relay bridge listened on IPv6 loopback only
+| | |
+|---|---|
+| **When** | Sep 28 2026 |
+| **Symptom** | Still on v1.2.2: after **Join with invite**, the player tried `127.0.0.1:<port>` 16 times, got `ECONNREFUSED` every time, and closed. The log showed the bridge alive until the player gave up (`Relay bridge stopped (stream stop)`), so BJ-107 was not the cause here. |
+| **Cause** | `GBearRelayBridge` bound its video/audio `ServerSocket`s and input `DatagramSocket` to `InetAddress.getLoopbackAddress()`. On Android that is `::1`, and a socket bound to `::1` does not accept IPv4 `127.0.0.1`. The player, audio reader, and input senders all dial `127.0.0.1`. |
+| **Fix** | Bind all bridge sockets to `127.0.0.1` explicitly (`GBearRelayBridge.loopbackAddress`). |
+| **Commit** | release **v1.2.3** |
+
 ### BJ-107 — Companion player closed right after joining with the invite line
 | | |
 |---|---|

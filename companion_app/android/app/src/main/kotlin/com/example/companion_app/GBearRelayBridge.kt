@@ -33,6 +33,9 @@ import java.util.concurrent.TimeUnit
 object GBearRelayBridge {
     const val LOOPBACK_HOST = "127.0.0.1"
 
+    /** `InetAddress.getLoopbackAddress()` is `::1` on Android, which the players (dialing IPv4) cannot reach. */
+    private val loopbackAddress: InetAddress = InetAddress.getByAddress(byteArrayOf(127, 0, 0, 1))
+
     private const val MAGIC = 0x4C544247
     private const val CHANNEL_CONTROL = 1
     private const val CHANNEL_VIDEO = 2
@@ -98,7 +101,7 @@ object GBearRelayBridge {
                     sendHello()
                 }
                 audio = LoopbackStream("GBearRelayAudio", capacity = 60, dependentFrames = false)
-                input = DatagramSocket(InetSocketAddress(InetAddress.getLoopbackAddress(), 0))
+                input = DatagramSocket(InetSocketAddress(loopbackAddress, 0))
             } catch (e: Exception) {
                 closeLocalPorts()
                 joinCallback = null
@@ -329,7 +332,7 @@ object GBearRelayBridge {
         private val dependentFrames: Boolean,
         private val onClientConnected: () -> Unit = {},
     ) {
-        private val server = ServerSocket(0, 1, InetAddress.getLoopbackAddress())
+        private val server = ServerSocket(0, 1, loopbackAddress)
         private val queue = LinkedBlockingQueue<ByteArray>(capacity)
         @Volatile private var client: Socket? = null
         @Volatile private var output: OutputStream? = null
