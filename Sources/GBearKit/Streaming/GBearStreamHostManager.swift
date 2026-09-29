@@ -324,15 +324,22 @@ final class GBearStreamHostManager {
         await video.requestKeyframe()
     }
 
-    /// Seats a friend who joined through the invite relay and starts a 720p capture for that link.
-    func attachRelayGuest(deviceID: String, deviceName: String, preferredSeat: Int?) async -> Int? {
+    enum RelayJoinResult {
+        case seated(Int)
+        case sessionFull
+        case captureFailed
+    }
+
+    /// Seats a friend who joined through the invite relay. The first one starts a 720p capture;
+    /// later ones share it.
+    func attachRelayGuest(deviceID: String, deviceName: String, preferredSeat: Int?) async -> RelayJoinResult {
         _ = await setHostPlayer(deviceID: GBearCoopSessionState.localHostDeviceID)
         guard let seat = await server.admitRelayGuest(
             deviceID: deviceID,
             deviceName: deviceName,
             preferredSeat: preferredSeat
         ) else {
-            return nil
+            return .sessionFull
         }
         await refreshCoopSession()
         await beginVideoStream(
@@ -344,12 +351,16 @@ final class GBearStreamHostManager {
             tuning: .relay
         )
         await video.requestKeyframe()
-        guard isVideoStreaming else { return nil }
-        return seat
+        guard isVideoStreaming else {
+            _ = await server.leaveDevice(deviceID: deviceID)
+            await refreshCoopSession()
+            return .captureFailed
+        }
+        return .seated(seat)
     }
 
+    /// Leaves the relay sinks alone: other friends may still be watching.
     func releaseRelayGuest(deviceID: String) async {
-        await setRelaySinks(video: nil, audio: nil)
         let session = await server.leaveDevice(deviceID: deviceID)
         await refreshCoopSession()
         if (session?.videoClientCount ?? 0) == 0 {

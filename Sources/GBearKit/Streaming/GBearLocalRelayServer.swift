@@ -2,8 +2,12 @@ import CryptoKit
 import Foundation
 import Network
 
-/// Localhost session relay. The host and one guest connect outbound (the guest via a tunnel)
-/// and this process copies `GBTL` bytes between them. Nothing here needs an open router port.
+/// Localhost session relay. The host and up to [maxGuests] guests connect outbound (guests via a
+/// tunnel) and this process copies `GBTL` bytes between them. Nothing here needs an open router port.
+///
+/// Guests see only plain `GBTL`. On the host's link, anything from a guest arrives wrapped in
+/// `GBTP` with that guest's peer number, and text notices carry `"peer"`. Host frames wrapped in
+/// `GBTP` go to that one guest; unwrapped frames go to every guest.
 final class GBearLocalRelayServer: @unchecked Sendable {
     private let queue = DispatchQueue(label: "GBearRelay.server", qos: .userInitiated)
     private var listener: NWListener?
@@ -24,13 +28,28 @@ final class GBearLocalRelayServer: @unchecked Sendable {
     }
 
     private final class Room {
-        var a: Client?
-        var b: Client?
+        var host: Client?
+        var guests: [UInt8: Client] = [:]
+        private var lastPeer: UInt8 = 0
+
+        func allocatePeer() -> UInt8? {
+            for _ in 0 ..< 255 {
+                lastPeer = lastPeer == 255 ? 1 : lastPeer + 1
+                if guests[lastPeer] == nil { return lastPeer }
+            }
+            return nil
+        }
     }
+
+    /// Every seat but the host's.
+    static let maxGuests = GBearCoopSessionState.maxSeats - 1
 
     private final class Client: @unchecked Sendable {
         let connection: NWConnection
         let sessionID: String
+        let deviceID: String
+        let isHost: Bool
+        var peerID: UInt8 = 0
         var buffer = Data()
         var fragmentOpcode: UInt8 = 0
         var fragments = Data()
@@ -39,9 +58,11 @@ final class GBearLocalRelayServer: @unchecked Sendable {
         var skippingVideoUntilKeyframe = false
         weak var server: GBearLocalRelayServer?
 
-        init(connection: NWConnection, sessionID: String, server: GBearLocalRelayServer) {
+        init(connection: NWConnection, sessionID: String, deviceID: String, isHost: Bool, server: GBearLocalRelayServer) {
             self.connection = connection
             self.sessionID = sessionID
+            self.deviceID = deviceID
+            self.isHost = isHost
             self.server = server
         }
 
@@ -92,7 +113,12 @@ final class GBearLocalRelayServer: @unchecked Sendable {
     private static let mediaBacklogLimit = 1_000_000
 
     private func reportCongestion(from client: Client) {
-        peer(of: client)?.sendText(#"{"type":"congestion"}"#)
+        guard !client.isHost else { return }
+        rooms[client.sessionID]?.host?.sendText(Self.notice("congestion", peer: client.peerID))
+    }
+
+    private static func notice(_ type: String, peer: UInt8) -> String {
+        #"{"type":"\#(type)","peer":\#(peer)}"#
     }
 
     func start(port: UInt16 = 8787) async throws {
@@ -121,8 +147,7 @@ final class GBearLocalRelayServer: @unchecked Sendable {
             listener?.cancel()
             listener = nil
             for room in rooms.values {
-                room.a?.connection.cancel()
-                room.b?.connection.cancel()
+                Self.cancelAll(in: room)
             }
             rooms.removeAll()
             sessions.removeAll()
@@ -191,7 +216,7 @@ final class GBearLocalRelayServer: @unchecked Sendable {
         let query = Self.query(from: target)
         let sessionID = query["sessionId"] ?? ""
         let deviceID = query["deviceId"] ?? ""
-        guard !sessionID.isEmpty, !deviceID.isEmpty, sessions[sessionID] != nil else {
+        guard !sessionID.isEmpty, !deviceID.isEmpty, let session = sessions[sessionID] else {
             connection.cancel()
             return
         }
@@ -202,7 +227,13 @@ final class GBearLocalRelayServer: @unchecked Sendable {
             "Upgrade: websocket\r\n" +
             "Connection: Upgrade\r\n" +
             "Sec-WebSocket-Accept: \(accept)\r\n\r\n"
-        let client = Client(connection: connection, sessionID: sessionID, server: self)
+        let client = Client(
+            connection: connection,
+            sessionID: sessionID,
+            deviceID: deviceID,
+            isHost: deviceID == session.hostDeviceID,
+            server: self
+        )
         connection.send(content: Data(response.utf8), completion: .contentProcessed { [weak self] error in
             guard let self, error == nil else {
                 connection.cancel()
@@ -220,43 +251,61 @@ final class GBearLocalRelayServer: @unchecked Sendable {
 
     private func attach(_ client: Client) {
         let room = rooms[client.sessionID] ?? Room()
-        if room.a == nil {
-            room.a = client
-        } else if room.b == nil {
-            room.b = client
-        } else {
+        rooms[client.sessionID] = room
+        let ready = #"{"type":"relay_ready"}"#
+        if client.isHost {
+            let stale = room.host
+            room.host = client
+            stale?.connection.cancel()
+            for guest in room.guests.values.sorted(by: { $0.peerID < $1.peerID }) {
+                guest.sendText(ready)
+                client.sendText(Self.notice("relay_ready", peer: guest.peerID))
+            }
+            return
+        }
+        // A guest that reconnects before its old socket times out replaces that socket.
+        if let stale = room.guests.values.first(where: { $0.deviceID == client.deviceID }) {
+            room.guests[stale.peerID] = nil
+            stale.connection.cancel()
+            room.host?.sendText(Self.notice("peer_left", peer: stale.peerID))
+        }
+        guard room.guests.count < Self.maxGuests, let peer = room.allocatePeer() else {
             client.connection.cancel()
             return
         }
-        rooms[client.sessionID] = room
-        if room.a != nil, room.b != nil {
-            let ready = #"{"type":"relay_ready"}"#
-            room.a?.sendText(ready)
-            room.b?.sendText(ready)
-            print("[GBearRelay] both peers connected for \(client.sessionID.prefix(8))")
+        client.peerID = peer
+        client.skippingVideoUntilKeyframe = true
+        room.guests[peer] = client
+        if let host = room.host {
+            client.sendText(ready)
+            host.sendText(Self.notice("relay_ready", peer: peer))
+            print("[GBearRelay] guest \(peer) connected for \(client.sessionID.prefix(8)) (\(room.guests.count) guest(s))")
         }
     }
 
     private func detach(_ client: Client) {
         guard let room = rooms[client.sessionID] else { return }
-        let notice = #"{"type":"peer_left"}"#
-        if room.a === client {
-            room.a = nil
-            room.b?.sendText(notice)
-        } else if room.b === client {
-            room.b = nil
-            room.a?.sendText(notice)
+        if client.isHost {
+            guard room.host === client else { return }
+            room.host = nil
+            for guest in room.guests.values {
+                guest.sendText(#"{"type":"peer_left"}"#)
+            }
+        } else {
+            guard room.guests[client.peerID] === client else { return }
+            room.guests[client.peerID] = nil
+            room.host?.sendText(Self.notice("peer_left", peer: client.peerID))
         }
-        if room.a == nil, room.b == nil {
+        if room.host == nil, room.guests.isEmpty {
             rooms[client.sessionID] = nil
         }
     }
 
-    private func peer(of client: Client) -> Client? {
-        guard let room = rooms[client.sessionID] else { return nil }
-        if room.a === client { return room.b }
-        if room.b === client { return room.a }
-        return nil
+    private static func cancelAll(in room: Room) {
+        room.host?.connection.cancel()
+        for guest in room.guests.values {
+            guest.connection.cancel()
+        }
     }
 
     private func readWebSocket(_ client: Client) {
@@ -311,8 +360,18 @@ final class GBearLocalRelayServer: @unchecked Sendable {
     }
 
     private func forward(_ client: Client, opcode: UInt8, payload: Data) {
-        guard opcode == 2 || opcode == 1 else { return }
-        peer(of: client)?.send(opcode: opcode, payload: payload)
+        guard opcode == 2 || opcode == 1, let room = rooms[client.sessionID] else { return }
+        if client.isHost {
+            if opcode == 2, let (peer, frame) = GBearTunnelPeerFrame.unwrap(payload) {
+                room.guests[peer]?.send(opcode: 2, payload: frame)
+                return
+            }
+            for guest in room.guests.values {
+                guest.send(opcode: opcode, payload: payload)
+            }
+        } else if opcode == 2 {
+            room.host?.send(opcode: 2, payload: GBearTunnelPeerFrame.wrap(peer: client.peerID, frame: payload))
+        }
     }
 
     private func routeHTTP(headerLines: [Substring], body: Data) -> Data {
@@ -369,8 +428,7 @@ final class GBearLocalRelayServer: @unchecked Sendable {
                 sessions[sessionID] = nil
                 invites = invites.filter { $0.value.sessionID != sessionID }
                 if let room = rooms[sessionID] {
-                    room.a?.connection.cancel()
-                    room.b?.connection.cancel()
+                    Self.cancelAll(in: room)
                     rooms[sessionID] = nil
                 }
             }

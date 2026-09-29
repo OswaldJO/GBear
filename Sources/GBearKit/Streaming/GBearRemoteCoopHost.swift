@@ -25,9 +25,18 @@ final class GBearRemoteCoopHost {
     private var reconnectTask: Task<Void, Never>?
     private var reconnectAttempts = 0
     private var stayAwake: NSObjectProtocol?
-    private var guestDropTask: Task<Void, Never>?
-    private var admittedGuestID: String?
-    private var admittedSeat: Int?
+    /// Seated friends by device ID. Several can share one invite, up to the session's seats.
+    private var guests: [String: RelayGuest] = [:]
+    private var joiningDeviceIDs: Set<String> = []
+    nonisolated private let peerSeats = PeerSeatTable()
+
+    private struct RelayGuest {
+        var name: String
+        var seat: Int
+        /// The relay's number for this friend's current socket; changes when they reconnect.
+        var peer: UInt8
+        var dropTask: Task<Void, Never>?
+    }
 
     private init() {
         videoPump.onDrop = { [bitrate] in bitrate.handleDrop() }
@@ -55,8 +64,9 @@ final class GBearRemoteCoopHost {
         guard !isStarting, !isRunning else { return }
         isStarting = true
         inviteLine = ""
-        admittedGuestID = nil
-        admittedSeat = nil
+        guests = [:]
+        joiningDeviceIDs = []
+        peerSeats.removeAll()
         statusMessage = "Starting the relay on this Mac…"
         do {
             try await relay.start()
@@ -88,7 +98,7 @@ final class GBearRemoteCoopHost {
             inviteLine = "GBEAR1 \(code) \(publicURL.absoluteString)"
             isRunning = true
             beginStayAwake()
-            statusMessage = "Send the invite line to your friend. Leave this screen open. When they join, launch the game and set up both players in the emulator’s controller settings."
+            statusMessage = Self.waitingMessage
         } catch {
             await stop()
             statusMessage = error.localizedDescription
@@ -100,22 +110,21 @@ final class GBearRemoteCoopHost {
         isRunning = false
         reconnectTask?.cancel()
         reconnectTask = nil
-        guestDropTask?.cancel()
-        guestDropTask = nil
         stopPings()
         endStayAwake()
-        let guestID = admittedGuestID
-        admittedGuestID = nil
-        admittedSeat = nil
+        let leaving = guests
+        guests = [:]
+        joiningDeviceIDs = []
+        peerSeats.removeAll()
         videoPump.send = nil
         audioPump.send = nil
         relayURL = nil
         socket?.close()
         socket = nil
-        if let guestID {
-            await GBearStreamHostManager.shared.releaseRelayGuest(deviceID: guestID)
-        } else {
-            await GBearStreamHostManager.shared.setRelaySinks(video: nil, audio: nil)
+        await GBearStreamHostManager.shared.setRelaySinks(video: nil, audio: nil)
+        for (deviceID, guest) in leaving {
+            guest.dropTask?.cancel()
+            await GBearStreamHostManager.shared.releaseRelayGuest(deviceID: deviceID)
         }
         tunnelProcess?.terminate()
         tunnelProcess = nil
@@ -133,7 +142,7 @@ final class GBearRemoteCoopHost {
         guard !inviteLine.isEmpty else { return }
         NSPasteboard.general.clearContents()
         NSPasteboard.general.setString(inviteLine, forType: .string)
-        statusMessage = "Invite copied. Send it to your friend, then wait on this screen."
+        statusMessage = "Invite copied. Send it to your friends (up to \(GBearLocalRelayServer.maxGuests)), then wait on this screen."
     }
 
     private func wirePumps(_ socket: GBearRelayWebSocket) {
@@ -146,18 +155,19 @@ final class GBearRemoteCoopHost {
     }
 
     private func handleText(_ text: String) {
-        guard let type = jsonType(text) else { return }
+        guard let data = text.data(using: .utf8),
+              let json = try? JSONSerialization.jsonObject(with: data) as? [String: Any],
+              let type = json["type"] as? String else { return }
         if type == "congestion" {
             bitrate.handleDrop()
-        } else if type == "peer_left" {
-            statusMessage = "Your friend disconnected. Waiting for them to reconnect…"
-            guestDropTask?.cancel()
-            let guestID = admittedGuestID
-            guestDropTask = Task { @MainActor in
+        } else if type == "peer_left", let peer = (json["peer"] as? Int).flatMap(UInt8.init(exactly:)) {
+            guard let (deviceID, guest) = guests.first(where: { $0.value.peer == peer }) else { return }
+            statusMessage = "\(guest.name) (Player \(guest.seat)) disconnected. Waiting for them to reconnect…"
+            guests[deviceID]?.dropTask?.cancel()
+            guests[deviceID]?.dropTask = Task { @MainActor in
                 try? await Task.sleep(nanoseconds: 8_000_000_000)
-                guard !Task.isCancelled, self.admittedGuestID == guestID else { return }
-                await self.dropGuest()
-                self.statusMessage = "Your friend left. The invite still works if they join again."
+                guard !Task.isCancelled, self.guests[deviceID]?.peer == peer else { return }
+                await self.dropGuest(deviceID: deviceID)
             }
         }
     }
@@ -183,10 +193,15 @@ final class GBearRemoteCoopHost {
     /// Video frames stay off the main actor. Only controller and control messages hop over,
     /// so a busy game cannot bury `GBG1` behind the picture (BJ-097).
     private nonisolated func handleRelayBinary(_ data: Data) {
-        guard let (channel, payload) = GBearTunnelFrame.unpack(data) else { return }
+        guard let (peer, frame) = GBearTunnelPeerFrame.unwrap(data),
+              let (channel, payload) = GBearTunnelFrame.unpack(frame) else { return }
         switch channel {
         case .input:
-            if let event = GBearGamepadEventFormat.parse(payload) {
+            // Each friend drives only the seat the host gave them.
+            guard let seat = peerSeats.seat(for: peer), payload.count > 4 else { return }
+            var packet = payload
+            packet[packet.startIndex + 4] = seat
+            if let event = GBearGamepadEventFormat.parse(packet) {
                 Task { await GBearVirtualGamepadManager.shared.apply(event) }
             }
         case .control:
@@ -196,7 +211,7 @@ final class GBearRemoteCoopHost {
                 bitrate.handlePong(sentMillis: sent)
                 return
             }
-            Task { @MainActor in await self.handleControl(payload) }
+            Task { @MainActor in await self.handleControl(payload, peer: peer) }
         case .video, .audio:
             break
         }
@@ -207,7 +222,7 @@ final class GBearRemoteCoopHost {
         pingTask = Task { @MainActor in
             while !Task.isCancelled {
                 try? await Task.sleep(nanoseconds: 1_000_000_000)
-                guard !Task.isCancelled, admittedGuestID != nil else { continue }
+                guard !Task.isCancelled, !guests.isEmpty else { continue }
                 sendControl(bitrate.pingMessage())
                 bitrate.tick()
             }
@@ -221,8 +236,9 @@ final class GBearRemoteCoopHost {
     }
 
     fileprivate func updatePictureNote(_ rate: Int) {
-        guard admittedGuestID != nil else { return }
-        pictureNote = String(format: "Picture: %.1f Mbit/s (adjusts to your friend’s connection)", Double(rate) / 1_000_000)
+        guard !guests.isEmpty else { return }
+        let whose = guests.count == 1 ? "your friend’s connection" : "the slowest friend’s connection"
+        pictureNote = String(format: "Picture: %.1f Mbit/s (adjusts to %@)", Double(rate) / 1_000_000, whose)
     }
 
     private func handleRelayClosed(_ reason: String) {
@@ -242,77 +258,122 @@ final class GBearRemoteCoopHost {
         }
     }
 
-    private func handleControl(_ payload: Data) async {
+    private func handleControl(_ payload: Data, peer: UInt8) async {
         guard let json = try? JSONSerialization.jsonObject(with: payload) as? [String: Any],
               json["type"] as? String == "hello",
               let deviceID = json["deviceId"] as? String else { return }
-        guestDropTask?.cancel()
-        guestDropTask = nil
         reconnectAttempts = 0
-        if admittedGuestID == deviceID, let admittedSeat {
-            sendControl(["type": "welcome", "seat": admittedSeat])
+        if var guest = guests[deviceID] {
+            guest.dropTask?.cancel()
+            guest.dropTask = nil
+            guest.peer = peer
+            guests[deviceID] = guest
+            peerSeats.set(peer: peer, seat: guest.seat)
+            sendControl(["type": "welcome", "seat": guest.seat], to: peer)
             await GBearStreamHostManager.shared.requestRelayKeyframe()
+            refreshGuestStatus()
             return
         }
-        let name = (json["deviceName"] as? String)?.trimmingCharacters(in: .whitespacesAndNewlines)
+        guard !joiningDeviceIDs.contains(deviceID) else { return }
+        joiningDeviceIDs.insert(deviceID)
+        defer { joiningDeviceIDs.remove(deviceID) }
+        let trimmed = (json["deviceName"] as? String)?.trimmingCharacters(in: .whitespacesAndNewlines) ?? ""
+        let name = trimmed.isEmpty ? "Remote Mac" : trimmed
         let preferred = json["preferredSeat"] as? Int
         let seatPref = (preferred ?? 0) >= 1 ? preferred : nil
-        statusMessage = "Your friend connected. Starting the stream…"
-        bitrate.reset()
-        await GBearStreamHostManager.shared.setRelaySinks(
-            video: { [videoPump] packet in
-                let frame = GBearTunnelFrame.pack(channel: .video, payload: packet)
-                let keyframe = packet.count > 8 && (packet[8] & 1) != 0
-                videoPump.enqueue(frame, keyframe: keyframe)
-            },
-            audio: { [audioPump] packet in
-                let frame = GBearTunnelFrame.pack(channel: .audio, payload: packet)
-                audioPump.enqueue(frame, keyframe: false)
-            }
-        )
-        guard let seat = await GBearStreamHostManager.shared.attachRelayGuest(
+        statusMessage = "\(name) connected. Starting the stream…"
+        if guests.isEmpty {
+            bitrate.reset()
+            await GBearStreamHostManager.shared.setRelaySinks(
+                video: { [videoPump] packet in
+                    let frame = GBearTunnelFrame.pack(channel: .video, payload: packet)
+                    let keyframe = packet.count > 8 && (packet[8] & 1) != 0
+                    videoPump.enqueue(frame, keyframe: keyframe)
+                },
+                audio: { [audioPump] packet in
+                    let frame = GBearTunnelFrame.pack(channel: .audio, payload: packet)
+                    audioPump.enqueue(frame, keyframe: false)
+                }
+            )
+        }
+        let result = await GBearStreamHostManager.shared.attachRelayGuest(
             deviceID: deviceID,
-            deviceName: name?.isEmpty == false ? name! : "Remote Mac",
+            deviceName: name,
             preferredSeat: seatPref
-        ) else {
-            sendControl(["type": "error", "error": "Could not join. Allow Screen Recording for GBear and try again."])
-            statusMessage = "Could not start the stream. Allow Screen Recording for GBear, then start the remote session again."
-            await GBearStreamHostManager.shared.setRelaySinks(video: nil, audio: nil)
+        )
+        guard isRunning else {
+            if case .seated = result {
+                await GBearStreamHostManager.shared.releaseRelayGuest(deviceID: deviceID)
+            }
             return
         }
-        admittedGuestID = deviceID
-        admittedSeat = seat
-        sendControl(["type": "welcome", "seat": seat])
+        guard case .seated(let seat) = result else {
+            if case .sessionFull = result {
+                sendControl(["type": "error", "error": "This session is full. Ask the host to free a player slot."], to: peer)
+                statusMessage = "\(name) could not join: every player slot is taken."
+            } else {
+                sendControl(["type": "error", "error": "Could not join. Allow Screen Recording for GBear and try again."], to: peer)
+                statusMessage = "Could not start the stream. Allow Screen Recording for GBear, then start the remote session again."
+            }
+            if guests.isEmpty {
+                await GBearStreamHostManager.shared.setRelaySinks(video: nil, audio: nil)
+            }
+            return
+        }
+        guests[deviceID] = RelayGuest(name: name, seat: seat, peer: peer)
+        peerSeats.set(peer: peer, seat: seat)
+        sendControl(["type": "welcome", "seat": seat], to: peer)
         updatePictureNote(bitrate.currentBitRate)
-        startPings()
-        if AccessibilityPermission.isGranted {
-            statusMessage = "Your friend is Player \(seat). Launch the game. In the emulator, set Player 1 to your controller. For Player \(seat), choose the keyboard, then click each button slot while your friend presses that button. This Mac’s speakers stay quiet while they are connected."
-        } else {
+        if pingTask == nil { startPings() }
+        if !AccessibilityPermission.isGranted {
             AccessibilityPermission.promptIfNeeded()
-            statusMessage = "Your friend is Player \(seat), but their controller can’t reach the game yet. Allow \(AccessibilityPermission.settingsAppName) in System Settings → Privacy & Security → Accessibility, then quit and reopen GBear."
+        }
+        refreshGuestStatus()
+    }
+
+    private func dropGuest(deviceID: String) async {
+        guard let guest = guests.removeValue(forKey: deviceID) else { return }
+        guest.dropTask?.cancel()
+        peerSeats.remove(peer: guest.peer)
+        if guests.isEmpty {
+            stopPings()
+            await GBearStreamHostManager.shared.setRelaySinks(video: nil, audio: nil)
+        }
+        await GBearStreamHostManager.shared.releaseRelayGuest(deviceID: deviceID)
+        refreshGuestStatus(left: guest)
+    }
+
+    private static let waitingMessage = "Send the invite line to your friends. Up to \(GBearLocalRelayServer.maxGuests) can join with it. Leave this screen open. When they join, launch the game and set up each player in the emulator’s controller settings."
+
+    private func refreshGuestStatus(left: RelayGuest? = nil) {
+        let seated = guests.values.sorted { $0.seat < $1.seat }
+        guard !seated.isEmpty else {
+            if let left {
+                statusMessage = "\(left.name) left. The invite still works if they join again."
+            } else {
+                statusMessage = Self.waitingMessage
+            }
+            return
+        }
+        guard AccessibilityPermission.isGranted else {
+            let players = seated.map { "Player \($0.seat)" }.joined(separator: ", ")
+            statusMessage = "Friends joined as \(players), but their controllers can’t reach the game yet. Allow \(AccessibilityPermission.settingsAppName) in System Settings → Privacy & Security → Accessibility, then quit and reopen GBear."
+            return
+        }
+        let prefix = left.map { "\($0.name) left. " } ?? ""
+        if seated.count == 1, let guest = seated.first {
+            statusMessage = prefix + "Your friend is Player \(guest.seat). Launch the game. In the emulator, set Player 1 to your controller. For Player \(guest.seat), choose the keyboard, then click each button slot while your friend presses that button. This Mac’s speakers stay quiet while they are connected."
+        } else {
+            let roster = seated.map { "\($0.name) is Player \($0.seat)" }.joined(separator: ", ")
+            statusMessage = prefix + "\(roster). Launch the game. In the emulator, set Player 1 to your controller. For each friend’s player, choose the keyboard, then click each button slot while that friend presses the button. This Mac’s speakers stay quiet while friends are connected."
         }
     }
 
-    private func dropGuest() async {
-        stopPings()
-        let guestID = admittedGuestID
-        admittedGuestID = nil
-        admittedSeat = nil
-        if let guestID {
-            await GBearStreamHostManager.shared.releaseRelayGuest(deviceID: guestID)
-        }
-        statusMessage = "Your friend left. The invite still works if they join again."
-    }
-
-    private func sendControl(_ json: [String: Any]) {
+    /// Nil [peer] sends to every friend.
+    private func sendControl(_ json: [String: Any], to peer: UInt8? = nil) {
         guard let data = try? JSONSerialization.data(withJSONObject: json) else { return }
-        socket?.send(GBearTunnelFrame.pack(channel: .control, payload: data))
-    }
-
-    private func jsonType(_ text: String) -> String? {
-        guard let data = text.data(using: .utf8),
-              let json = try? JSONSerialization.jsonObject(with: data) as? [String: Any] else { return nil }
-        return json["type"] as? String
+        let frame = GBearTunnelFrame.pack(channel: .control, payload: data)
+        socket?.send(peer.map { GBearTunnelPeerFrame.wrap(peer: $0, frame: frame) } ?? frame)
     }
 
     /// Tunnels outlive GBear when it crashes or is force-quit; they would keep pointing at this relay port.
@@ -380,6 +441,36 @@ final class GBearRemoteCoopHost {
 
     private func failure(_ message: String) -> NSError {
         NSError(domain: "GBearRemoteCoop", code: 1, userInfo: [NSLocalizedDescriptionKey: message])
+    }
+}
+
+/// Relay peer number → seat, read off the main actor for each controller packet.
+private final class PeerSeatTable: @unchecked Sendable {
+    private let lock = NSLock()
+    private var seats: [UInt8: UInt8] = [:]
+
+    func seat(for peer: UInt8) -> UInt8? {
+        lock.lock()
+        defer { lock.unlock() }
+        return seats[peer]
+    }
+
+    func set(peer: UInt8, seat: Int) {
+        lock.lock()
+        seats[peer] = UInt8(clamping: seat)
+        lock.unlock()
+    }
+
+    func remove(peer: UInt8) {
+        lock.lock()
+        seats[peer] = nil
+        lock.unlock()
+    }
+
+    func removeAll() {
+        lock.lock()
+        seats.removeAll()
+        lock.unlock()
     }
 }
 

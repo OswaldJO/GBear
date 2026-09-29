@@ -259,6 +259,15 @@ For release notes style summaries, see `source control log.md`. For architecture
 
 ## Streaming — architecture (Sunshine → native GBear)
 
+### BJ-109 — Remote co-op invite worked for only one friend
+| | |
+|---|---|
+| **When** | Sep 28 2026 |
+| **Symptom** | A friend joined with the host's invite line. A second person using the same line never got a picture. On the companion it ended in "Could not reach the host". |
+| **Cause** | Not a bad code: invites can be redeemed many times for 30 minutes. `GBearLocalRelayServer` rooms held exactly two sockets (host + one guest) and closed any third, and `GBearRemoteCoopHost` tracked a single admitted guest and seat. Nothing told the second person why. |
+| **Fix** | Rooms hold the host plus up to 7 guests with peer numbers. Guest traffic reaches the host wrapped in `GBTP` (`GBearTunnelPeerFrame`); the host addresses `welcome` / `error` to one peer and broadcasts media and pings. `GBearRemoteCoopHost` seats each friend separately, per-friend drop timers, `GBG1` seat rewrite per peer. `attachRelayGuest` now reports `sessionFull` vs `captureFailed` (and frees the seat when capture fails); a full session answers "This session is full". Guests need no update. |
+| **Commit** | release **v1.2.4** |
+
 ### BJ-108 — Companion relay bridge listened on IPv6 loopback only
 | | |
 |---|---|

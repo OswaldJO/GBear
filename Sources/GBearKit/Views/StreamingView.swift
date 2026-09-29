@@ -190,7 +190,7 @@ struct StreamingView: View {
     private var remoteSessionSection: some View {
         Section("Host a remote session") {
             Text(
-                "Your friend can be on another network. This Mac opens an outbound relay and gives you an invite line. No port forwarding. Same Wi-Fi can still use Join another computer."
+                "Friends can be on another network. This Mac opens an outbound relay and gives you one invite line that up to \(GBearLocalRelayServer.maxGuests) friends can use at once. No port forwarding. Same Wi-Fi can still use Join another computer."
             )
             .font(.caption)
             .foregroundStyle(.secondary)
