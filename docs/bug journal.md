@@ -259,6 +259,15 @@ For release notes style summaries, see `source control log.md`. For architecture
 
 ## Streaming — architecture (Sunshine → native GBear)
 
+### BJ-112 — Remote co-op picture looked like 480p
+| | |
+|---|---|
+| **When** | Sep 28 2026 |
+| **Symptom** | Friends on the companion (and a second guest) saw the host's 1080p screen much softer than over Wi‑Fi, "like 480p". The bitrate log showed `capture 1280x720 @ 30 fps` with the rate pinned at the 12 Mbit/s ceiling for the last 35 s, round trip 50–160 ms and no congestion. |
+| **Cause** | `attachRelayGuest` hardcoded a 1280×720 capture. The host is a 3024×1964 (16:10) MacBook, so the screen fit inside that frame is only about 1108×720, which the phone then stretches across a ~3088×1440 display. The link had headroom; the rate controller's 12 Mbit/s ceiling and 6 s climb steps also kept it from using more. |
+| **Fix** | Relay capture is 1920×1080 @ 30 like Wi‑Fi streaming. `GBearRelayBitrateController` starts at 8 Mbit/s, climbs every 4 s, and tops out at 20 (congestion handling unchanged). The companion opens the relay player at 1920×1080 and resizes its surface to the decoded frame size. |
+| **Commit** | release **v1.2.7** |
+
 ### BJ-111 — Back in the companion player ended the stream on Android 16
 | | |
 |---|---|

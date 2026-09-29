@@ -153,8 +153,8 @@ class MainActivity : FlutterActivity() {
                                 GBearStreamSession.audioPort = GBearRelayBridge.audioTcpPort
                                 GBearStreamSession.audioTcpPort = GBearRelayBridge.audioTcpPort
                                 GBearStreamSession.inputPort = GBearRelayBridge.inputPort
-                                GBearStreamSession.width = 1280
-                                GBearStreamSession.height = 720
+                                GBearStreamSession.width = 1920
+                                GBearStreamSession.height = 1080
                                 GBearStreamSession.seat = outcome.seat
                                 applyPlayerSettings(call)
                                 beginStreamSession()

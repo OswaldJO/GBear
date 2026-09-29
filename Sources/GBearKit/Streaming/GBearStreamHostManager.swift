@@ -340,8 +340,8 @@ final class GBearStreamHostManager {
         case captureFailed
     }
 
-    /// Seats a friend who joined through the invite relay. The first one starts a 720p capture;
-    /// later ones share it.
+    /// Seats a friend who joined through the invite relay. The first one starts a 1080p capture
+    /// (same frame as Wi‑Fi streaming); later ones share it.
     func attachRelayGuest(deviceID: String, deviceName: String, preferredSeat: Int?) async -> RelayJoinResult {
         _ = await setHostPlayer(deviceID: GBearCoopSessionState.localHostDeviceID)
         guard let seat = await server.admitRelayGuest(
@@ -354,8 +354,8 @@ final class GBearStreamHostManager {
         await refreshCoopSession()
         await beginVideoStream(
             deviceID: deviceID,
-            width: 1280,
-            height: 720,
+            width: 1920,
+            height: 1080,
             fps: 30,
             bitrate: GBearRelayBitrateController.startBitRate,
             tuning: .relay

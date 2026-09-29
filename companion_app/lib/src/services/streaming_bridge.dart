@@ -330,8 +330,8 @@ class StreamingBridge {
         audioPort: 0,
         audioTcpPort: 0,
         inputPort: 0,
-        width: 1280,
-        height: 720,
+        width: 1920,
+        height: 1080,
         seat: (session['seat'] as num?)?.toInt() ?? 2,
       );
     } on TimeoutException {

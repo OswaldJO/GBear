@@ -3,16 +3,16 @@ import Foundation
 /// Picks the relay video bitrate from control-channel ping round trips and dropped frames.
 /// Pings ride the same WebSocket as the video, so a growing round trip means picture is queueing.
 final class GBearRelayBitrateController: @unchecked Sendable {
-    static let startBitRate = 6_000_000
+    static let startBitRate = 8_000_000
     static let minBitRate = 2_000_000
-    static let maxBitRate = 12_000_000
+    static let maxBitRate = 20_000_000
     /// Older guests do not answer pings, so there is no queue signal to climb safely past this.
     static let maxBitRateWithoutPings = 8_000_000
 
     private static let queueHighMillis = 250.0
     private static let queueLowMillis = 80.0
     private static let decreaseCooldown: TimeInterval = 2
-    private static let increaseAfterStable: TimeInterval = 6
+    private static let increaseAfterStable: TimeInterval = 4
     private static let increaseAfterDrop: TimeInterval = 10
     private static let keyframeRequestInterval: TimeInterval = 1
 

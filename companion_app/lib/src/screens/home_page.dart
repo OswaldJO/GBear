@@ -937,7 +937,7 @@ class _HomePageState extends State<HomePage> with WidgetsBindingObserver {
             Text(
               'For a Mac that is not on this Wi‑Fi. Your friend clicks Start remote co-op in GBear → '
               'Streaming, then Copy invite, and sends you the line. Paste the whole line here. '
-              'No pairing or IP address needed. The picture is 1280×720. Press Back in the picture to leave.',
+              'No pairing or IP address needed. The picture is 1920×1080. Press Back in the picture to leave.',
               style: TextStyle(color: Theme.of(context).colorScheme.onSurfaceVariant),
             ),
             const SizedBox(height: 12),

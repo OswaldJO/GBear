@@ -1013,8 +1013,11 @@ class GBearVideoActivity : Activity(), SurfaceHolder.Callback {
             decoder = newCodec
             decoderConfigured = true
             needsIdrFrame = true
-            configuredWidth = w
-            configuredHeight = h
+            if (w != configuredWidth || h != configuredHeight) {
+                configuredWidth = w
+                configuredHeight = h
+                runOnUiThread { surfaceView.holder.setFixedSize(w, h) }
+            }
             presentationUs = 0L
             outputBuffersSeen = 0
             GBearStreamLog.i(
