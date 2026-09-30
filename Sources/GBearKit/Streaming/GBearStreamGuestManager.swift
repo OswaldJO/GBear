@@ -31,7 +31,6 @@ final class GBearStreamGuestManager {
     }
     var remoteStatusMessage: String = "Paste the invite line from the host Mac."
     var assignedSeat: Int = 1
-    var latestSample: CMSampleBuffer?
 
     private let video = GBearVideoStreamClient()
     private let audio = GBearAudioStreamClient()
@@ -111,7 +110,7 @@ final class GBearStreamGuestManager {
         relaySocket = nil
         video.stop()
         audio.stop()
-        latestSample = nil
+        GBearGuestVideoRenderer.shared.clear()
         let coord = GBearSessionCoordinatorClient.shared
         coord.configure(baseURLString: parsed.baseURL.absoluteString)
         let signedIn = await coord.signIn(
@@ -135,10 +134,8 @@ final class GBearStreamGuestManager {
             failRelayJoin("The invite address is not valid.")
             return
         }
-        video.onSampleBuffer = { [weak self] sample in
-            Task { @MainActor in
-                self?.latestSample = sample
-            }
+        video.onPixelBuffer = { frame in
+            GBearGuestVideoRenderer.shared.display(frame)
         }
         video.onEnded = { [weak self] reason in
             Task { @MainActor in
@@ -243,7 +240,7 @@ final class GBearStreamGuestManager {
         relaySocket = nil
         video.stop()
         audio.stop()
-        latestSample = nil
+        GBearGuestVideoRenderer.shared.clear()
         let host = hostAddress.trimmingCharacters(in: .whitespacesAndNewlines)
         if !host.isEmpty {
             _ = try? await post(host: host, path: "/gbear/v1/stream/stop", body: ["deviceId": deviceID])
@@ -371,10 +368,8 @@ final class GBearStreamGuestManager {
             let videoPort = UInt16(json["videoPort"] as? Int ?? Int(GBearStreamPorts.videoTCP))
             let audioPort = UInt16(json["audioTcpPort"] as? Int ?? Int(GBearStreamPorts.audioTCP))
             let inputPort = UInt16(json["inputPort"] as? Int ?? Int(GBearStreamPorts.inputUDP))
-            video.onSampleBuffer = { [weak self] sample in
-                Task { @MainActor in
-                    self?.latestSample = sample
-                }
+            video.onPixelBuffer = { frame in
+                GBearGuestVideoRenderer.shared.display(frame)
             }
             video.onEnded = { [weak self] reason in
                 Task { @MainActor in

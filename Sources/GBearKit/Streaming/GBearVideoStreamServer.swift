@@ -113,6 +113,8 @@ actor GBearVideoStreamServer {
         bitrateLog?.closeSecond(target: targetBitRate, lanViewers: clients.count, relayActive: extraSink != nil)
     }
 
+    /// Returns the size actually encoded (the display's shape inside `width`×`height`).
+    @discardableResult
     func startCapture(
         width: Int,
         height: Int,
@@ -120,8 +122,8 @@ actor GBearVideoStreamServer {
         bitrate: Int = 8_000_000,
         tuning: GBearVideoTuning = .lan,
         audioHandler: GBearDisplayCapture.AudioHandler? = nil
-    ) async throws {
-        if capture != nil { return }
+    ) async throws -> (width: Int, height: Int) {
+        if capture != nil { return (width, height) }
 
         let capture = GBearDisplayCapture(
             encodedHandler: { [weak self] data, isKeyframe, w, h in
@@ -130,10 +132,10 @@ actor GBearVideoStreamServer {
             },
             audioHandler: audioHandler
         )
-        try await capture.start(width: width, height: height, fps: fps, bitrate: bitrate, tuning: tuning)
+        let size = try await capture.start(width: width, height: height, fps: fps, bitrate: bitrate, tuning: tuning)
         self.capture = capture
         resetBitRateStats(target: bitrate)
-        bitrateLog = GBearBitrateLog(width: width, height: height, fps: fps, tuning: tuning)
+        bitrateLog = GBearBitrateLog(width: size.width, height: size.height, fps: fps, tuning: tuning)
         bitrateSampler?.cancel()
         bitrateSampler = Task { [weak self] in
             while !Task.isCancelled {
@@ -142,6 +144,7 @@ actor GBearVideoStreamServer {
                 await self?.sampleBitrate()
             }
         }
+        return size
     }
 
     func startStream(

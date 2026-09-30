@@ -27,8 +27,19 @@ final class GBearDisplayCapture: NSObject, @unchecked Sendable {
         super.init()
     }
 
-    func start(width: Int, height: Int, fps: Int, bitrate: Int = 8_000_000, tuning: GBearVideoTuning = .lan) async throws {
+    /// Captures at the display's own shape, as large as fits inside `width`×`height`, so viewers can
+    /// fit the picture without stretching or baked-in black bars. Returns the size actually encoded.
+    @discardableResult
+    func start(width: Int, height: Int, fps: Int, bitrate: Int = 8_000_000, tuning: GBearVideoTuning = .lan) async throws -> (width: Int, height: Int) {
         #if canImport(ScreenCaptureKit)
+        let content = try await SCShareableContent.excludingDesktopWindows(false, onScreenWindowsOnly: true)
+        guard let display = content.displays.first else {
+            throw NSError(domain: "GBearDisplayCapture", code: 1, userInfo: [NSLocalizedDescriptionKey: "No display to capture"])
+        }
+        GBearStreamDisplayContext.update(for: display.displayID)
+        let size = Self.fittedSize(boxWidth: width, boxHeight: height, displayWidth: display.width, displayHeight: display.height)
+        let width = size.width
+        let height = size.height
         try encoder.prepare(
             width: Int32(width),
             height: Int32(height),
@@ -36,12 +47,6 @@ final class GBearDisplayCapture: NSObject, @unchecked Sendable {
             averageBitRate: bitrate,
             tuning: tuning
         )
-
-        let content = try await SCShareableContent.excludingDesktopWindows(false, onScreenWindowsOnly: true)
-        guard let display = content.displays.first else {
-            throw NSError(domain: "GBearDisplayCapture", code: 1, userInfo: [NSLocalizedDescriptionKey: "No display to capture"])
-        }
-        GBearStreamDisplayContext.update(for: display.displayID)
 
         displayID = display.displayID
         let filter = Self.filter(display: display, content: content)
@@ -77,9 +82,26 @@ final class GBearDisplayCapture: NSObject, @unchecked Sendable {
         ) { [weak self] _ in
             Task { await self?.refreshExclusions() }
         }
+        return size
         #else
         throw NSError(domain: "GBearDisplayCapture", code: 2, userInfo: [NSLocalizedDescriptionKey: "ScreenCaptureKit unavailable"])
         #endif
+    }
+
+    /// Even dimensions (H.264 4:2:0) at the display's aspect ratio, never larger than the box.
+    static func fittedSize(boxWidth: Int, boxHeight: Int, displayWidth: Int, displayHeight: Int) -> (width: Int, height: Int) {
+        guard boxWidth > 0, boxHeight > 0, displayWidth > 0, displayHeight > 0 else {
+            return (boxWidth, boxHeight)
+        }
+        let aspect = Double(displayWidth) / Double(displayHeight)
+        var width = Double(boxWidth)
+        var height = Double(boxHeight)
+        if width / height > aspect {
+            width = height * aspect
+        } else {
+            height = width / aspect
+        }
+        return (max(2, Int(width) & ~1), max(2, Int(height) & ~1))
     }
 
     func requestKeyframe() {

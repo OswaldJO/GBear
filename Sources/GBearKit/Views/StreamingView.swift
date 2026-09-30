@@ -7,6 +7,7 @@ struct StreamingView: View {
     @State private var guestManager = GBearStreamGuestManager.shared
     @State private var remoteHost = GBearRemoteCoopHost.shared
     @State private var bitrateOverlay = GBearBitrateOverlay.shared
+    @AppStorage(GBearGuestVideoRenderer.upscaleDefaultsKey) private var guestUpscale = true
     @State private var confirmDisconnect = false
     @State private var streamLogSavedPath: String?
     private let timer = Timer.publish(every: 1, on: .main, in: .common).autoconnect()
@@ -272,6 +273,15 @@ struct StreamingView: View {
                 Task { await guestManager.joinRemote() }
             }
             .disabled(guestManager.phase == .pairing || guestManager.phase == .streaming)
+            guestUpscaleToggle
+        }
+    }
+
+    @ViewBuilder
+    private var guestUpscaleToggle: some View {
+        if GBearGuestVideoRenderer.shared.isUpscalerSupported {
+            Toggle("Sharpen the picture with MetalFX", isOn: $guestUpscale)
+                .help("When the stream window is bigger than the picture the host sends, Apple's MetalFX upscaler enlarges it with sharper edges than plain scaling. Adds about 2 ms of GPU work per frame.")
         }
     }
 
@@ -405,6 +415,7 @@ struct StreamingView: View {
                 }
                 .disabled(guestManager.phase == .idle)
             }
+            guestUpscaleToggle
         }
     }
 

@@ -259,6 +259,15 @@ For release notes style summaries, see `source control log.md`. For architecture
 
 ## Streaming — architecture (Sunshine → native GBear)
 
+### BJ-114 — Guest picture stretched and pillarboxed
+| | |
+|---|---|
+| **When** | Sep 29 2026 |
+| **Symptom** | On the companion, the host MacBook's screen looked wider than it should and soft; Windows guests saw the same. |
+| **Cause** | The host always encoded a 16:9 frame (1280×720, later 1920×1080). ScreenCaptureKit fit the 16:10 MacBook screen inside it with black side bars, wasting ~13% of the pixels. The companion's `SurfaceView` was `MATCH_PARENT` and the Windows guest used `StretchDIBits` to the whole client area, so both then stretched that frame to their screen's shape. |
+| **Fix** | `GBearDisplayCapture.fittedSize` captures at the display's aspect inside the requested box (1662×1080 for a 1512×982-point MacBook). Companion `fitSurfaceToVideo` centers the picture at its own shape (touch area stays full screen); Windows guest letterboxes; Mac guest renders with aspect fit via `GBearGuestVideoRenderer` and sizes its window to the picture. Harness: sizes, decode of real 1662×1080 H.264, renderer. Not yet tested live. |
+| **Commit** | release **v1.3.0** |
+
 ### BJ-113 — Remote co-op audio tore and lagged at 1080p
 | | |
 |---|---|

@@ -427,11 +427,11 @@ final class GBearStreamHostManager {
         captureTask?.cancel()
         captureTask = Task { @MainActor in
             do {
-                try await video.startCapture(width: width, height: height, fps: fps, bitrate: bitrate, tuning: tuning) { pcm, sampleRate, channels in
+                let size = try await video.startCapture(width: width, height: height, fps: fps, bitrate: bitrate, tuning: tuning) { pcm, sampleRate, channels in
                     Task { await audioServer.sendPCM(pcm, sampleRate: sampleRate, channels: channels) }
                 }
-                GBearStreamSessionLog.i("Capture started \(width)x\(height) @ \(fps)fps")
-                print("[GBearStream] companion stream \(width)x\(height) @ \(fps)fps")
+                GBearStreamSessionLog.i("Capture started \(size.width)x\(size.height) @ \(fps)fps (fits \(width)x\(height))")
+                print("[GBearStream] companion stream \(size.width)x\(size.height) @ \(fps)fps")
             } catch {
                 if !Task.isCancelled {
                     let message = error.localizedDescription

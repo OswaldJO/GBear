@@ -33,9 +33,27 @@ final class GBearGuestVideoWindow: NSObject, NSWindowDelegate {
         window.backgroundColor = .black
         window.contentView = NSHostingView(rootView: GBearGuestVideoWindowContent())
         window.delegate = self
+        GBearGuestVideoRenderer.shared.onVideoSizeChange = { size in
+            GBearGuestVideoWindow.shared.matchVideoShape(size)
+        }
         window.center()
         window.makeKeyAndOrderFront(nil)
         self.window = window
+    }
+
+    /// Resizes the window to the stream's shape (for example 16:10 from a MacBook) so there are no bars.
+    func matchVideoShape(_ size: CGSize) {
+        guard let window, size.width > 0, size.height > 0,
+              !window.styleMask.contains(.fullScreen) else { return }
+        window.contentAspectRatio = size
+        let current = window.contentLayoutRect.size
+        let height = (current.width * size.height / size.width).rounded()
+        guard abs(height - current.height) > 1 else { return }
+        var frame = window.frame
+        let newFrame = window.frameRect(forContentRect: NSRect(origin: .zero, size: NSSize(width: current.width, height: height)))
+        frame.origin.y += frame.height - newFrame.height
+        frame.size = newFrame.size
+        window.setFrame(frame, display: true, animate: false)
     }
 
     func updateTitle(_ title: String) {
@@ -64,10 +82,8 @@ final class GBearGuestVideoWindow: NSObject, NSWindowDelegate {
 }
 
 private struct GBearGuestVideoWindowContent: View {
-    @State private var guestManager = GBearStreamGuestManager.shared
-
     var body: some View {
-        GBearGuestVideoView(sample: guestManager.latestSample)
+        GBearGuestVideoView()
             .frame(maxWidth: .infinity, maxHeight: .infinity)
             .background(.black)
             .ignoresSafeArea()

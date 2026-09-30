@@ -11,6 +11,7 @@ import android.os.Bundle
 import android.os.Handler
 import android.os.HandlerThread
 import android.os.SystemClock
+import android.view.Gravity
 import android.view.MotionEvent
 import android.view.Surface
 import android.view.SurfaceHolder
@@ -35,6 +36,8 @@ import java.util.concurrent.atomic.AtomicBoolean
  */
 class GBearVideoActivity : Activity(), SurfaceHolder.Callback {
     private lateinit var surfaceView: SurfaceView
+    // Full-screen touch area; the picture inside it keeps the Mac screen's shape.
+    private lateinit var videoContainer: FrameLayout
     private var renderSurface: Surface? = null
     private var decoder: MediaCodec? = null
     private var socket: Socket? = null
@@ -181,8 +184,8 @@ class GBearVideoActivity : Activity(), SurfaceHolder.Callback {
         inputSender = GBearInputSender(
             host = streamHost,
             port = inputPort,
-            viewWidth = { surfaceView.width.coerceAtLeast(1) },
-            viewHeight = { surfaceView.height.coerceAtLeast(1) },
+            viewWidth = { videoContainer.width.coerceAtLeast(1) },
+            viewHeight = { videoContainer.height.coerceAtLeast(1) },
             touchSlopPx = touchSlop,
             cursorSensitivity = sensitivity,
             tapTimeoutMs = tapTimeoutMs.coerceIn(150L, 800L),
@@ -193,22 +196,25 @@ class GBearVideoActivity : Activity(), SurfaceHolder.Callback {
             port = inputPort,
             stickSensitivity = swapStickSensitivity,
         )
-        surfaceView.setOnTouchListener { _, event ->
-            inputSender?.handleTouch(event) == true
+        videoContainer = FrameLayout(this).apply {
+            setBackgroundColor(Color.BLACK)
+            addView(
+                surfaceView,
+                FrameLayout.LayoutParams(
+                    FrameLayout.LayoutParams.MATCH_PARENT,
+                    FrameLayout.LayoutParams.MATCH_PARENT,
+                    Gravity.CENTER,
+                ),
+            )
+            // The trackpad covers the whole screen, black bars included.
+            setOnTouchListener { _, event -> inputSender?.handleTouch(event) == true }
+            addOnLayoutChangeListener { view, left, top, right, bottom, oldLeft, oldTop, oldRight, oldBottom ->
+                if (right - left != oldRight - oldLeft || bottom - top != oldBottom - oldTop) {
+                    view.post { fitSurfaceToVideo() }
+                }
+            }
         }
-
-        setContentView(
-            FrameLayout(this).apply {
-                setBackgroundColor(Color.BLACK)
-                addView(
-                    surfaceView,
-                    FrameLayout.LayoutParams(
-                        FrameLayout.LayoutParams.MATCH_PARENT,
-                        FrameLayout.LayoutParams.MATCH_PARENT,
-                    ),
-                )
-            },
-        )
+        setContentView(videoContainer)
 
         codecThread = HandlerThread("GBearCodec").apply { start() }
         codecHandler = Handler(codecThread!!.looper)
@@ -319,6 +325,22 @@ class GBearVideoActivity : Activity(), SurfaceHolder.Callback {
                 }
             }
         })
+    }
+
+    /** Largest picture with the stream's shape that fits the screen; the rest stays black. */
+    private fun fitSurfaceToVideo() {
+        if (!::videoContainer.isInitialized) return
+        val containerW = videoContainer.width
+        val containerH = videoContainer.height
+        val videoW = configuredWidth
+        val videoH = configuredHeight
+        if (containerW <= 0 || containerH <= 0 || videoW <= 0 || videoH <= 0) return
+        val scale = minOf(containerW.toFloat() / videoW, containerH.toFloat() / videoH)
+        val w = (videoW * scale).toInt().coerceIn(1, containerW)
+        val h = (videoH * scale).toInt().coerceIn(1, containerH)
+        val current = surfaceView.layoutParams
+        if (current != null && current.width == w && current.height == h) return
+        surfaceView.layoutParams = FrameLayout.LayoutParams(w, h, Gravity.CENTER)
     }
 
     override fun surfaceCreated(holder: SurfaceHolder) {
@@ -1018,6 +1040,7 @@ class GBearVideoActivity : Activity(), SurfaceHolder.Callback {
                 configuredHeight = h
                 runOnUiThread { surfaceView.holder.setFixedSize(w, h) }
             }
+            runOnUiThread { fitSurfaceToVideo() }
             presentationUs = 0L
             outputBuffersSeen = 0
             GBearStreamLog.i(

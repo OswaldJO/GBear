@@ -1,43 +1,56 @@
-import AVFoundation
-import CoreMedia
+import AppKit
+import QuartzCore
 import SwiftUI
 
+/// Guest picture. Frames go straight from the decoder to `GBearGuestVideoRenderer`, not through SwiftUI.
 struct GBearGuestVideoView: NSViewRepresentable {
-    var sample: CMSampleBuffer?
-
     func makeNSView(context: Context) -> GBearGuestVideoNSView {
         GBearGuestVideoNSView()
     }
 
-    func updateNSView(_ nsView: GBearGuestVideoNSView, context: Context) {
-        if let sample {
-            nsView.enqueue(sample)
-        }
-    }
+    func updateNSView(_ nsView: GBearGuestVideoNSView, context: Context) {}
 }
 
 final class GBearGuestVideoNSView: NSView {
-    private let displayLayer = AVSampleBufferDisplayLayer()
+    private let metalLayer = GBearGuestVideoRenderer.shared.makeLayer()
 
     override init(frame frameRect: NSRect) {
         super.init(frame: frameRect)
         wantsLayer = true
-        layer = displayLayer
-        displayLayer.videoGravity = .resizeAspect
-        displayLayer.backgroundColor = NSColor.black.cgColor
+        layer = metalLayer
     }
 
     required init?(coder: NSCoder) {
         super.init(coder: coder)
         wantsLayer = true
-        layer = displayLayer
-        displayLayer.videoGravity = .resizeAspect
+        layer = metalLayer
     }
 
-    func enqueue(_ sample: CMSampleBuffer) {
-        if displayLayer.status == .failed {
-            displayLayer.flush()
+    override func viewDidMoveToWindow() {
+        super.viewDidMoveToWindow()
+        if window != nil {
+            updateDrawableSize()
+            GBearGuestVideoRenderer.shared.attach(metalLayer)
+        } else {
+            GBearGuestVideoRenderer.shared.detach(metalLayer)
         }
-        displayLayer.enqueue(sample)
+    }
+
+    override func viewDidChangeBackingProperties() {
+        super.viewDidChangeBackingProperties()
+        updateDrawableSize()
+    }
+
+    override func layout() {
+        super.layout()
+        updateDrawableSize()
+    }
+
+    private func updateDrawableSize() {
+        let scale = window?.backingScaleFactor ?? NSScreen.main?.backingScaleFactor ?? 2
+        metalLayer.contentsScale = scale
+        GBearGuestVideoRenderer.shared.setDrawableSize(
+            CGSize(width: (bounds.width * scale).rounded(), height: (bounds.height * scale).rounded())
+        )
     }
 }

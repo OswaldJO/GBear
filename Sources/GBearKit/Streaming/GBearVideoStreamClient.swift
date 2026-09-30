@@ -6,7 +6,8 @@ import VideoToolbox
 
 /// Outbound TCP client for `GBV1` H.264 (computer guest).
 final class GBearVideoStreamClient: @unchecked Sendable {
-    var onSampleBuffer: ((CMSampleBuffer) -> Void)?
+    /// Decoded BGRA frames, called on a decoder thread.
+    var onPixelBuffer: (@Sendable (CVPixelBuffer) -> Void)?
     var onEnded: ((String) -> Void)?
 
     private var connection: NWConnection?
@@ -115,11 +116,20 @@ final class GBearVideoStreamClient: @unchecked Sendable {
         if isKeyframe || formatDescription == nil {
             if let newFormat = GBearH264AnnexB.formatDescription(from: annexB) {
                 formatDescription = newFormat
+                // Keyframes repeat the same SPS/PPS; only rebuild the decoder when the format changes.
+                if let session = decompressionSession,
+                   VTDecompressionSessionCanAcceptFormatDescription(session, formatDescription: newFormat) {
+                    return decode(annexB)
+                }
                 if let session = decompressionSession {
                     VTDecompressionSessionInvalidate(session)
                 }
                 var session: VTDecompressionSession?
-                let attrs: [NSString: Any] = [kCVPixelBufferPixelFormatTypeKey: kCVPixelFormatType_32BGRA]
+                let attrs: [NSString: Any] = [
+                    kCVPixelBufferPixelFormatTypeKey: kCVPixelFormatType_32BGRA,
+                    kCVPixelBufferMetalCompatibilityKey: true,
+                    kCVPixelBufferIOSurfacePropertiesKey: [:] as [String: Any],
+                ]
                 VTDecompressionSessionCreate(
                     allocator: kCFAllocatorDefault,
                     formatDescription: newFormat,
@@ -128,10 +138,17 @@ final class GBearVideoStreamClient: @unchecked Sendable {
                     outputCallback: nil,
                     decompressionSessionOut: &session
                 )
+                if let session {
+                    VTSessionSetProperty(session, key: kVTDecompressionPropertyKey_RealTime, value: kCFBooleanTrue)
+                }
                 decompressionSession = session
             }
         }
-        guard let formatDescription,
+        decode(annexB)
+    }
+
+    private func decode(_ annexB: Data) {
+        guard let formatDescription, let decompressionSession,
               let avcc = GBearH264AnnexB.annexBToAVCC(annexB) else { return }
         var block: CMBlockBuffer?
         let raw = UnsafeMutablePointer<UInt8>.allocate(capacity: avcc.count)
@@ -171,8 +188,15 @@ final class GBearVideoStreamClient: @unchecked Sendable {
             sampleBufferOut: &sample
         )
         guard let sample else { return }
-        if let onSampleBuffer {
-            DispatchQueue.main.async { onSampleBuffer(sample) }
+        let deliver = onPixelBuffer
+        VTDecompressionSessionDecodeFrame(
+            decompressionSession,
+            sampleBuffer: sample,
+            flags: [],
+            infoFlagsOut: nil
+        ) { status, _, imageBuffer, _, _ in
+            guard status == noErr, let imageBuffer else { return }
+            deliver?(imageBuffer)
         }
     }
 }

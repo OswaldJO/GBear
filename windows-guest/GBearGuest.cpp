@@ -1064,13 +1064,33 @@ public:
             FillRect(dc, &video, (HBRUSH)(COLOR_WINDOW + 1));
             return;
         }
+        // Keep the host screen's shape; fill the rest of the area with black.
+        int areaW = client.right;
+        int areaH = client.bottom - top;
+        int drawW = areaW;
+        int drawH = areaW > 0 ? (int)((long long)areaW * h / w) : 0;
+        if (drawH > areaH) {
+            drawH = areaH;
+            drawW = (int)((long long)areaH * w / h);
+        }
+        int drawX = (areaW - drawW) / 2;
+        int drawY = top + (areaH - drawH) / 2;
+        HBRUSH black = (HBRUSH)GetStockObject(BLACK_BRUSH);
+        RECT bar{0, top, client.right, drawY};
+        FillRect(dc, &bar, black);
+        bar = RECT{0, drawY + drawH, client.right, client.bottom};
+        FillRect(dc, &bar, black);
+        bar = RECT{0, drawY, drawX, drawY + drawH};
+        FillRect(dc, &bar, black);
+        bar = RECT{drawX + drawW, drawY, client.right, drawY + drawH};
+        FillRect(dc, &bar, black);
         SetStretchBltMode(dc, HALFTONE);
         StretchDIBits(
             dc,
-            0,
-            top,
-            client.right,
-            client.bottom - top,
+            drawX,
+            drawY,
+            drawW,
+            drawH,
             0,
             0,
             w,
