@@ -15,6 +15,10 @@
 #include <mftransform.h>
 #include <mferror.h>
 #include <xinput.h>
+#include <objidl.h>
+#include <commctrl.h>
+#include <dwmapi.h>
+#include <uxtheme.h>
 
 #include "GBearWinHost.h"
 
@@ -27,6 +31,11 @@
 #include <string>
 #include <thread>
 #include <vector>
+
+#include <algorithm>
+using std::max;
+using std::min;
+#include <gdiplus.h>
 
 #pragma comment(lib, "winhttp.lib")
 #pragma comment(lib, "ws2_32.lib")
@@ -57,9 +66,74 @@ constexpr UINT WM_APP_PAIR = WM_APP + 4;
 constexpr int IDC_HOST = 101;
 constexpr int IDC_SEAT = 102;
 constexpr int IDC_JOIN = 103;
-constexpr int IDC_STATUS = 104;
 constexpr int IDC_HOST_BTN = 105;
 constexpr int IDC_PAIR = 106;
+
+// Same palette as the companion app (companion_theme.dart).
+namespace ui {
+constexpr COLORREF kBackground = RGB(0x0E, 0x10, 0x14);
+constexpr COLORREF kSurface = RGB(0x16, 0x19, 0x20);
+constexpr COLORREF kCard = RGB(0x1C, 0x20, 0x28);
+constexpr COLORREF kField = RGB(0x23, 0x28, 0x33);
+constexpr COLORREF kOutline = RGB(0x2C, 0x32, 0x3D);
+constexpr COLORREF kFieldOutline = RGB(0x3A, 0x42, 0x50);
+constexpr COLORREF kPrimary = RGB(0x6E, 0xB5, 0xFF);
+constexpr COLORREF kText = RGB(0xE6, 0xE9, 0xEF);
+constexpr COLORREF kTextSecondary = RGB(0xA3, 0xAB, 0xB8);
+constexpr COLORREF kTextTertiary = RGB(0x6F, 0x78, 0x86);
+constexpr COLORREF kDanger = RGB(0xEF, 0x6B, 0x62);
+constexpr COLORREF kSuccess = RGB(0x5B, 0xD3, 0x7A);
+constexpr COLORREF kWaiting = RGB(0xF2, 0xC1, 0x4E);
+
+Gdiplus::Color color(COLORREF c, BYTE alpha = 255) {
+    return Gdiplus::Color(alpha, GetRValue(c), GetGValue(c), GetBValue(c));
+}
+
+// `t` of `over` on top of `base`.
+COLORREF blend(COLORREF base, COLORREF over, float t) {
+    auto mix = [t](int a, int b) { return (BYTE)std::lround(a + (b - a) * t); };
+    return RGB(mix(GetRValue(base), GetRValue(over)), mix(GetGValue(base), GetGValue(over)), mix(GetBValue(base), GetBValue(over)));
+}
+
+void roundedPath(Gdiplus::GraphicsPath& path, float x, float y, float w, float h, float radius) {
+    float d = std::min(radius * 2, std::min(w, h));
+    path.AddArc(x, y, d, d, 180, 90);
+    path.AddArc(x + w - d, y, d, d, 270, 90);
+    path.AddArc(x + w - d, y + h - d, d, d, 0, 90);
+    path.AddArc(x, y + h - d, d, d, 90, 90);
+    path.CloseFigure();
+}
+
+void fillRounded(Gdiplus::Graphics& g, float x, float y, float w, float h, float radius, COLORREF fill, BYTE alpha = 255) {
+    Gdiplus::GraphicsPath path;
+    roundedPath(path, x, y, w, h, radius);
+    Gdiplus::SolidBrush brush(color(fill, alpha));
+    g.FillPath(&brush, &path);
+}
+
+void strokeRounded(Gdiplus::Graphics& g, float x, float y, float w, float h, float radius, COLORREF stroke, float width, BYTE alpha = 255) {
+    Gdiplus::GraphicsPath path;
+    roundedPath(path, x + width / 2, y + width / 2, w - width, h - width, radius);
+    Gdiplus::Pen pen(color(stroke, alpha), width);
+    g.DrawPath(&pen, &path);
+}
+
+void drawText(HDC dc, HFONT font, COLORREF c, const std::wstring& text, RECT r, UINT format) {
+    HGDIOBJ old = SelectObject(dc, font);
+    SetBkMode(dc, TRANSPARENT);
+    SetTextColor(dc, c);
+    DrawTextW(dc, text.c_str(), (int)text.size(), &r, format | DT_NOPREFIX);
+    SelectObject(dc, old);
+}
+
+int textWidth(HDC dc, HFONT font, const std::wstring& text) {
+    HGDIOBJ old = SelectObject(dc, font);
+    SIZE size{};
+    GetTextExtentPoint32W(dc, text.c_str(), (int)text.size(), &size);
+    SelectObject(dc, old);
+    return size.cx;
+}
+}  // namespace ui
 
 enum Button : uint32_t {
     kA = 1u << 0,
@@ -640,7 +714,21 @@ public:
     HWND joinButton = nullptr;
     HWND hostButton = nullptr;
     HWND pairButton = nullptr;
-    HWND statusLabel = nullptr;
+    double scale = 1.0;
+    HFONT titleFont = nullptr;
+    HFONT bodyFont = nullptr;
+    HFONT buttonFont = nullptr;
+    HFONT smallFont = nullptr;
+    HFONT headlineFont = nullptr;
+    HBRUSH backgroundBrush = nullptr;
+    HBRUSH surfaceBrush = nullptr;
+    HBRUSH cardBrush = nullptr;
+    HBRUSH fieldBrush = nullptr;
+    HICON appIcon = nullptr;
+    HICON appIconLarge = nullptr;
+    int bodyLineHeight = 18;
+    RECT card{};
+    RECT hostField{};
     bool hosting = false;
     std::mutex pairMu;
     std::string pendingPairId;
@@ -747,6 +835,7 @@ public:
         EnableWindow(joinButton, FALSE);
         EnableWindow(pairButton, FALSE);
         SetWindowTextW(hostButton, L"Stop hosting");
+        InvalidateRect(hwnd, nullptr, FALSE);
     }
 
     void stopHosting() {
@@ -1045,10 +1134,156 @@ public:
         return out;
     }
 
+    int S(double value) const { return (int)std::lround(value * scale); }
+    int headerHeight() const { return S(172); }
+    int appBarHeight() const { return S(60); }
+
+    void createUi(HINSTANCE inst) {
+        HDC screen = GetDC(nullptr);
+        scale = GetDeviceCaps(screen, LOGPIXELSX) / 96.0;
+        auto font = [&](int px, int weight) {
+            return CreateFontW(-S(px), 0, 0, 0, weight, FALSE, FALSE, FALSE, DEFAULT_CHARSET, OUT_DEFAULT_PRECIS,
+                               CLIP_DEFAULT_PRECIS, CLEARTYPE_QUALITY, DEFAULT_PITCH | FF_SWISS, L"Segoe UI");
+        };
+        titleFont = font(20, FW_SEMIBOLD);
+        bodyFont = font(14, FW_NORMAL);
+        buttonFont = font(14, FW_SEMIBOLD);
+        smallFont = font(12, FW_NORMAL);
+        headlineFont = font(18, FW_SEMIBOLD);
+        HGDIOBJ old = SelectObject(screen, bodyFont);
+        TEXTMETRICW metrics{};
+        GetTextMetricsW(screen, &metrics);
+        bodyLineHeight = metrics.tmHeight;
+        SelectObject(screen, old);
+        ReleaseDC(nullptr, screen);
+
+        backgroundBrush = CreateSolidBrush(ui::kBackground);
+        surfaceBrush = CreateSolidBrush(ui::kSurface);
+        cardBrush = CreateSolidBrush(ui::kCard);
+        fieldBrush = CreateSolidBrush(ui::kField);
+        appIcon = (HICON)LoadImageW(inst, MAKEINTRESOURCEW(1), IMAGE_ICON, S(32), S(32), 0);
+        appIconLarge = (HICON)LoadImageW(inst, MAKEINTRESOURCEW(1), IMAGE_ICON, S(96), S(96), 0);
+    }
+
+    void layout() {
+        if (!hwnd || !hostEdit) return;
+        RECT client;
+        GetClientRect(hwnd, &client);
+        int cardX = S(20);
+        int cardY = appBarHeight() + S(16);
+        int cardH = S(64);
+        card = RECT{cardX, cardY, std::max(cardX + S(200), (int)client.right - S(20)), cardY + cardH};
+        int fieldH = S(36);
+        int y = cardY + (cardH - fieldH) / 2;
+        int x = cardX + S(14);
+        int hostW = S(260);
+        hostField = RECT{x, y, x + hostW, y + fieldH};
+        int editH = bodyLineHeight + S(2);
+        MoveWindow(hostEdit, x + S(12), y + (fieldH - editH) / 2, hostW - S(24), editH, TRUE);
+        x += hostW + S(10);
+        RECT comboRect;
+        GetWindowRect(seatCombo, &comboRect);
+        int comboH = comboRect.bottom - comboRect.top;
+        MoveWindow(seatCombo, x, y + (fieldH - comboH) / 2, S(200), S(320), TRUE);
+        x += S(200) + S(16);
+        MoveWindow(joinButton, x, y, S(96), fieldH, TRUE);
+        x += S(96) + S(10);
+        MoveWindow(hostButton, x, y, S(140), fieldH, TRUE);
+        x += S(140) + S(10);
+        MoveWindow(pairButton, x, y, S(88), fieldH, TRUE);
+    }
+
+    COLORREF statusDotColor() const {
+        if (streaming.load()) return ui::kSuccess;
+        if (hosting) return ui::kPrimary;
+        if (sessionThread.joinable()) return ui::kWaiting;
+        return ui::kTextTertiary;
+    }
+
+    void paintHeader(HDC dc, int width) {
+        int height = headerHeight();
+        int barH = appBarHeight();
+        RECT all{0, 0, width, height};
+        FillRect(dc, &all, backgroundBrush);
+        RECT bar{0, 0, width, barH};
+        FillRect(dc, &bar, surfaceBrush);
+        RECT divider{0, barH - 1, width, barH};
+        HBRUSH outline = CreateSolidBrush(ui::kOutline);
+        FillRect(dc, &divider, outline);
+        DeleteObject(outline);
+
+        int statusY = card.bottom + (height - card.bottom) / 2;
+        {
+            Gdiplus::Graphics g(dc);
+            g.SetSmoothingMode(Gdiplus::SmoothingModeAntiAlias);
+            float cardW = (float)(card.right - card.left);
+            float cardH = (float)(card.bottom - card.top);
+            ui::fillRounded(g, (float)card.left, (float)card.top, cardW, cardH, (float)S(12), ui::kCard);
+            ui::strokeRounded(g, (float)card.left, (float)card.top, cardW, cardH, (float)S(12), ui::kOutline, 1.0f);
+            float fieldW = (float)(hostField.right - hostField.left);
+            float fieldH = (float)(hostField.bottom - hostField.top);
+            ui::fillRounded(g, (float)hostField.left, (float)hostField.top, fieldW, fieldH, (float)S(10), ui::kField);
+            ui::strokeRounded(g, (float)hostField.left, (float)hostField.top, fieldW, fieldH, (float)S(10), ui::kFieldOutline, 1.0f);
+            Gdiplus::SolidBrush dot(ui::color(statusDotColor()));
+            g.FillEllipse(&dot, (float)S(26), (float)(statusY - S(4)), (float)S(8), (float)S(8));
+        }
+
+        int x = S(20);
+        if (appIcon) {
+            DrawIconEx(dc, x, (barH - S(32)) / 2, appIcon, S(32), S(32), 0, nullptr, DI_NORMAL);
+            x += S(32) + S(12);
+        }
+        std::wstring title = L"GBear";
+        ui::drawText(dc, titleFont, ui::kText, title, RECT{x, 0, width, barH}, DT_SINGLELINE | DT_VCENTER | DT_LEFT);
+        x += ui::textWidth(dc, titleFont, title) + S(10);
+        ui::drawText(dc, bodyFont, ui::kTextSecondary, L"Couch co-op", RECT{x, S(2), width, barH}, DT_SINGLELINE | DT_VCENTER | DT_LEFT);
+        ui::drawText(dc, smallFont, ui::kTextTertiary, L"Esc leaves the stream  \u00B7  I flips the picture",
+                     RECT{0, 0, width - S(20), barH}, DT_SINGLELINE | DT_VCENTER | DT_RIGHT);
+
+        std::string text;
+        {
+            std::lock_guard<std::mutex> lock(statusMu);
+            text = status;
+        }
+        ui::drawText(dc, bodyFont, ui::kTextSecondary, utf8ToWide(text),
+                     RECT{S(42), statusY - S(12), width - S(20), statusY + S(12)},
+                     DT_SINGLELINE | DT_VCENTER | DT_LEFT | DT_END_ELLIPSIS);
+    }
+
+    void paintPlaceholder(HDC dc, RECT area) {
+        FillRect(dc, &area, backgroundBrush);
+        int cx = (area.left + area.right) / 2;
+        int cy = (area.top + area.bottom) / 2;
+        int iconSize = S(96);
+        int top = cy - S(90);
+        if (appIconLarge) {
+            DrawIconEx(dc, cx - iconSize / 2, top, appIconLarge, iconSize, iconSize, 0, nullptr, DI_NORMAL);
+        }
+        top += iconSize + S(20);
+        ui::drawText(dc, headlineFont, ui::kText, L"No picture yet",
+                     RECT{area.left, top, area.right, top + S(28)}, DT_SINGLELINE | DT_CENTER | DT_VCENTER);
+        top += S(32);
+        std::wstring hint = hosting
+            ? L"You're hosting. The Mac that joins sees this PC's screen and plays as another player."
+            : L"Enter the host's IP address and choose Join. Its screen shows up here.";
+        ui::drawText(dc, bodyFont, ui::kTextSecondary, hint,
+                     RECT{area.left + S(20), top, area.right - S(20), top + S(24)}, DT_SINGLELINE | DT_CENTER | DT_VCENTER | DT_END_ELLIPSIS);
+    }
+
     void paint(HDC dc) {
         RECT client;
         GetClientRect(hwnd, &client);
-        int top = 80;
+        int top = headerHeight();
+
+        HDC mem = CreateCompatibleDC(dc);
+        HBITMAP bitmap = CreateCompatibleBitmap(dc, std::max(1, (int)client.right), top);
+        HGDIOBJ oldBitmap = SelectObject(mem, bitmap);
+        paintHeader(mem, client.right);
+        BitBlt(dc, 0, 0, client.right, top, mem, 0, 0, SRCCOPY);
+        SelectObject(mem, oldBitmap);
+        DeleteObject(bitmap);
+        DeleteDC(mem);
+
         RECT video{0, top, client.right, client.bottom};
         std::vector<uint8_t> copy;
         int w = 0, h = 0;
@@ -1061,7 +1296,7 @@ public:
             info = frameInfo;
         }
         if (copy.empty() || w <= 0 || h <= 0) {
-            FillRect(dc, &video, (HBRUSH)(COLOR_WINDOW + 1));
+            paintPlaceholder(dc, video);
             return;
         }
         // Keep the host screen's shape; fill the rest of the area with black.
@@ -1102,6 +1337,77 @@ public:
         );
     }
 
+    void drawButton(const DRAWITEMSTRUCT* item) {
+        RECT rc = item->rcItem;
+        int w = rc.right - rc.left;
+        int h = rc.bottom - rc.top;
+        if (w <= 0 || h <= 0) return;
+        HDC mem = CreateCompatibleDC(item->hDC);
+        HBITMAP bitmap = CreateCompatibleBitmap(item->hDC, w, h);
+        HGDIOBJ oldBitmap = SelectObject(mem, bitmap);
+        RECT local{0, 0, w, h};
+        FillRect(mem, &local, cardBrush);
+
+        wchar_t label[64] = L"";
+        GetWindowTextW(item->hwndItem, label, 64);
+        bool disabled = (item->itemState & ODS_DISABLED) != 0;
+        bool pressed = (item->itemState & ODS_SELECTED) != 0;
+        bool filled = true;
+        COLORREF accent = ui::kPrimary;
+        if (item->CtlID == IDC_JOIN) {
+            if (wcscmp(label, L"Leave") == 0) accent = ui::kDanger;
+        } else if (item->CtlID == IDC_HOST_BTN) {
+            filled = false;
+            accent = hosting ? ui::kDanger : ui::kText;
+        } else if (disabled) {
+            filled = false;
+            accent = ui::kText;
+        }
+        BYTE alpha = disabled ? 97 : 255;
+        {
+            Gdiplus::Graphics g(mem);
+            g.SetSmoothingMode(Gdiplus::SmoothingModeAntiAlias);
+            float radius = h / 2.0f;
+            if (filled) {
+                COLORREF fill = pressed ? ui::blend(accent, RGB(0, 0, 0), 0.18f) : accent;
+                ui::fillRounded(g, 0, 0, (float)w, (float)h, radius, fill, alpha);
+            } else {
+                if (pressed) ui::fillRounded(g, 0, 0, (float)w, (float)h, radius, accent, 36);
+                ui::strokeRounded(g, 0, 0, (float)w, (float)h, radius, accent, (float)std::max(1.0, 1.5 * scale), alpha);
+            }
+        }
+        COLORREF textColor = filled ? (accent == ui::kDanger ? RGB(255, 255, 255) : ui::kBackground) : accent;
+        if (disabled) textColor = ui::blend(ui::kCard, filled ? textColor : accent, 0.38f);
+        ui::drawText(mem, buttonFont, textColor, label, local, DT_SINGLELINE | DT_CENTER | DT_VCENTER);
+        BitBlt(item->hDC, rc.left, rc.top, w, h, mem, 0, 0, SRCCOPY);
+        SelectObject(mem, oldBitmap);
+        DeleteObject(bitmap);
+        DeleteDC(mem);
+    }
+
+    void drawSeatItem(const DRAWITEMSTRUCT* item) {
+        int index = (int)item->itemID;
+        if (index < 0) index = (int)SendMessageW(item->hwndItem, CB_GETCURSEL, 0, 0);
+        wchar_t text[64] = L"";
+        if (index >= 0) SendMessageW(item->hwndItem, CB_GETLBTEXT, index, (LPARAM)text);
+        bool field = (item->itemState & ODS_COMBOBOXEDIT) != 0;
+        bool selected = (item->itemState & ODS_SELECTED) != 0;
+        bool disabled = (item->itemState & ODS_DISABLED) != 0;
+        COLORREF background = (!field && selected) ? ui::blend(ui::kField, ui::kPrimary, 0.28f) : ui::kField;
+        HBRUSH brush = CreateSolidBrush(background);
+        FillRect(item->hDC, &item->rcItem, brush);
+        DeleteObject(brush);
+        RECT r = item->rcItem;
+        r.left += S(10);
+        if (field) {
+            std::wstring prefix = L"Join as  ";
+            ui::drawText(item->hDC, bodyFont, ui::kTextTertiary, prefix, r, DT_SINGLELINE | DT_VCENTER | DT_LEFT);
+            r.left += ui::textWidth(item->hDC, bodyFont, prefix);
+        }
+        ui::drawText(item->hDC, bodyFont, disabled ? ui::kTextTertiary : ui::kText, text, r,
+                     DT_SINGLELINE | DT_VCENTER | DT_LEFT | DT_END_ELLIPSIS);
+    }
+
     LRESULT handle(HWND window, UINT msg, WPARAM wParam, LPARAM lParam) {
         switch (msg) {
         case WM_COMMAND:
@@ -1136,19 +1442,18 @@ public:
             setStatus((name.empty() ? "A Mac" : name) + " wants to join. Click Pair.");
             return 0;
         }
-        case WM_APP_STATUS: {
-            std::string text;
-            {
-                std::lock_guard<std::mutex> lock(statusMu);
-                text = status;
-            }
-            SetWindowTextW(statusLabel, utf8ToWide(text).c_str());
+        case WM_APP_STATUS:
+            RedrawWindow(window, nullptr, nullptr, RDW_INVALIDATE | RDW_ALLCHILDREN);
+            return 0;
+        case WM_APP_FRAME: {
+            RECT client;
+            GetClientRect(window, &client);
+            RECT video{0, headerHeight(), client.right, client.bottom};
+            InvalidateRect(window, &video, FALSE);
             return 0;
         }
-        case WM_APP_FRAME:
-            InvalidateRect(window, nullptr, FALSE);
-            return 0;
         case WM_APP_PHASE:
+            RedrawWindow(window, nullptr, nullptr, RDW_INVALIDATE | RDW_ALLCHILDREN);
             if (!streaming.load()) {
                 EnableWindow(hostEdit, TRUE);
                 EnableWindow(seatCombo, TRUE);
@@ -1176,6 +1481,45 @@ public:
         }
         case WM_ERASEBKGND:
             return 1;
+        case WM_SIZE:
+            layout();
+            InvalidateRect(window, nullptr, FALSE);
+            return 0;
+        case WM_GETMINMAXINFO: {
+            auto* info = reinterpret_cast<MINMAXINFO*>(lParam);
+            info->ptMinTrackSize.x = S(920);
+            info->ptMinTrackSize.y = S(540);
+            return 0;
+        }
+        case WM_MEASUREITEM: {
+            auto* item = reinterpret_cast<MEASUREITEMSTRUCT*>(lParam);
+            if (item->CtlType == ODT_COMBOBOX) {
+                item->itemHeight = item->itemID == (UINT)-1 ? S(28) : S(30);
+                return TRUE;
+            }
+            break;
+        }
+        case WM_DRAWITEM: {
+            auto* item = reinterpret_cast<const DRAWITEMSTRUCT*>(lParam);
+            if (item->CtlType == ODT_BUTTON) {
+                drawButton(item);
+                return TRUE;
+            }
+            if (item->CtlType == ODT_COMBOBOX) {
+                drawSeatItem(item);
+                return TRUE;
+            }
+            break;
+        }
+        case WM_CTLCOLOREDIT:
+        case WM_CTLCOLORSTATIC:
+        case WM_CTLCOLORLISTBOX: {
+            HDC dc = (HDC)wParam;
+            bool dim = msg == WM_CTLCOLORSTATIC;
+            SetTextColor(dc, dim ? ui::kTextSecondary : ui::kText);
+            SetBkColor(dc, ui::kField);
+            return (LRESULT)fieldBrush;
+        }
         case WM_DESTROY:
             stop.store(true);
             if (hosting) stopHosting();
@@ -1183,8 +1527,9 @@ public:
             PostQuitMessage(0);
             return 0;
         default:
-            return DefWindowProcW(window, msg, wParam, lParam);
+            break;
         }
+        return DefWindowProcW(window, msg, wParam, lParam);
     }
 };
 
@@ -1212,29 +1557,55 @@ int WINAPI wWinMain(HINSTANCE inst, HINSTANCE, PWSTR, int show) {
     WSAStartup(MAKEWORD(2, 2), &wsa);
     SetProcessDPIAware();
 
-    WNDCLASSW wc{};
+    INITCOMMONCONTROLSEX controls{sizeof(controls), ICC_STANDARD_CLASSES};
+    InitCommonControlsEx(&controls);
+    Gdiplus::GdiplusStartupInput gdiplusInput;
+    ULONG_PTR gdiplusToken = 0;
+    Gdiplus::GdiplusStartup(&gdiplusToken, &gdiplusInput, nullptr);
+    gApp.createUi(inst);
+
+    WNDCLASSEXW wc{};
+    wc.cbSize = sizeof(wc);
     wc.lpfnWndProc = wndProc;
     wc.hInstance = inst;
     wc.lpszClassName = L"GBearGuest";
     wc.hCursor = LoadCursor(nullptr, IDC_ARROW);
-    wc.hbrBackground = (HBRUSH)(COLOR_WINDOW + 1);
-    RegisterClassW(&wc);
+    wc.hbrBackground = gApp.backgroundBrush;
+    wc.hIcon = (HICON)LoadImageW(inst, MAKEINTRESOURCEW(1), IMAGE_ICON, GetSystemMetrics(SM_CXICON), GetSystemMetrics(SM_CYICON), 0);
+    wc.hIconSm = (HICON)LoadImageW(inst, MAKEINTRESOURCEW(1), IMAGE_ICON, GetSystemMetrics(SM_CXSMICON), GetSystemMetrics(SM_CYSMICON), 0);
+    RegisterClassExW(&wc);
+
+    RECT work{};
+    SystemParametersInfoW(SPI_GETWORKAREA, 0, &work, 0);
+    int windowW = std::min(gApp.S(1280), (int)((work.right - work.left) * 0.9));
+    int windowH = std::min(gApp.S(800), (int)((work.bottom - work.top) * 0.9));
     gApp.hwnd = CreateWindowExW(
         0,
         L"GBearGuest",
         L"GBear",
-        WS_OVERLAPPEDWINDOW,
+        WS_OVERLAPPEDWINDOW | WS_CLIPCHILDREN,
         CW_USEDEFAULT,
         CW_USEDEFAULT,
-        1280,
-        760,
+        windowW,
+        windowH,
         nullptr,
         nullptr,
         inst,
         nullptr
     );
-    gApp.hostEdit = CreateWindowExW(WS_EX_CLIENTEDGE, L"EDIT", L"", WS_CHILD | WS_VISIBLE | ES_AUTOHSCROLL, 8, 8, 280, 24, gApp.hwnd, (HMENU)IDC_HOST, inst, nullptr);
-    gApp.seatCombo = CreateWindowExW(0, L"COMBOBOX", L"", WS_CHILD | WS_VISIBLE | CBS_DROPDOWNLIST, 296, 8, 150, 240, gApp.hwnd, (HMENU)IDC_SEAT, inst, nullptr);
+    // Dark title bar (Windows 10 20H1+) tinted like the app bar (Windows 11).
+    BOOL darkTitle = TRUE;
+    DwmSetWindowAttribute(gApp.hwnd, 20, &darkTitle, sizeof(darkTitle));
+    COLORREF caption = ui::kSurface;
+    DwmSetWindowAttribute(gApp.hwnd, 35, &caption, sizeof(caption));
+    DwmSetWindowAttribute(gApp.hwnd, 34, &caption, sizeof(caption));
+
+    gApp.hostEdit = CreateWindowExW(0, L"EDIT", L"", WS_CHILD | WS_VISIBLE | WS_TABSTOP | ES_AUTOHSCROLL, 0, 0, 10, 10, gApp.hwnd, (HMENU)IDC_HOST, inst, nullptr);
+    SendMessageW(gApp.hostEdit, WM_SETFONT, (WPARAM)gApp.bodyFont, TRUE);
+    SendMessageW(gApp.hostEdit, EM_SETCUEBANNER, TRUE, (LPARAM)L"Host IP address");
+    gApp.seatCombo = CreateWindowExW(0, L"COMBOBOX", L"", WS_CHILD | WS_VISIBLE | WS_TABSTOP | CBS_DROPDOWNLIST | CBS_OWNERDRAWFIXED | CBS_HASSTRINGS, 0, 0, 10, 300, gApp.hwnd, (HMENU)IDC_SEAT, inst, nullptr);
+    SendMessageW(gApp.seatCombo, WM_SETFONT, (WPARAM)gApp.bodyFont, TRUE);
+    SetWindowTheme(gApp.seatCombo, L"DarkMode_CFD", nullptr);
     SendMessageW(gApp.seatCombo, CB_ADDSTRING, 0, (LPARAM)L"Next open seat");
     for (int i = 1; i <= 8; i++) {
         wchar_t label[32];
@@ -1242,10 +1613,11 @@ int WINAPI wWinMain(HINSTANCE inst, HINSTANCE, PWSTR, int show) {
         SendMessageW(gApp.seatCombo, CB_ADDSTRING, 0, (LPARAM)label);
     }
     SendMessageW(gApp.seatCombo, CB_SETCURSEL, 0, 0);
-    gApp.joinButton = CreateWindowExW(0, L"BUTTON", L"Join", WS_CHILD | WS_VISIBLE, 454, 8, 80, 24, gApp.hwnd, (HMENU)IDC_JOIN, inst, nullptr);
-    gApp.hostButton = CreateWindowExW(0, L"BUTTON", L"Host this PC", WS_CHILD | WS_VISIBLE, 542, 8, 120, 24, gApp.hwnd, (HMENU)IDC_HOST_BTN, inst, nullptr);
-    gApp.pairButton = CreateWindowExW(0, L"BUTTON", L"Pair", WS_CHILD | WS_VISIBLE | WS_DISABLED, 670, 8, 80, 24, gApp.hwnd, (HMENU)IDC_PAIR, inst, nullptr);
-    gApp.statusLabel = CreateWindowExW(0, L"STATIC", utf8ToWide(gApp.status).c_str(), WS_CHILD | WS_VISIBLE, 8, 40, 1240, 34, gApp.hwnd, (HMENU)IDC_STATUS, inst, nullptr);
+    DWORD buttonStyle = WS_CHILD | WS_VISIBLE | WS_TABSTOP | BS_OWNERDRAW;
+    gApp.joinButton = CreateWindowExW(0, L"BUTTON", L"Join", buttonStyle, 0, 0, 10, 10, gApp.hwnd, (HMENU)IDC_JOIN, inst, nullptr);
+    gApp.hostButton = CreateWindowExW(0, L"BUTTON", L"Host this PC", buttonStyle, 0, 0, 10, 10, gApp.hwnd, (HMENU)IDC_HOST_BTN, inst, nullptr);
+    gApp.pairButton = CreateWindowExW(0, L"BUTTON", L"Pair", buttonStyle | WS_DISABLED, 0, 0, 10, 10, gApp.hwnd, (HMENU)IDC_PAIR, inst, nullptr);
+    gApp.layout();
     ShowWindow(gApp.hwnd, show);
 
     MSG msg;
@@ -1253,6 +1625,7 @@ int WINAPI wWinMain(HINSTANCE inst, HINSTANCE, PWSTR, int show) {
         TranslateMessage(&msg);
         DispatchMessageW(&msg);
     }
+    Gdiplus::GdiplusShutdown(gdiplusToken);
     MFShutdown();
     CoUninitialize();
     WSACleanup();
