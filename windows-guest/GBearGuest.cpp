@@ -1,5 +1,7 @@
 // Windows couch-co-op app. Join a GBear host, or host so a Mac can join.
 // Speaks gbear-stream/1: HTTP pair + stream/start, TCP GBV1 video, TCP GBA1 audio, UDP GBG1 pads.
+// A pasted remote co-op invite (`GBEAR1 <code> <https address>`) joins through the host's relay instead:
+// the same packets arrive wrapped in GBTL frames on one WebSocket.
 
 #define WIN32_LEAN_AND_MEAN
 #define NOMINMAX
@@ -23,7 +25,10 @@
 #include "GBearWinHost.h"
 
 #include <atomic>
+#include <chrono>
 #include <cmath>
+#include <condition_variable>
+#include <deque>
 #include <cstdint>
 #include <cstdlib>
 #include <cstring>
@@ -57,6 +62,12 @@ constexpr uint32_t kAudioMagic = 0x31414247;  // GBA1
 constexpr uint32_t kGamepadMagic = 0x31474247;  // GBG1
 constexpr int kVideoHeader = 13;
 constexpr int kAudioHeader = 11;
+constexpr uint32_t kTunnelMagic = 0x4C544247;  // GBTL
+constexpr int kTunnelHeader = 9;
+constexpr uint8_t kChannelControl = 1;
+constexpr uint8_t kChannelVideo = 2;
+constexpr uint8_t kChannelAudio = 3;
+constexpr uint8_t kChannelInput = 4;
 
 constexpr UINT WM_APP_STATUS = WM_APP + 1;
 constexpr UINT WM_APP_FRAME = WM_APP + 2;
@@ -215,10 +226,13 @@ int jsonInt(const std::string& body, const char* key, int fallback) {
 }
 
 std::string jsonString(const std::string& body, const char* key) {
-    std::string pat = std::string("\"") + key + "\":\"";
+    std::string pat = std::string("\"") + key + "\"";
     auto pos = body.find(pat);
     if (pos == std::string::npos) return "";
     pos += pat.size();
+    while (pos < body.size() && (body[pos] == ' ' || body[pos] == ':')) pos++;
+    if (pos >= body.size() || body[pos] != '"') return "";
+    pos++;
     std::string out;
     while (pos < body.size() && body[pos] != '"') {
         out.push_back(body[pos]);
@@ -231,45 +245,80 @@ bool jsonOk(const std::string& body) {
     return body.find("\"ok\":true") != std::string::npos || body.find("\"ok\": true") != std::string::npos;
 }
 
+// The value's text as written (number, string with quotes, ...), for echoing it back unchanged.
+std::string jsonRaw(const std::string& body, const char* key) {
+    std::string pat = std::string("\"") + key + "\"";
+    auto pos = body.find(pat);
+    if (pos == std::string::npos) return "";
+    pos += pat.size();
+    while (pos < body.size() && (body[pos] == ' ' || body[pos] == ':')) pos++;
+    size_t end = pos;
+    if (end < body.size() && body[end] == '"') {
+        end = body.find('"', end + 1);
+        return end == std::string::npos ? "" : body.substr(pos, end - pos + 1);
+    }
+    while (end < body.size() && body[end] != ',' && body[end] != '}' && body[end] != ' ') end++;
+    return body.substr(pos, end - pos);
+}
+
 struct HttpResult {
     int status = 0;
     std::string body;
     std::string error;
 };
 
-HttpResult httpRequest(const std::wstring& host, const wchar_t* method, const std::wstring& path, const std::string& body) {
+HttpResult httpCall(
+    const std::wstring& host,
+    INTERNET_PORT port,
+    bool secure,
+    const wchar_t* method,
+    const std::wstring& path,
+    const std::string& body,
+    const std::wstring& extraHeaders,
+    int timeoutMs
+) {
     HttpResult result;
-    HINTERNET session = WinHttpOpen(L"GBearGuest/1", WINHTTP_ACCESS_TYPE_NO_PROXY, WINHTTP_NO_PROXY_NAME, WINHTTP_NO_PROXY_BYPASS, 0);
+    // Remote co-op invites go through the internet, so they honor the system proxy; LAN hosts never do.
+    HINTERNET session = WinHttpOpen(
+        L"GBearGuest/1",
+        secure ? WINHTTP_ACCESS_TYPE_DEFAULT_PROXY : WINHTTP_ACCESS_TYPE_NO_PROXY,
+        WINHTTP_NO_PROXY_NAME,
+        WINHTTP_NO_PROXY_BYPASS,
+        0
+    );
     if (!session) {
         result.error = "WinHTTP open failed";
         return result;
     }
-    HINTERNET connect = WinHttpConnect(session, host.c_str(), kControlPort, 0);
+    HINTERNET connect = WinHttpConnect(session, host.c_str(), port, 0);
     if (!connect) {
-        result.error = "Could not connect to host on port 28765";
+        result.error = "connect";
         WinHttpCloseHandle(session);
         return result;
     }
-    HINTERNET request = WinHttpOpenRequest(connect, method, path.c_str(), nullptr, WINHTTP_NO_REFERER, WINHTTP_DEFAULT_ACCEPT_TYPES, 0);
+    HINTERNET request = WinHttpOpenRequest(
+        connect, method, path.c_str(), nullptr, WINHTTP_NO_REFERER, WINHTTP_DEFAULT_ACCEPT_TYPES, secure ? WINHTTP_FLAG_SECURE : 0
+    );
     if (!request) {
         result.error = "Could not open HTTP request";
         WinHttpCloseHandle(connect);
         WinHttpCloseHandle(session);
         return result;
     }
-    WinHttpSetTimeouts(request, 4000, 4000, 8000, 8000);
-    const wchar_t* headers = body.empty() ? WINHTTP_NO_ADDITIONAL_HEADERS : L"Content-Type: application/json\r\n";
+    WinHttpSetTimeouts(request, timeoutMs, timeoutMs, timeoutMs * 2, timeoutMs * 2);
+    std::wstring headers = extraHeaders;
+    if (!body.empty()) headers += L"Content-Type: application/json\r\n";
     BOOL ok = WinHttpSendRequest(
         request,
-        headers,
-        headers ? (DWORD)-1 : 0,
+        headers.empty() ? WINHTTP_NO_ADDITIONAL_HEADERS : headers.c_str(),
+        headers.empty() ? 0 : (DWORD)-1,
         body.empty() ? WINHTTP_NO_REQUEST_DATA : (LPVOID)body.data(),
         (DWORD)body.size(),
         (DWORD)body.size(),
         0
     );
     if (!ok || !WinHttpReceiveResponse(request, nullptr)) {
-        result.error = "Host did not answer on port 28765. Is GBear open to the Streaming tab, and is the Mac firewall allowing it?";
+        result.error = "no answer";
         WinHttpCloseHandle(request);
         WinHttpCloseHandle(connect);
         WinHttpCloseHandle(session);
@@ -293,6 +342,215 @@ HttpResult httpRequest(const std::wstring& host, const wchar_t* method, const st
     WinHttpCloseHandle(session);
     return result;
 }
+
+HttpResult httpRequest(const std::wstring& host, const wchar_t* method, const std::wstring& path, const std::string& body) {
+    HttpResult result = httpCall(host, kControlPort, false, method, path, body, L"", 4000);
+    if (result.error == "connect") {
+        result.error = "Could not connect to host on port 28765";
+    } else if (result.error == "no answer") {
+        result.error = "Host did not answer on port 28765. Is GBear open to the Streaming tab, and is the Mac firewall allowing it?";
+    }
+    return result;
+}
+
+struct RemoteInvite {
+    std::string code;
+    std::wstring host;
+    INTERNET_PORT port = 0;
+    bool secure = true;
+};
+
+bool looksLikeInvite(const std::wstring& raw) {
+    std::wstring upper = raw;
+    for (auto& c : upper) c = towupper(c);
+    return upper.find(L"GBEAR1") != std::wstring::npos || upper.find(L"://") != std::wstring::npos;
+}
+
+// Accepts the whole `GBEAR1 <code> <address>` line, or `<code> <address>`. Chat apps wrap the long
+// address at hyphens, and the address never has spaces, so everything after the code is joined back up.
+bool parseInvite(const std::wstring& raw, RemoteInvite& out) {
+    std::vector<std::wstring> parts;
+    std::wstring current;
+    for (wchar_t c : raw) {
+        if (c == 0x200B || c == 0x200C || c == 0x200D || c == 0x2060 || c == 0xFEFF || c == 0x00AD) continue;
+        if (iswspace(c)) {
+            if (!current.empty()) parts.push_back(current);
+            current.clear();
+        } else {
+            current.push_back(c);
+        }
+    }
+    if (!current.empty()) parts.push_back(current);
+    size_t first = 0;
+    if (parts.size() >= 3) {
+        std::wstring tag = parts[0];
+        for (auto& c : tag) c = towupper(c);
+        if (tag == L"GBEAR1") first = 1;
+    }
+    if (parts.size() < first + 2 || parts[first + 1].find(L"://") == std::wstring::npos) return false;
+    std::wstring code = parts[first];
+    for (auto& c : code) c = towupper(c);
+    std::wstring address;
+    for (size_t i = first + 1; i < parts.size(); i++) address += parts[i];
+    while (!address.empty() && address.back() == L'/') address.pop_back();
+
+    URL_COMPONENTS url{};
+    url.dwStructSize = sizeof(url);
+    wchar_t hostName[256] = L"";
+    url.lpszHostName = hostName;
+    url.dwHostNameLength = 256;
+    url.dwUrlPathLength = (DWORD)-1;
+    url.dwSchemeLength = (DWORD)-1;
+    if (!WinHttpCrackUrl(address.c_str(), 0, 0, &url) || hostName[0] == 0) return false;
+    if (url.nScheme != INTERNET_SCHEME_HTTPS && url.nScheme != INTERNET_SCHEME_HTTP) return false;
+    out.code = wideToUtf8(code);
+    out.host = hostName;
+    out.port = url.nPort;
+    out.secure = url.nScheme == INTERNET_SCHEME_HTTPS;
+    return !out.code.empty();
+}
+
+std::wstring urlEncode(const std::string& text) {
+    std::wstring out;
+    const char* hex = "0123456789ABCDEF";
+    for (unsigned char c : text) {
+        if (isalnum(c) || c == '-' || c == '_' || c == '.' || c == '~') {
+            out.push_back((wchar_t)c);
+        } else {
+            out.push_back(L'%');
+            out.push_back((wchar_t)hex[c >> 4]);
+            out.push_back((wchar_t)hex[c & 15]);
+        }
+    }
+    return out;
+}
+
+std::vector<uint8_t> tunnelFrame(uint8_t channel, const void* payload, size_t length) {
+    std::vector<uint8_t> frame(kTunnelHeader + length);
+    uint32_t magic = kTunnelMagic;
+    uint32_t size = (uint32_t)length;
+    memcpy(frame.data(), &magic, 4);
+    frame[4] = channel;
+    memcpy(frame.data() + 5, &size, 4);
+    if (length) memcpy(frame.data() + kTunnelHeader, payload, length);
+    return frame;
+}
+
+// One WebSocket to the host's relay. WinHTTP allows one send and one receive at a time, so sends
+// from the receive thread (pong, hello) and the controller thread share a lock.
+class RelaySocket {
+public:
+    ~RelaySocket() {
+        abort();
+        if (connect) WinHttpCloseHandle(connect);
+        if (session) WinHttpCloseHandle(session);
+    }
+
+    bool open(const RemoteInvite& invite, const std::wstring& path, std::string& error) {
+        session = WinHttpOpen(L"GBearGuest/1", WINHTTP_ACCESS_TYPE_DEFAULT_PROXY, WINHTTP_NO_PROXY_NAME, WINHTTP_NO_PROXY_BYPASS, 0);
+        connect = session ? WinHttpConnect(session, invite.host.c_str(), invite.port, 0) : nullptr;
+        if (!connect) {
+            error = "could not connect";
+            return false;
+        }
+        HINTERNET opened = WinHttpOpenRequest(
+            connect, L"GET", path.c_str(), nullptr, WINHTTP_NO_REFERER, WINHTTP_DEFAULT_ACCEPT_TYPES, invite.secure ? WINHTTP_FLAG_SECURE : 0
+        );
+        if (!opened) {
+            error = "could not open request";
+            return false;
+        }
+        {
+            std::lock_guard<std::mutex> lock(mu);
+            if (aborted) {
+                WinHttpCloseHandle(opened);
+                error = "left";
+                return false;
+            }
+            request = opened;
+        }
+        // Receives time out if the relay goes quiet; the host pings every second once we are seated.
+        WinHttpSetTimeouts(opened, 10000, 15000, 15000, 20000);
+        bool answered = WinHttpSetOption(opened, WINHTTP_OPTION_UPGRADE_TO_WEB_SOCKET, nullptr, 0) &&
+                        WinHttpSendRequest(opened, WINHTTP_NO_ADDITIONAL_HEADERS, 0, WINHTTP_NO_REQUEST_DATA, 0, 0, 0) &&
+                        WinHttpReceiveResponse(opened, nullptr);
+        DWORD failure = answered ? 0 : GetLastError();
+        DWORD status = 0;
+        DWORD statusSize = sizeof(status);
+        if (answered) {
+            WinHttpQueryHeaders(opened, WINHTTP_QUERY_STATUS_CODE | WINHTTP_QUERY_FLAG_NUMBER, WINHTTP_HEADER_NAME_BY_INDEX, &status, &statusSize, WINHTTP_NO_HEADER_INDEX);
+        }
+        HINTERNET upgraded = (answered && status == 101) ? WinHttpWebSocketCompleteUpgrade(opened, 0) : nullptr;
+        std::lock_guard<std::mutex> lock(mu);
+        if (request) {
+            WinHttpCloseHandle(request);
+            request = nullptr;
+        }
+        if (aborted) {
+            if (upgraded) WinHttpCloseHandle(upgraded);
+            error = "left";
+            return false;
+        }
+        if (!upgraded) {
+            error = answered ? "the relay answered HTTP " + std::to_string(status) : "no answer (error " + std::to_string(failure) + ")";
+            return false;
+        }
+        socket = upgraded;
+        return true;
+    }
+
+    bool send(const std::vector<uint8_t>& frame) {
+        std::lock_guard<std::mutex> lock(mu);
+        if (!socket) return false;
+        return WinHttpWebSocketSend(socket, WINHTTP_WEB_SOCKET_BINARY_MESSAGE_BUFFER_TYPE, (PVOID)frame.data(), (DWORD)frame.size()) == ERROR_SUCCESS;
+    }
+
+    // One whole message. False when the socket closed, failed, or timed out.
+    bool receive(std::vector<uint8_t>& message, bool& text) {
+        message.clear();
+        HINTERNET current;
+        {
+            std::lock_guard<std::mutex> lock(mu);
+            current = socket;
+        }
+        if (!current) return false;
+        for (;;) {
+            DWORD read = 0;
+            WINHTTP_WEB_SOCKET_BUFFER_TYPE type{};
+            if (WinHttpWebSocketReceive(current, chunk, sizeof(chunk), &read, &type) != ERROR_SUCCESS) return false;
+            if (type == WINHTTP_WEB_SOCKET_CLOSE_BUFFER_TYPE) return false;
+            message.insert(message.end(), chunk, chunk + read);
+            if (message.size() > 16 * 1024 * 1024) return false;
+            if (type == WINHTTP_WEB_SOCKET_BINARY_MESSAGE_BUFFER_TYPE || type == WINHTTP_WEB_SOCKET_UTF8_MESSAGE_BUFFER_TYPE) {
+                text = type == WINHTTP_WEB_SOCKET_UTF8_MESSAGE_BUFFER_TYPE;
+                return true;
+            }
+        }
+    }
+
+    // Safe from any thread: a handshake or receive in progress returns false.
+    void abort() {
+        std::lock_guard<std::mutex> lock(mu);
+        aborted = true;
+        if (request) {
+            WinHttpCloseHandle(request);
+            request = nullptr;
+        }
+        if (socket) {
+            WinHttpCloseHandle(socket);
+            socket = nullptr;
+        }
+    }
+
+private:
+    std::mutex mu;
+    bool aborted = false;
+    HINTERNET session = nullptr;
+    HINTERNET connect = nullptr;
+    HINTERNET request = nullptr;
+    HINTERNET socket = nullptr;
+    uint8_t chunk[65536];
+};
 
 std::wstring appDataDir() {
     wchar_t* env = _wgetenv(L"APPDATA");
@@ -734,6 +992,11 @@ public:
     std::string pendingPairId;
     std::string pendingPairName;
     std::wstring host;
+    RemoteInvite invite;
+    std::mutex relayMu;
+    RelaySocket* relay = nullptr;
+    std::atomic<bool> welcomed{false};
+    std::atomic<bool> relayFailed{false};
     int preferredSeat = 0;
     std::string deviceId;
     int joinSeat = 1;
@@ -746,7 +1009,7 @@ public:
     std::atomic<SOCKET> audioSock{INVALID_SOCKET};
 
     std::mutex statusMu;
-    std::string status = "Join a host, or Host this PC so a Mac can join you. You are Player 1 when you host.";
+    std::string status = "Enter a host's IP address or paste a remote co-op invite, then Join. Or Host this PC so a Mac can join you (you are Player 1).";
 
     std::mutex frameMu;
     std::vector<uint8_t> frame;
@@ -793,13 +1056,20 @@ public:
 
     void start() {
         if (sessionThread.joinable()) return;
-        wchar_t ip[256];
-        GetWindowTextW(hostEdit, ip, 256);
-        host = ip;
+        int length = GetWindowTextLengthW(hostEdit);
+        std::wstring text(length + 1, L'\0');
+        GetWindowTextW(hostEdit, text.data(), length + 1);
+        text.resize(length);
+        host = text;
         while (!host.empty() && iswspace(host.front())) host.erase(host.begin());
         while (!host.empty() && iswspace(host.back())) host.pop_back();
         if (host.empty()) {
-            setStatus("Enter the host IP address.");
+            setStatus("Enter the host IP address, or paste the remote co-op invite line.");
+            return;
+        }
+        bool remote = looksLikeInvite(host);
+        if (remote && !parseInvite(host, invite)) {
+            setStatus("That invite line looks incomplete. Paste the whole GBEAR1 line your friend sent.");
             return;
         }
         preferredSeat = (int)SendMessageW(seatCombo, CB_GETCURSEL, 0, 0);
@@ -809,7 +1079,12 @@ public:
         EnableWindow(seatCombo, FALSE);
         EnableWindow(hostButton, FALSE);
         SetWindowTextW(joinButton, L"Leave");
-        sessionThread = std::thread([this] { runSession(); });
+        if (remote) {
+            host.clear();
+            sessionThread = std::thread([this] { runRelaySession(); });
+        } else {
+            sessionThread = std::thread([this] { runSession(); });
+        }
     }
 
     void startHosting() {
@@ -852,6 +1127,10 @@ public:
 
     void leave() {
         stop.store(true);
+        {
+            std::lock_guard<std::mutex> lock(relayMu);
+            if (relay) relay->abort();
+        }
         SOCKET video = videoSock.exchange(INVALID_SOCKET);
         SOCKET audio = audioSock.exchange(INVALID_SOCKET);
         if (video != INVALID_SOCKET) closesocket(video);
@@ -935,6 +1214,254 @@ public:
         }
         streaming.store(false);
         if (stop.load()) setStatus("Disconnected.");
+        PostMessageW(hwnd, WM_APP_PHASE, 0, 0);
+    }
+
+    static void padPacket(uint8_t packet[33], const PadState& pad, int seat) {
+        uint32_t magic = kGamepadMagic;
+        uint32_t buttons = pad.buttons;
+        memcpy(packet, &magic, 4);
+        packet[4] = (uint8_t)seat;
+        memcpy(packet + 5, &buttons, 4);
+        float axes[6] = {pad.lx, pad.ly, pad.rx, pad.ry, pad.lt, pad.rt};
+        memcpy(packet + 9, axes, sizeof(axes));
+    }
+
+    // A GBV1 packet: 13-byte header, then Annex B H.264.
+    void decodeVideoPacket(H264Decoder& decoder, const uint8_t* data, size_t size) {
+        if (size < (size_t)kVideoHeader) return;
+        uint32_t magic = 0, length = 0;
+        memcpy(&magic, data, 4);
+        memcpy(&length, data + 4, 4);
+        if (magic != kVideoMagic || length == 0 || kVideoHeader + (size_t)length > size) return;
+        bool keyframe = (data[8] & 1) != 0;
+        uint16_t w = 0, h = 0;
+        memcpy(&w, data + 9, 2);
+        memcpy(&h, data + 11, 2);
+        if (w == 0 || h == 0 || !decoder.ensure(w, h)) return;
+        std::vector<uint8_t> bgra;
+        int outW = 0, outH = 0;
+        if (decoder.decode(data + kVideoHeader, length, keyframe, bgra, outW, outH)) publishFrame(std::move(bgra), outW, outH);
+    }
+
+    // A GBA1 packet: 11-byte header, then 16-bit PCM.
+    static void playAudioPacket(AudioPlayer& player, const uint8_t* data, size_t size) {
+        if (size < (size_t)kAudioHeader) return;
+        uint32_t magic = 0, payloadLen = 0;
+        memcpy(&magic, data, 4);
+        memcpy(&payloadLen, data + 4, 4);
+        if (magic != kAudioMagic || payloadLen == 0 || kAudioHeader + (size_t)payloadLen > size) return;
+        uint16_t rate = 0;
+        memcpy(&rate, data + 8, 2);
+        uint8_t channels = data[10];
+        if (rate == 0) rate = 48000;
+        if (channels == 0) channels = 2;
+        player.play(data + kAudioHeader, (int)payloadLen, rate, channels);
+    }
+
+    void sendRelayHello(RelaySocket& socket, const std::string& name) {
+        std::string hello = std::string("{\"type\":\"hello\",\"deviceId\":\"") + jsonEscape(deviceId) + "\",\"deviceName\":\"" +
+                            jsonEscape(name) + "\",\"preferredSeat\":" + std::to_string(preferredSeat) + "}";
+        socket.send(tunnelFrame(kChannelControl, hello.data(), hello.size()));
+    }
+
+    HttpResult relayPost(const std::wstring& path, const std::string& body) {
+        return httpCall(invite.host, invite.port, invite.secure, L"POST", path, body, L"Authorization: Bearer dev:guest@gbear.local\r\n", 20000);
+    }
+
+    void failRelay(const std::string& message) {
+        relayFailed.store(true);
+        setStatus(message);
+        stop.store(true);
+    }
+
+    // Remote co-op through the invite's relay: redeem the code, then one WebSocket carries video,
+    // audio, and controller packets in GBTL frames.
+    void runRelaySession() {
+        deviceId = loadOrCreateDeviceId();
+        std::string name = deviceName();
+        welcomed.store(false);
+        relayFailed.store(false);
+        setStatus("Reaching your friend's Mac…");
+        std::string registerBody = std::string("{\"deviceId\":\"") + jsonEscape(deviceId) + "\",\"deviceName\":\"" + jsonEscape(name) + "\",\"role\":\"guest\"}";
+        HttpResult registered = relayPost(L"/v1/auth/register-device", registerBody);
+        if (!registered.error.empty() || registered.status < 200 || registered.status >= 300) {
+            setStatus(registered.error.empty()
+                ? "The invite address answered with HTTP " + std::to_string(registered.status) + ". Ask your friend for a new invite line."
+                : "Could not reach your friend's Mac. Check the invite line and that remote co-op is still running.");
+            PostMessageW(hwnd, WM_APP_PHASE, 0, 0);
+            return;
+        }
+        std::string redeemBody = std::string("{\"inviteCode\":\"") + jsonEscape(invite.code) + "\",\"deviceId\":\"" + jsonEscape(deviceId) +
+                                 "\",\"deviceName\":\"" + jsonEscape(name) + "\"}";
+        HttpResult redeemed = relayPost(L"/v1/session/redeem-invite", redeemBody);
+        std::string sessionId = jsonString(redeemed.body, "sessionId");
+        if (sessionId.empty() || stop.load()) {
+            if (stop.load()) {
+                setStatus("Disconnected.");
+            } else if (!redeemed.error.empty()) {
+                setStatus("Your friend's Mac did not answer. Check that remote co-op is still running there.");
+            } else if (redeemed.status == 404) {
+                setStatus("That invite has expired or ended. Ask your friend to start remote co-op again and send a new line.");
+            } else {
+                std::string err = jsonString(redeemed.body, "error");
+                setStatus(err.empty() ? "That invite was not accepted. Ask your friend for a new invite line." : "The host refused: " + err);
+            }
+            PostMessageW(hwnd, WM_APP_PHASE, 0, 0);
+            return;
+        }
+        std::wstring path = L"/v1/ws?deviceId=" + urlEncode(deviceId) + L"&sessionId=" + urlEncode(sessionId) + L"&mode=relay";
+
+        // Decoding runs on its own thread so pings and audio never wait behind a big frame.
+        std::mutex videoMu;
+        std::condition_variable videoReady;
+        std::deque<std::vector<uint8_t>> videoQueue;
+        bool awaitingKeyframe = true;
+        std::thread videoThread([&] {
+            H264Decoder decoder;
+            while (!stop.load()) {
+                std::vector<uint8_t> packet;
+                {
+                    std::unique_lock<std::mutex> lock(videoMu);
+                    videoReady.wait_for(lock, std::chrono::milliseconds(200), [&] { return !videoQueue.empty() || stop.load(); });
+                    if (videoQueue.empty()) continue;
+                    packet = std::move(videoQueue.front());
+                    videoQueue.pop_front();
+                }
+                decodeVideoPacket(decoder, packet.data(), packet.size());
+            }
+        });
+
+        DWORD joinStarted = GetTickCount();
+        std::thread padThread([&] {
+            PadState previous;
+            DWORD lastSend = 0;
+            bool sent = false;
+            while (!stop.load()) {
+                if (!welcomed.load()) {
+                    if (GetTickCount() - joinStarted > 45000) {
+                        failRelay("The host did not answer. Make sure remote co-op is still running on the Mac.");
+                        std::lock_guard<std::mutex> lock(relayMu);
+                        if (relay) relay->abort();
+                        break;
+                    }
+                    Sleep(50);
+                    continue;
+                }
+                PadState pad = readPad();
+                DWORD now = GetTickCount();
+                if (!sent || !(pad == previous) || now - lastSend >= 50) {
+                    uint8_t packet[33];
+                    padPacket(packet, pad, joinSeat);
+                    std::lock_guard<std::mutex> lock(relayMu);
+                    if (relay) relay->send(tunnelFrame(kChannelInput, packet, sizeof(packet)));
+                    previous = pad;
+                    lastSend = now;
+                    sent = true;
+                }
+                Sleep(8);
+            }
+        });
+
+        AudioPlayer player;
+        int attempts = 0;
+        std::vector<uint8_t> message;
+        while (!stop.load()) {
+            RelaySocket socket;
+            {
+                std::lock_guard<std::mutex> lock(relayMu);
+                relay = &socket;
+            }
+            std::string error;
+            std::string dropReason;
+            if (stop.load()) {
+                dropReason = "left";
+            } else if (!socket.open(invite, path, error)) {
+                dropReason = error;
+            } else {
+                logLine("relay connected");
+                bool text = false;
+                while (!stop.load() && socket.receive(message, text)) {
+                    if (text) {
+                        std::string body(message.begin(), message.end());
+                        std::string type = jsonString(body, "type");
+                        if (type == "relay_ready") {
+                            sendRelayHello(socket, name);
+                            if (!welcomed.load()) setStatus("Connected. Waiting for the host to start the picture…");
+                        } else if (type == "peer_left") {
+                            setStatus("The host's connection blipped. Waiting for it to come back…");
+                        }
+                        continue;
+                    }
+                    if (message.size() < (size_t)kTunnelHeader) continue;
+                    uint32_t magic = 0, length = 0;
+                    memcpy(&magic, message.data(), 4);
+                    memcpy(&length, message.data() + 5, 4);
+                    if (magic != kTunnelMagic || kTunnelHeader + (size_t)length > message.size()) continue;
+                    uint8_t channel = message[4];
+                    const uint8_t* payload = message.data() + kTunnelHeader;
+                    if (channel == kChannelVideo) {
+                        bool keyframe = length > 8 && (payload[8] & 1) != 0;
+                        std::lock_guard<std::mutex> lock(videoMu);
+                        // After a drop H.264 frames reference the missing one, so skip to the next keyframe.
+                        if (awaitingKeyframe && !keyframe) continue;
+                        awaitingKeyframe = false;
+                        if (videoQueue.size() >= 30) {
+                            videoQueue.clear();
+                            awaitingKeyframe = !keyframe;
+                            if (!keyframe) continue;
+                        }
+                        videoQueue.emplace_back(payload, payload + length);
+                        videoReady.notify_one();
+                    } else if (channel == kChannelAudio) {
+                        playAudioPacket(player, payload, length);
+                    } else if (channel == kChannelControl) {
+                        std::string body(payload, payload + length);
+                        std::string type = jsonString(body, "type");
+                        if (type == "ping") {
+                            // Answered right here so the host's round trip measures the network.
+                            std::string pong = "{\"type\":\"pong\",\"t\":" + jsonRaw(body, "t") + "}";
+                            socket.send(tunnelFrame(kChannelControl, pong.data(), pong.size()));
+                        } else if (type == "welcome") {
+                            joinSeat = std::clamp(jsonInt(body, "seat", 2), 1, 8);
+                            attempts = 0;
+                            welcomed.store(true);
+                            streaming.store(true);
+                            setStatus("Playing as Player " + std::to_string(joinSeat) + " over remote co-op. I flips the picture. Esc leaves.");
+                            PostMessageW(hwnd, WM_APP_PHASE, 0, 0);
+                        } else if (type == "error") {
+                            std::string err = jsonString(body, "error");
+                            failRelay(err.empty() ? "The host rejected the join." : err);
+                        }
+                    }
+                }
+                dropReason = "connection closed";
+                std::lock_guard<std::mutex> lock(videoMu);
+                awaitingKeyframe = true;
+            }
+            {
+                std::lock_guard<std::mutex> lock(relayMu);
+                relay = nullptr;
+            }
+            if (stop.load()) break;
+            attempts++;
+            logLine("relay dropped: " + dropReason);
+            if (attempts > 8 || (!welcomed.load() && attempts > 2)) {
+                failRelay(welcomed.load()
+                    ? "Lost the host (" + dropReason + "). Paste the invite and join again."
+                    : "Could not reach the host (" + dropReason + "). Check the invite line and try again.");
+                break;
+            }
+            setStatus("Connection dropped. Reconnecting…");
+            for (int i = 0; i < attempts * 4 && !stop.load(); i++) Sleep(100);
+        }
+        stop.store(true);
+        videoReady.notify_all();
+        videoThread.join();
+        padThread.join();
+        player.stop();
+        streaming.store(false);
+        if (!relayFailed.load()) setStatus("Disconnected.");
         PostMessageW(hwnd, WM_APP_PHASE, 0, 0);
     }
 
@@ -1265,7 +1792,7 @@ public:
         top += S(32);
         std::wstring hint = hosting
             ? L"You're hosting. The Mac that joins sees this PC's screen and plays as another player."
-            : L"Enter the host's IP address and choose Join. Its screen shows up here.";
+            : L"Enter the host's IP address, or paste your friend's GBEAR1 invite line, and choose Join.";
         ui::drawText(dc, bodyFont, ui::kTextSecondary, hint,
                      RECT{area.left + S(20), top, area.right - S(20), top + S(24)}, DT_SINGLELINE | DT_CENTER | DT_VCENTER | DT_END_ELLIPSIS);
     }
@@ -1535,6 +2062,32 @@ public:
 
 GuestApp gApp;
 
+// A single-line edit keeps only the first line of pasted text, and chat apps wrap the long invite
+// address, so line breaks become spaces (the invite parser joins the address back up). Enter joins.
+LRESULT CALLBACK hostEditProc(HWND edit, UINT msg, WPARAM wParam, LPARAM lParam, UINT_PTR, DWORD_PTR) {
+    if (msg == WM_PASTE) {
+        if (!OpenClipboard(edit)) return 0;
+        std::wstring text;
+        if (HANDLE data = GetClipboardData(CF_UNICODETEXT)) {
+            if (auto* chars = static_cast<const wchar_t*>(GlobalLock(data))) {
+                text = chars;
+                GlobalUnlock(data);
+            }
+        }
+        CloseClipboard();
+        for (auto& c : text) {
+            if (c == L'\r' || c == L'\n' || c == L'\t') c = L' ';
+        }
+        SendMessageW(edit, EM_REPLACESEL, TRUE, (LPARAM)text.c_str());
+        return 0;
+    }
+    if (msg == WM_CHAR && wParam == VK_RETURN) {
+        PostMessageW(GetParent(edit), WM_COMMAND, MAKEWPARAM(IDC_JOIN, BN_CLICKED), (LPARAM)edit);
+        return 0;
+    }
+    return DefSubclassProc(edit, msg, wParam, lParam);
+}
+
 LRESULT CALLBACK wndProc(HWND window, UINT msg, WPARAM wParam, LPARAM lParam) {
     return gApp.handle(window, msg, wParam, lParam);
 }
@@ -1602,7 +2155,8 @@ int WINAPI wWinMain(HINSTANCE inst, HINSTANCE, PWSTR, int show) {
 
     gApp.hostEdit = CreateWindowExW(0, L"EDIT", L"", WS_CHILD | WS_VISIBLE | WS_TABSTOP | ES_AUTOHSCROLL, 0, 0, 10, 10, gApp.hwnd, (HMENU)IDC_HOST, inst, nullptr);
     SendMessageW(gApp.hostEdit, WM_SETFONT, (WPARAM)gApp.bodyFont, TRUE);
-    SendMessageW(gApp.hostEdit, EM_SETCUEBANNER, TRUE, (LPARAM)L"Host IP address");
+    SendMessageW(gApp.hostEdit, EM_SETCUEBANNER, TRUE, (LPARAM)L"Host IP or invite line");
+    SetWindowSubclass(gApp.hostEdit, hostEditProc, 0, 0);
     gApp.seatCombo = CreateWindowExW(0, L"COMBOBOX", L"", WS_CHILD | WS_VISIBLE | WS_TABSTOP | CBS_DROPDOWNLIST | CBS_OWNERDRAWFIXED | CBS_HASSTRINGS, 0, 0, 10, 300, gApp.hwnd, (HMENU)IDC_SEAT, inst, nullptr);
     SendMessageW(gApp.seatCombo, WM_SETFONT, (WPARAM)gApp.bodyFont, TRUE);
     SetWindowTheme(gApp.seatCombo, L"DarkMode_CFD", nullptr);

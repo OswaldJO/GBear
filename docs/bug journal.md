@@ -259,6 +259,15 @@ For release notes style summaries, see `source control log.md`. For architecture
 
 ## Streaming — architecture (Sunshine → native GBear)
 
+### BJ-115 — Windows guest could not join with an invite line
+| | |
+|---|---|
+| **When** | Sep 29 2026 |
+| **Symptom** | Pasting the host Mac's remote co-op invite into the Windows guest's host box and pressing Join showed "Could not connect to host on port 28765". |
+| **Cause** | The Windows guest only spoke the LAN protocol: it passed whatever was in the box to `WinHttpConnect` on port 28765 as a host name. It had no invite parser and no relay client, so the `GBEAR1 <code> <https address>` line was treated as an address. Separately, a single-line Windows edit box keeps only the first line of pasted text, so a chat-wrapped invite would have lost its end anyway. |
+| **Fix** | `GBearGuest.cpp`: `parseInvite` (same rules as the companion's `RemoteCoopInvite`, BJ-110), `register-device` + `redeem-invite` over HTTPS with the dev bearer, then `runRelaySession` opens a WinHTTP WebSocket (`RelaySocket`) to `/v1/ws?…&mode=relay`, says `hello` on `relay_ready`, answers `ping` with `pong`, takes the seat from `welcome`, decodes `GBTL` video on its own thread (skips to a keyframe after drops), plays audio, and sends `GBG1` as input frames. Reconnects up to 8 times. The host box subclass turns pasted line breaks into spaces and Enter joins. Compiles; not yet tested on Windows. |
+| **Commit** | release **v1.3.2** |
+
 ### BJ-114 — Guest picture stretched and pillarboxed
 | | |
 |---|---|
