@@ -223,6 +223,7 @@ enum CoverImageCache {
 struct CachedCoverThumbnail: View {
     let urlString: String?
     var contentMode: ContentMode = .fill
+    var onImageSize: ((CGSize?) -> Void)?
 
     @State private var image: NSImage?
 
@@ -238,6 +239,7 @@ struct CachedCoverThumbnail: View {
         }
         .task(id: urlString) {
             await refreshImage()
+            onImageSize?(image?.size)
         }
     }
 

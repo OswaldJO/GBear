@@ -959,7 +959,6 @@ private enum LibraryGridMetrics {
     static let minCardWidth: CGFloat = 110
     static let maxCardWidth: CGFloat = 320
     static let sizeSliderClearance: CGFloat = 36
-    static let titleHeight: CGFloat = 52 // reserve up to ~3 lines so rows align
     static let horizontalSpacing: CGFloat = 16
     static let verticalSpacing: CGFloat = 20
     static let outerPadding: CGFloat = 20
@@ -974,8 +973,23 @@ private struct GameLibraryTile: View {
     let onPlay: () -> Void
     let onInfo: () -> Void
 
+    @State private var imageSize: CGSize?
+
     private var coverHeight: CGFloat {
         coverAspect.height(forWidth: cardWidth)
+    }
+
+    /// The cover's own shape fitted into card width × the emulator's cover height, so rows only grow as tall as their covers.
+    private var coverSize: CGSize {
+        guard let imageSize, imageSize.width > 0, imageSize.height > 0 else {
+            return CGSize(width: cardWidth, height: coverHeight)
+        }
+        let aspect = imageSize.width / imageSize.height
+        let heightAtCardWidth = cardWidth / aspect
+        if heightAtCardWidth <= coverHeight {
+            return CGSize(width: cardWidth, height: heightAtCardWidth)
+        }
+        return CGSize(width: coverHeight * aspect, height: coverHeight)
     }
 
     private var actionIconSize: CGFloat {
@@ -984,90 +998,97 @@ private struct GameLibraryTile: View {
 
     var body: some View {
         VStack(alignment: .leading, spacing: 8) {
-            ZStack {
-                CachedCoverThumbnail(urlString: game.coverImageURLString)
-                    .frame(width: cardWidth, height: coverHeight)
-                    .clipped()
-                    .clipShape(RoundedRectangle(cornerRadius: 8))
-                    .overlay {
-                        RoundedRectangle(cornerRadius: 8)
-                            .strokeBorder(.quaternary, lineWidth: 1)
-                    }
-                    .overlay(alignment: .topTrailing) {
-                        if game.isInstalledStorefrontGame {
-                            Image(systemName: "checkmark.circle.fill")
-                                .font(.system(size: 20, weight: .semibold))
-                                .symbolRenderingMode(.palette)
-                                .foregroundStyle(.white, .green)
-                                .shadow(color: .black.opacity(0.4), radius: 2)
-                                .padding(6)
-                                .help("Installed")
-                        } else if let label = DiscGroupService.discLabel(for: game), game.discGroupIDString != nil {
-                            Text(label)
-                                .font(.caption2.weight(.bold))
-                                .padding(.horizontal, 6)
-                                .padding(.vertical, 3)
-                                .background(.black.opacity(0.65), in: Capsule())
-                                .foregroundStyle(.white)
-                                .padding(6)
-                        }
-                    }
-
-                if RommSync.shared.downloading.contains(game.id) {
+            CachedCoverThumbnail(
+                urlString: game.coverImageURLString,
+                contentMode: .fit,
+                onImageSize: { imageSize = $0 }
+            )
+                .frame(width: coverSize.width, height: coverSize.height)
+                .clipShape(RoundedRectangle(cornerRadius: 8))
+                .overlay {
                     RoundedRectangle(cornerRadius: 8)
-                        .fill(Color.black.opacity(0.55))
-                    VStack(spacing: 6) {
-                        ProgressView().controlSize(.regular)
-                        Text("Downloading from ROMM…")
-                            .font(.caption2.weight(.semibold))
+                        .strokeBorder(.quaternary, lineWidth: 1)
+                }
+                .overlay(alignment: .topTrailing) {
+                    if game.isInstalledStorefrontGame {
+                        Image(systemName: "checkmark.circle.fill")
+                            .font(.system(size: 20, weight: .semibold))
+                            .symbolRenderingMode(.palette)
+                            .foregroundStyle(.white, .green)
+                            .shadow(color: .black.opacity(0.4), radius: 2)
+                            .padding(6)
+                            .help("Installed")
+                    } else if let label = DiscGroupService.discLabel(for: game), game.discGroupIDString != nil {
+                        Text(label)
+                            .font(.caption2.weight(.bold))
+                            .padding(.horizontal, 6)
+                            .padding(.vertical, 3)
+                            .background(.black.opacity(0.65), in: Capsule())
                             .foregroundStyle(.white)
-                    }
-                    .allowsHitTesting(false)
-                }
-
-                if showsActionOverlay {
-                    RoundedRectangle(cornerRadius: 8)
-                        .fill(Color.black.opacity(0.45))
-                        .allowsHitTesting(false)
-
-                    HStack(spacing: actionIconSize * 0.7) {
-                        Button {
-                            onPlay()
-                        } label: {
-                            Image(systemName: "play.circle.fill")
-                                .font(.system(size: actionIconSize))
-                                .symbolRenderingMode(.palette)
-                                .foregroundStyle(.white, Color.accentColor.opacity(0.95))
-                        }
-                        .buttonStyle(.plain)
-                        .help("Play")
-
-                        Button {
-                            onInfo()
-                        } label: {
-                            Image(systemName: "info.circle.fill")
-                                .font(.system(size: actionIconSize))
-                                .symbolRenderingMode(.palette)
-                                .foregroundStyle(.white, .secondary)
-                        }
-                        .buttonStyle(.plain)
-                        .help("Game details and cover")
+                            .padding(6)
                     }
                 }
-            }
-            .frame(width: cardWidth, height: coverHeight)
+                .overlay { coverOverlays }
+                .frame(width: cardWidth)
 
             Text(game.libraryListTitle)
                 .font(.subheadline.weight(.medium))
                 .foregroundStyle(.primary)
                 .multilineTextAlignment(.center)
                 .lineLimit(3)
-                .frame(width: cardWidth, height: LibraryGridMetrics.titleHeight, alignment: .top)
+                .frame(width: cardWidth, alignment: .top)
+                .fixedSize(horizontal: false, vertical: true)
         }
         .frame(width: cardWidth, alignment: .leading)
         .contentShape(Rectangle())
         .onTapGesture(perform: onCardTap)
         .help("Show actions for \(game.libraryListTitle)")
+    }
+
+    private var coverOverlays: some View {
+        ZStack {
+            if RommSync.shared.downloading.contains(game.id) {
+                RoundedRectangle(cornerRadius: 8)
+                    .fill(Color.black.opacity(0.55))
+                VStack(spacing: 6) {
+                    ProgressView().controlSize(.regular)
+                    Text("Downloading from ROMM…")
+                        .font(.caption2.weight(.semibold))
+                        .foregroundStyle(.white)
+                }
+                .allowsHitTesting(false)
+            }
+
+            if showsActionOverlay {
+                RoundedRectangle(cornerRadius: 8)
+                    .fill(Color.black.opacity(0.45))
+                    .allowsHitTesting(false)
+
+                HStack(spacing: actionIconSize * 0.7) {
+                    Button {
+                        onPlay()
+                    } label: {
+                        Image(systemName: "play.circle.fill")
+                            .font(.system(size: actionIconSize))
+                            .symbolRenderingMode(.palette)
+                            .foregroundStyle(.white, Color.accentColor.opacity(0.95))
+                    }
+                    .buttonStyle(.plain)
+                    .help("Play")
+
+                    Button {
+                        onInfo()
+                    } label: {
+                        Image(systemName: "info.circle.fill")
+                            .font(.system(size: actionIconSize))
+                            .symbolRenderingMode(.palette)
+                            .foregroundStyle(.white, .secondary)
+                    }
+                    .buttonStyle(.plain)
+                    .help("Game details and cover")
+                }
+            }
+        }
     }
 }
 

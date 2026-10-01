@@ -8,6 +8,15 @@ For release notes style summaries, see `source control log.md`. For architecture
 
 ## Mac library — scanning & covers
 
+### BJ-120 — Library covers looked zoomed in and cropped
+| | |
+|---|---|
+| **When** | Oct 1 2026 (**in progress**) |
+| **Symptom** | Many tiles in the library grid (for example **Costume Quest**, **Clock Tower 3**) cut off the top, bottom or sides of the box art. |
+| **Cause** | `GameLibraryTile` drew `CachedCoverThumbnail` with its default `.fill` mode inside a fixed slot (card width × the emulator's cover aspect, default 2:3) and clipped it, so any cover whose shape didn't match the setting got zoomed in to fill the slot. |
+| **Fix** | The tile uses `.fit` and applies the clip, border, badges and Play/Info overlay to the fitted image. A first pass bottom-aligned covers inside the old fixed slot, which broke top alignment and left large gaps in mixed-emulator rows; the tile is now sized from the image's own shape (card width, capped at the emulator's cover height), tiles top-align in each row, and titles no longer reserve 3 lines, so rows are only as tall as their tallest tile. |
+| **Commit** | *in progress* |
+
 ### BJ-119 — Same cover listed several times under Detected covers
 | | |
 |---|---|
