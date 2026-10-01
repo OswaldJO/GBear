@@ -108,6 +108,16 @@ final class CoverProviderQuota {
 
     // MARK: Reset times
 
+    /// When the provider's request count starts over: ScreenScraper daily (midnight Paris), TheGamesDB monthly.
+    /// Nil for providers with only a rate limit.
+    nonisolated static func nextCycleReset(for provider: CoverProvider, after date: Date = Date()) -> Date? {
+        switch provider {
+        case .screenScraper: return nextScreenScraperReset(after: date)
+        case .theGamesDB: return startOfNextMonthUTC(after: date)
+        case .igdb, .steamGridDB: return nil
+        }
+    }
+
     /// ScreenScraper quotas reset at midnight in France.
     nonisolated static func nextScreenScraperReset(after date: Date = Date()) -> Date {
         var calendar = Calendar(identifier: .gregorian)

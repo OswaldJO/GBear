@@ -230,6 +230,7 @@ class _HomePageState extends State<HomePage> with WidgetsBindingObserver {
     bool? coopPadMode,
     int? preferredSeat,
     bool? playAsHost,
+    bool? showHostBitrate,
   }) async {
     final current = _controllerSettings ?? await StreamControllerSettings.load();
     await current.save(
@@ -242,6 +243,7 @@ class _HomePageState extends State<HomePage> with WidgetsBindingObserver {
       coopPadMode: coopPadMode,
       preferredSeat: preferredSeat,
       playAsHost: playAsHost,
+      showHostBitrate: showHostBitrate,
     );
     if (!mounted) return;
     setState(() => _controllerSettings = current);
@@ -1241,6 +1243,14 @@ class _HomePageState extends State<HomePage> with WidgetsBindingObserver {
               ),
             ),
             if (isAndroid) ...[
+              SwitchListTile(
+                title: const Text('Show host bitrate'),
+                subtitle: const Text(
+                  'Small readout in the stream\'s top-left corner: the video bitrate the host Mac is sending, then its target.',
+                ),
+                value: settings.showHostBitrate,
+                onChanged: (value) => _saveControllerSettings(showHostBitrate: value),
+              ),
               SwitchListTile(
                 title: const Text('USB driver'),
                 subtitle: const Text('Support USB-C telescopic controllers.'),

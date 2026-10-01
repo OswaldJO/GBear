@@ -95,74 +95,119 @@ enum GBearPadControl: CaseIterable, Hashable {
 
     var isAnalog: Bool { buttonBit == nil }
 
-    var keyCode: CGKeyCode {
-        switch self {
-        case .a: CGKeyCode(kVK_ANSI_Keypad1)
-        case .b: CGKeyCode(kVK_ANSI_Keypad3)
-        case .x: CGKeyCode(kVK_ANSI_Keypad7)
-        case .y: CGKeyCode(kVK_ANSI_Keypad9)
-        case .l1: CGKeyCode(kVK_ANSI_KeypadDivide)
-        case .r1: CGKeyCode(kVK_ANSI_KeypadMultiply)
-        case .l2: CGKeyCode(kVK_ANSI_KeypadMinus)
-        case .r2: CGKeyCode(kVK_ANSI_KeypadPlus)
-        case .l3: CGKeyCode(kVK_ANSI_Keypad0)
-        case .r3: CGKeyCode(kVK_ANSI_Keypad5)
-        case .start: CGKeyCode(kVK_ANSI_KeypadEnter)
-        case .select: CGKeyCode(kVK_ANSI_KeypadDecimal)
-        case .guide: CGKeyCode(kVK_ANSI_KeypadEquals)
-        case .dpadUp: CGKeyCode(kVK_ANSI_Keypad8)
-        case .dpadDown: CGKeyCode(kVK_ANSI_Keypad2)
-        case .dpadLeft: CGKeyCode(kVK_ANSI_Keypad4)
-        case .dpadRight: CGKeyCode(kVK_ANSI_Keypad6)
+    /// One stand-in key for this control and player. Players 1 and 2 share the keypad table
+    /// (Player 1 is only remote when a phone stands in for the host); 3 gets letters, 4 the number
+    /// row and punctuation. Players 5–8 have no keys: there are not enough left, so they need
+    /// real virtual pads.
+    struct StandInKey {
+        let code: CGKeyCode
+        let label: String
+        var isKeypad = false
+    }
+
+    static let seatsWithKeys: ClosedRange<Int> = 1 ... 4
+
+    func standInKey(seat: Int) -> StandInKey? {
+        switch seat {
+        case 1, 2: keypadKey
+        case 3: letterKey
+        case 4: numberRowKey
+        default: nil
+        }
+    }
+
+    private var keypadKey: StandInKey {
+        func pad(_ code: Int, _ label: String) -> StandInKey { StandInKey(code: CGKeyCode(code), label: label, isKeypad: true) }
+        func key(_ code: Int, _ label: String) -> StandInKey { StandInKey(code: CGKeyCode(code), label: label) }
+        return switch self {
+        case .a: pad(kVK_ANSI_Keypad1, "Keypad 1")
+        case .b: pad(kVK_ANSI_Keypad3, "Keypad 3")
+        case .x: pad(kVK_ANSI_Keypad7, "Keypad 7")
+        case .y: pad(kVK_ANSI_Keypad9, "Keypad 9")
+        case .l1: pad(kVK_ANSI_KeypadDivide, "Keypad ÷")
+        case .r1: pad(kVK_ANSI_KeypadMultiply, "Keypad ×")
+        case .l2: pad(kVK_ANSI_KeypadMinus, "Keypad −")
+        case .r2: pad(kVK_ANSI_KeypadPlus, "Keypad +")
+        case .l3: pad(kVK_ANSI_Keypad0, "Keypad 0")
+        case .r3: pad(kVK_ANSI_Keypad5, "Keypad 5")
+        case .start: pad(kVK_ANSI_KeypadEnter, "Keypad Enter")
+        case .select: pad(kVK_ANSI_KeypadDecimal, "Keypad .")
+        case .guide: pad(kVK_ANSI_KeypadEquals, "Keypad =")
+        case .dpadUp: pad(kVK_ANSI_Keypad8, "Keypad 8")
+        case .dpadDown: pad(kVK_ANSI_Keypad2, "Keypad 2")
+        case .dpadLeft: pad(kVK_ANSI_Keypad4, "Keypad 4")
+        case .dpadRight: pad(kVK_ANSI_Keypad6, "Keypad 6")
         // F14/F15 can be brightness keys on some keyboards, so they go on the right stick.
-        case .leftUp: CGKeyCode(kVK_F13)
-        case .leftDown: CGKeyCode(kVK_F16)
-        case .leftLeft: CGKeyCode(kVK_F17)
-        case .leftRight: CGKeyCode(kVK_F18)
-        case .rightUp: CGKeyCode(kVK_F19)
-        case .rightDown: CGKeyCode(kVK_F20)
-        case .rightLeft: CGKeyCode(kVK_F14)
-        case .rightRight: CGKeyCode(kVK_F15)
+        case .leftUp: key(kVK_F13, "F13")
+        case .leftDown: key(kVK_F16, "F16")
+        case .leftLeft: key(kVK_F17, "F17")
+        case .leftRight: key(kVK_F18, "F18")
+        case .rightUp: key(kVK_F19, "F19")
+        case .rightDown: key(kVK_F20, "F20")
+        case .rightLeft: key(kVK_F14, "F14")
+        case .rightRight: key(kVK_F15, "F15")
         }
     }
 
-    var isKeypadKey: Bool {
-        switch self {
-        case .leftUp, .leftDown, .leftLeft, .leftRight,
-             .rightUp, .rightDown, .rightLeft, .rightRight:
-            false
-        default:
-            true
+    private var letterKey: StandInKey {
+        func key(_ code: Int, _ label: String) -> StandInKey { StandInKey(code: CGKeyCode(code), label: label) }
+        return switch self {
+        case .a: key(kVK_ANSI_K, "K")
+        case .b: key(kVK_ANSI_L, "L")
+        case .x: key(kVK_ANSI_J, "J")
+        case .y: key(kVK_ANSI_I, "I")
+        case .l1: key(kVK_ANSI_U, "U")
+        case .r1: key(kVK_ANSI_O, "O")
+        case .l2: key(kVK_ANSI_Y, "Y")
+        case .r2: key(kVK_ANSI_P, "P")
+        case .l3: key(kVK_ANSI_C, "C")
+        case .r3: key(kVK_ANSI_V, "V")
+        case .start: key(kVK_ANSI_N, "N")
+        case .select: key(kVK_ANSI_B, "B")
+        case .guide: key(kVK_ANSI_M, "M")
+        case .dpadUp: key(kVK_ANSI_E, "E")
+        case .dpadDown: key(kVK_ANSI_X, "X")
+        case .dpadLeft: key(kVK_ANSI_Z, "Z")
+        case .dpadRight: key(kVK_ANSI_R, "R")
+        case .leftUp: key(kVK_ANSI_W, "W")
+        case .leftDown: key(kVK_ANSI_S, "S")
+        case .leftLeft: key(kVK_ANSI_A, "A")
+        case .leftRight: key(kVK_ANSI_D, "D")
+        case .rightUp: key(kVK_ANSI_T, "T")
+        case .rightDown: key(kVK_ANSI_G, "G")
+        case .rightLeft: key(kVK_ANSI_F, "F")
+        case .rightRight: key(kVK_ANSI_H, "H")
         }
     }
 
-    var keyLabel: String {
-        switch self {
-        case .a: "Keypad 1"
-        case .b: "Keypad 3"
-        case .x: "Keypad 7"
-        case .y: "Keypad 9"
-        case .l1: "Keypad ÷"
-        case .r1: "Keypad ×"
-        case .l2: "Keypad −"
-        case .r2: "Keypad +"
-        case .l3: "Keypad 0"
-        case .r3: "Keypad 5"
-        case .start: "Keypad Enter"
-        case .select: "Keypad ."
-        case .guide: "Keypad ="
-        case .dpadUp: "Keypad 8"
-        case .dpadDown: "Keypad 2"
-        case .dpadLeft: "Keypad 4"
-        case .dpadRight: "Keypad 6"
-        case .leftUp: "F13"
-        case .leftDown: "F16"
-        case .leftLeft: "F17"
-        case .leftRight: "F18"
-        case .rightUp: "F19"
-        case .rightDown: "F20"
-        case .rightLeft: "F14"
-        case .rightRight: "F15"
+    private var numberRowKey: StandInKey {
+        func key(_ code: Int, _ label: String) -> StandInKey { StandInKey(code: CGKeyCode(code), label: label) }
+        return switch self {
+        case .a: key(kVK_ANSI_Slash, "/")
+        case .b: key(kVK_ANSI_Quote, "'")
+        case .x: key(kVK_ANSI_Period, ".")
+        case .y: key(kVK_ANSI_Semicolon, ";")
+        case .l1: key(kVK_ANSI_LeftBracket, "[")
+        case .r1: key(kVK_ANSI_RightBracket, "]")
+        case .l2: key(kVK_ANSI_Minus, "-")
+        case .r2: key(kVK_ANSI_Equal, "=")
+        case .l3: key(kVK_ANSI_Comma, ",")
+        case .r3: key(kVK_ANSI_Backslash, "\\")
+        case .start: key(kVK_ANSI_9, "9")
+        case .select: key(kVK_ANSI_0, "0")
+        case .guide: key(kVK_ANSI_Grave, "`")
+        case .dpadUp: key(kVK_ANSI_5, "5")
+        case .dpadDown: key(kVK_ANSI_6, "6")
+        case .dpadLeft: key(kVK_ANSI_7, "7")
+        case .dpadRight: key(kVK_ANSI_8, "8")
+        case .leftUp: key(kVK_ANSI_1, "1")
+        case .leftDown: key(kVK_ANSI_2, "2")
+        case .leftLeft: key(kVK_ANSI_3, "3")
+        case .leftRight: key(kVK_ANSI_4, "4")
+        case .rightUp: key(kVK_PageUp, "Page Up")
+        case .rightDown: key(kVK_PageDown, "Page Down")
+        case .rightLeft: key(kVK_Home, "Home")
+        case .rightRight: key(kVK_End, "End")
         }
     }
 }

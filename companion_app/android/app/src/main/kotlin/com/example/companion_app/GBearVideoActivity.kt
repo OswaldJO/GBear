@@ -10,7 +10,9 @@ import android.os.Build
 import android.os.Bundle
 import android.os.Handler
 import android.os.HandlerThread
+import android.os.Looper
 import android.os.SystemClock
+import android.util.TypedValue
 import android.view.Gravity
 import android.view.MotionEvent
 import android.view.Surface
@@ -19,7 +21,10 @@ import android.view.SurfaceView
 import android.view.KeyEvent
 import android.view.WindowManager
 import android.window.OnBackInvokedDispatcher
+import android.graphics.drawable.GradientDrawable
+import android.view.View
 import android.widget.FrameLayout
+import android.widget.TextView
 import java.io.ByteArrayOutputStream
 import java.io.DataInputStream
 import java.net.InetSocketAddress
@@ -42,6 +47,10 @@ class GBearVideoActivity : Activity(), SurfaceHolder.Callback {
     private var decoder: MediaCodec? = null
     private var socket: Socket? = null
     private val running = AtomicBoolean(false)
+    private var bitrateBadge: TextView? = null
+    private val bitrateBadgeHandler = Handler(Looper.getMainLooper())
+    private var bitrateBadgeTick: Runnable? = null
+    private val bitratePolling = AtomicBoolean(false)
     private var streamThread: Thread? = null
     private var codecThread: HandlerThread? = null
     private var codecHandler: Handler? = null
@@ -215,6 +224,7 @@ class GBearVideoActivity : Activity(), SurfaceHolder.Callback {
             }
         }
         setContentView(videoContainer)
+        startHostBitrateBadge()
 
         codecThread = HandlerThread("GBearCodec").apply { start() }
         codecHandler = Handler(codecThread!!.looper)
@@ -606,9 +616,72 @@ class GBearVideoActivity : Activity(), SurfaceHolder.Callback {
         return gamepadMapping
     }
 
+    private fun startHostBitrateBadge() {
+        if (!GBearHostBitrate.isEnabled(this)) return
+        GBearHostBitrate.clear()
+        val dp = { value: Float ->
+            TypedValue.applyDimension(TypedValue.COMPLEX_UNIT_DIP, value, resources.displayMetrics).toInt()
+        }
+        val badge = TextView(this).apply {
+            setTextColor(Color.WHITE)
+            setTextSize(TypedValue.COMPLEX_UNIT_SP, 12f)
+            setPadding(dp(8f), dp(3f), dp(8f), dp(3f))
+            background = GradientDrawable().apply {
+                cornerRadius = dp(12f).toFloat()
+                setColor(Color.argb(140, 0, 0, 0))
+            }
+            isClickable = false
+            isFocusable = false
+            visibility = View.GONE
+        }
+        videoContainer.addView(
+            badge,
+            FrameLayout.LayoutParams(
+                FrameLayout.LayoutParams.WRAP_CONTENT,
+                FrameLayout.LayoutParams.WRAP_CONTENT,
+                Gravity.TOP or Gravity.START,
+            ).apply { setMargins(dp(10f), dp(10f), 0, 0) },
+        )
+        bitrateBadge = badge
+        val tick = object : Runnable {
+            override fun run() {
+                val label = GBearHostBitrate.label()
+                badge.text = label ?: ""
+                badge.visibility = if (label == null) View.GONE else View.VISIBLE
+                bitrateBadgeHandler.postDelayed(this, 1_000)
+            }
+        }
+        bitrateBadgeTick = tick
+        bitrateBadgeHandler.post(tick)
+        // Relay pings already carry the bitrate; LAN streams ask the host's status endpoint.
+        if (!GBearRelayBridge.handlesHost(streamHost) && streamHost.isNotEmpty()) {
+            bitratePolling.set(true)
+            val host = streamHost
+            Thread({
+                while (bitratePolling.get()) {
+                    GBearHostBitrate.pollStatus(host)
+                    try {
+                        Thread.sleep(1_000)
+                    } catch (_: InterruptedException) {
+                        break
+                    }
+                }
+            }, "GBearHostBitrate").apply { isDaemon = true }.start()
+        }
+    }
+
+    private fun stopHostBitrateBadge() {
+        bitratePolling.set(false)
+        bitrateBadgeTick?.let { bitrateBadgeHandler.removeCallbacks(it) }
+        bitrateBadgeTick = null
+        bitrateBadge = null
+        GBearHostBitrate.clear()
+    }
+
     private fun teardownStream(endReason: String, releaseKeyboard: Boolean = true) {
         if (logSessionEnded) return
         running.set(false)
+        stopHostBitrateBadge()
         codecHandler?.post { releaseDecoder() }
         endLogSession(endReason)
         audioReceiver?.stop()
@@ -647,6 +720,7 @@ class GBearVideoActivity : Activity(), SurfaceHolder.Callback {
         shortcutsOverlay?.dismiss()
         shortcutsOverlay = null
         running.set(false)
+        stopHostBitrateBadge()
         GBearStreamSession.viewerOpen = false
         audioReceiver?.stop()
         audioReceiver = null

@@ -42,6 +42,14 @@ enum RomTitleNormalizer {
             .trimmingCharacters(in: .whitespacesAndNewlines)
     }
 
+    /// Drops brackets and slashes from a group inside a word, so `SP(LR)ITE`, `Sp(L/R)ite` and `SpLRite` all read `SpLRite`.
+    static func joiningInWordPunctuation(_ text: String) -> String {
+        let pattern = #"(?<=[\p{L}\p{N}])[\(\[]([\p{L}\p{N}]+)(?:/([\p{L}\p{N}]+))?[\)\]](?=[\p{L}\p{N}])"#
+        guard let regex = try? NSRegularExpression(pattern: pattern) else { return text }
+        let range = NSRange(text.startIndex..., in: text)
+        return regex.stringByReplacingMatches(in: text, range: range, withTemplate: "$1$2")
+    }
+
     /// True when a string still looks like a dump filename (underscores, Switch title id, trailing `v0`).
     static func looksLikeDumpName(_ title: String) -> Bool {
         if title.contains("_") { return true }
@@ -57,7 +65,11 @@ enum RomTitleNormalizer {
         for ch in ["™", "®", "©"] {
             s = s.replacingOccurrences(of: ch, with: "")
         }
-        let patterns = [#"\([^)]*\)"#, #"\[[^\]]*\]"#]
+        // A group wedged inside a word is part of the name (`SP(LR)ITE`), not a dump tag.
+        let patterns = [
+            #"(?<![\p{L}\p{N}])\([^)]*\)|\([^)]*\)(?![\p{L}\p{N}])"#,
+            #"(?<![\p{L}\p{N}])\[[^\]]*\]|\[[^\]]*\](?![\p{L}\p{N}])"#,
+        ]
         for p in patterns {
             while let r = s.range(of: p, options: .regularExpression) {
                 s.removeSubrange(r)

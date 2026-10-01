@@ -12,6 +12,8 @@ final class GBearPadInputMonitor {
         case virtualPad
         /// `GBearKeyboardPadStandIn` presses keys for this seat.
         case keyboard
+        /// No virtual pad and no stand-in keys left for this seat (Players 5–8).
+        case unrouted
         /// This Mac's own controller, which the emulator reads directly.
         case hostController
     }

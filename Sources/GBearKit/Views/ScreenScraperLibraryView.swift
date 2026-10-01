@@ -52,9 +52,6 @@ struct ScreenScraperLibrarySettingsView: View {
                           let finished = fetcher.lastLibraryScrapeFinishedAt {
                     lastScrapeResultCard(summary: summary, finishedAt: finished)
                 }
-                if fetcher.backgroundPassInProgress && !fetcher.libraryScrapeInProgress {
-                    backgroundPassBanner
-                }
                 autoSelectCard
                 defaultRegionCard
                 helpText
@@ -360,23 +357,10 @@ struct ScreenScraperLibrarySettingsView: View {
     private var scrapeProgressCard: some View {
         GroupBox {
             VStack(alignment: .leading, spacing: 12) {
-                if fetcher.libraryScrapeWaitingForBackground {
-                    HStack(alignment: .top, spacing: 10) {
-                        ProgressView()
-                            .controlSize(.small)
-                        Text(
-                            "Waiting for the background metadata pass to finish. " +
-                                "A full scrape runs after that so both passes don’t compete for ScreenScraper requests."
-                        )
-                        .font(.subheadline)
-                        .foregroundStyle(.secondary)
-                    }
-                }
-
                 HStack {
                     ProgressView()
                         .controlSize(.regular)
-                    Text(fetcher.libraryScrapeWaitingForBackground ? "Preparing library scrape…" : "Scraping library…")
+                    Text(fetcher.currentScrapeTrigger == .library ? "Scraping library…" : "Finding covers for new games…")
                         .font(.headline)
                     Spacer()
                     Text("\(fetcher.libraryScrapeProcessed) / \(max(fetcher.libraryScrapeTotal, 1))")
@@ -454,7 +438,7 @@ struct ScreenScraperLibrarySettingsView: View {
                 }
                 .buttonStyle(.borderedProminent)
                 .disabled(
-                    !isConfigured || fetcher.libraryScrapeInProgress || fetcher.libraryScrapeWaitingForBackground
+                    !isConfigured || fetcher.libraryScrapeInProgress
                         || CoverProviderQuota.shared.allScrapeProvidersBlocked
                 )
 
@@ -474,7 +458,7 @@ struct ScreenScraperLibrarySettingsView: View {
                     showClearCoversConfirmation = true
                 }
                 .buttonStyle(.bordered)
-                .disabled(fetcher.libraryScrapeInProgress || fetcher.libraryScrapeWaitingForBackground)
+                .disabled(fetcher.libraryScrapeInProgress)
 
                 if let clearCoversStatus {
                     Text(clearCoversStatus)
@@ -512,7 +496,7 @@ struct ScreenScraperLibrarySettingsView: View {
                 .font(.caption)
             }
             Text(
-                "A provider that reaches its limit is skipped until it resets (ScreenScraper daily at midnight Paris time, " +
+                "A provider that reaches its limit is skipped until it resets (ScreenScraper every day at midnight Paris time, " +
                     "TheGamesDB monthly, IGDB and SteamGridDB after a short pause). When every provider is at its limit, scrapes stop and don't start."
             )
             .font(.caption2)
@@ -528,10 +512,11 @@ struct ScreenScraperLibrarySettingsView: View {
         }
         switch provider {
         case .screenScraper:
+            let reset = CoverProviderQuota.nextCycleReset(for: provider).map { " (resets \(CoverProviderQuota.describe($0)))" } ?? ""
             if let used = status.used, let limit = status.limit {
-                return "\(used.formatted()) of \(limit.formatted()) requests used today"
+                return "\(used.formatted()) of \(limit.formatted()) requests used this cycle\(reset)"
             }
-            return "daily limit shown after the first request"
+            return "limit shown after the first request\(reset)"
         case .theGamesDB:
             if let remaining = status.remaining {
                 return "\(remaining.formatted()) requests left this month"
@@ -542,23 +527,6 @@ struct ScreenScraperLibrarySettingsView: View {
         case .steamGridDB:
             return "no published limit; paused briefly if it asks the app to slow down"
         }
-    }
-
-    private var backgroundPassBanner: some View {
-        HStack(alignment: .top, spacing: 8) {
-            ProgressView()
-                .controlSize(.small)
-            Text(
-                "Background metadata pass running (up to 3 games). " +
-                    "This fetches missing covers for new entries — it does not cache emulator/core matching. " +
-                    "A full Scrape library waits for this pass to finish."
-            )
-            .font(.caption)
-            .foregroundStyle(.secondary)
-        }
-        .padding(10)
-        .frame(maxWidth: .infinity, alignment: .leading)
-        .background(.quaternary.opacity(0.5), in: RoundedRectangle(cornerRadius: 8))
     }
 
     private var disambiguationCard: some View {

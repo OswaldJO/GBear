@@ -196,7 +196,14 @@ enum MetadataService {
     /// Stricter check for name-search backups (TheGamesDB, IGDB), whose search returns loosely related games.
     /// The shorter title's words must all appear in the longer one, and a one-word title must match exactly.
     /// `Off the Game` ✗ `Olympic Games Tokyo 2020`; `Hollow Knight Voidheart Edition` ✓ `Hollow Knight`.
-    static func backupTitleMatches(searchQuery: String, candidate: String) -> Bool {
+    /// `SP(LR)ITE` ✓ `Sp(L/R)ite スプライト`: in-word punctuation is joined, and a Japanese / other non-Latin subtitle
+    /// is ignored when the query is written in Latin letters.
+    static func backupTitleMatches(searchQuery rawQuery: String, candidate rawCandidate: String) -> Bool {
+        let searchQuery = RomTitleNormalizer.joiningInWordPunctuation(rawQuery)
+        var candidate = RomTitleNormalizer.joiningInWordPunctuation(rawCandidate)
+        if !containsNonLatinWord(searchQuery) {
+            candidate = droppingNonLatinWords(candidate)
+        }
         guard pickTitleIsCompatible(searchQuery: searchQuery, pickTitle: candidate) else { return false }
         let queryWords = significantWords(from: searchQuery)
         let candidateWords = significantWords(from: candidate)
@@ -209,6 +216,22 @@ enum MetadataService {
     }
 
     private static let backupStopWords: Set<String> = ["the", "of", "a", "an", "and"]
+
+    private static func isNonLatinWord(_ word: Substring) -> Bool {
+        guard word.contains(where: \.isLetter) else { return false }
+        let folded = word.folding(options: [.caseInsensitive, .diacriticInsensitive], locale: nil)
+        return !folded.unicodeScalars.contains { $0.isASCII && CharacterSet.alphanumerics.contains($0) }
+    }
+
+    private static func containsNonLatinWord(_ text: String) -> Bool {
+        text.split(whereSeparator: \.isWhitespace).contains(where: isNonLatinWord)
+    }
+
+    private static func droppingNonLatinWords(_ text: String) -> String {
+        text.split(whereSeparator: \.isWhitespace)
+            .filter { !isNonLatinWord($0) }
+            .joined(separator: " ")
+    }
 
     private static func significantWords(from text: String) -> Set<String> {
         let folded = text

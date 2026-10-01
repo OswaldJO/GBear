@@ -182,6 +182,9 @@ final class GBearStreamHostManager {
     }
 
     private func wirePairingCallbacks() async {
+        await server.setBitRateProvider { [video] in
+            await video.bitRateSnapshot()
+        }
         await server.setPairingQueueHandler { [weak self] in
             await self?.refreshPendingPairRequests()
         }

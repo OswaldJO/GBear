@@ -8,6 +8,33 @@ For release notes style summaries, see `source control log.md`. For architecture
 
 ## Mac library — scanning & covers
 
+### BJ-119 — Same cover listed several times under Detected covers
+| | |
+|---|---|
+| **When** | Oct 1 2026 (**in progress**) |
+| **Symptom** | Games such as **A Short Hike**, **Gris** and **Super Mario Odyssey** listed the same box art three or four times in the inspector's Detected covers. The cover cache held 881 files for about 263 games, with groups of 4–6 byte-identical images. |
+| **Cause** | `CoverImageCache` named each download by a hash of its full address. ScreenScraper media addresses carry the dev and user credentials and come from rotating mirror hosts, so the same image came back under a new address after signing in or on another scrape, got a new file, and was appended to the game's cover list as a new option. Separately, the "already downloaded" check looked for `<hash>.php` while ScreenScraper images were saved as `<hash>.jpg`, so those were downloaded again on every scrape. |
+| **Fix** | Downloads are named by a hash of their bytes, with `index.json` mapping a normalized address (no mirror host or credential parameters) to the file; older address-named files are still found. `mergeDuplicateCoversOnce` runs once at launch: it groups cache files by content, rewrites every game's primary cover and cover list to one copy (the list setter drops the repeats), remaps the index, and deletes the extra files. |
+| **Commit** | *in progress* |
+
+### BJ-118 — ScreenScraper showed 510 requests after one manual scrape
+| | |
+|---|---|
+| **When** | Oct 1 2026 (**in progress**) |
+| **Symptom** | A **Scrape library** run for one game reported `used_today=510/20000` for ScreenScraper, though the user had only scraped once that day. |
+| **Cause** | `MetadataBackgroundFetcher.runLoop` ran every 45 s and fetched 3 games whose `metadataLastFetchAt` was over 24 h old, covers or not, so the whole library (~263 games) was re-checked through ScreenScraper every day while signed in. `scheduleExtraPass` added more after scans, ROMM syncs, storefront imports and link changes. Those passes wrote no scrape log. ScreenScraper's counter also runs from midnight Paris time (3 PM Pacific), so "today" included the afternoon before. |
+| **Fix** | Removed the background loop, `scheduleExtraPass`, `startIfNeeded`, the unused `scrapeAllNow`, and the "waiting for background pass" UI. Cover providers are called from **Scrape library**, **Search for Covers…**, and `scrapeNewGames` after a scan, ROMM sync or storefront import adds games. That pass only takes games never looked up and without a cover, applies a cover file found beside the game first, and writes its own log. The usage line and Manage Providers now say "used this cycle" with the reset time (`used_this_cycle=` / `cycle_resets=`, `CoverProviderQuota.nextCycleReset`) instead of "today". |
+| **Commit** | *in progress* |
+
+### BJ-117 — SP(LR)ITE searched as "Spite" and found no cover
+| | |
+|---|---|
+| **When** | Oct 1 2026 (**in progress**) |
+| **Symptom** | The scrape log showed `steamgriddb_no_match title=SP(LR)ITE query=Spite`. The game is **Sp(L/R)ite**, which SteamGridDB has. |
+| **Cause** | `RomTitleNormalizer.searchQuery` removed every `(...)` / `[...]` group anywhere in the title, treating `(LR)` like a dump tag such as `(USA)`. The strict backup check (`MetadataService.backupTitleMatches`) also split `Sp(L/R)ite` into `sp` + `ite`, and a Japanese subtitle on the candidate (`Sp(L/R)ite スプライト`) counted as an extra word, so even the right spelling would not have matched. |
+| **Fix** | Groups wedged inside a word (letter or digit on both sides) are kept in the query; tags after a space or at the end are still removed. `RomTitleNormalizer.joiningInWordPunctuation` turns `SP(LR)ITE`, `Sp(L/R)ite` and `SpLRite` into the same word for matching. `backupTitleMatches` uses it on both sides and ignores non-Latin words in the candidate when the query is written in Latin letters. `SteamGridDBClient.searchFrontCover` retries with the joined spelling when the first search finds nothing. The query is now right (`Sp(l/r)ite`), but this game still gets no cover from SteamGridDB: its entry there is misspelled `Sprlite` (game 5436987, Steam app 2533920) and has no grids uploaded at all, so another provider (IGDB, ScreenScraper) or an upload to SteamGridDB is needed. |
+| **Commit** | *in progress* |
+
 ### BJ-105 — Flycast kept ROMM duplicates after unlinking from Redream
 | | |
 |---|---|
@@ -258,6 +285,15 @@ For release notes style summaries, see `source control log.md`. For architecture
 ---
 
 ## Streaming — architecture (Sunshine → native GBear)
+
+### BJ-116 — Players 2–8 all controlled Player 2
+| | |
+|---|---|
+| **When** | Sep 29 2026 |
+| **Symptom** | With several remote friends in a session, every friend's pad moved Player 2 in the emulator. |
+| **Cause** | Still no Virtual HID entitlement (BJ-095), so every remote seat fell back to `GBearKeyboardPadStandIn`, which had one key table and one set of held keys for everyone. The Mac has too few keys for 7 players × 25 controls. The kernel enforces the entitlement in `IOHIDResourceUserClient` (running as root does not help), so no app-side workaround creates a real pad. |
+| **Fix** | Stopgap: `GBearPadControl.standInKey(seat:)` gives Players 1–2 the keypad + F13–F20 table, Player 3 letters, Player 4 the number row and punctuation. The stand-in keeps held keys per player and `release(seat:)` frees only the friend who left. Players 5–8 get no keys; the Controller map says so (`Route.unrouted`). Per-emulator network inputs (RetroArch network pad, Dolphin pipes, Cemu DSU) were built and then removed: GBear should not need code for each emulator. Real fix, for every emulator and all 8 players: Apple grants `com.apple.developer.hid.virtual.device` to team AFYV687T82 for `com.funnybearapps.gbear`, and GBear ships with a provisioning profile that contains it. Prepared for that: `GBearHIDUserDevice.c` now presents each pad as a wired DualShock 4 (054C:09CC, real 64-byte report 0x01, answers calibration / MAC / firmware feature reports, accepts rumble output) with a unique serial, MAC and location per seat, so SDL, RPCS3, RetroArch and GameController apps auto-map it instead of seeing an unknown `1209:BEAx` pad. Creation is skipped when the entitlement is missing (`GBearHIDHasVirtualDeviceEntitlement`), so the keyboard fallback still engages. `Scripts/sign-virtual-hid.sh` embeds the profile and re-signs with the entitlement after the Release build, refusing profiles that lack it. Untested until Apple approves. |
+| **Commit** | *in progress* |
 
 ### BJ-115 — Windows guest could not join with an invite line
 | | |

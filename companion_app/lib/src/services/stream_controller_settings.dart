@@ -13,6 +13,9 @@ class StreamControllerSettings {
   static const _preferredSeatKey = 'stream.controller.preferredSeat';
   static const _playAsHostKey = 'stream.controller.playAsHost';
 
+  /// Read natively by `GBearVideoActivity` as `flutter.stream.showHostBitrate`.
+  static const _showHostBitrateKey = 'stream.showHostBitrate';
+
   StreamControllerSettings(this._prefs);
 
   final SharedPreferences _prefs;
@@ -45,6 +48,9 @@ class StreamControllerSettings {
   /// When true, this companion claims Player 1 in place of the host Mac.
   bool get playAsHost => _prefs.getBool(_playAsHostKey) ?? false;
 
+  /// Android: small readout of the host Mac's video bitrate on the stream.
+  bool get showHostBitrate => _prefs.getBool(_showHostBitrateKey) ?? true;
+
   Future<void> save({
     bool? multiController,
     bool? swapFaceButtons,
@@ -55,6 +61,7 @@ class StreamControllerSettings {
     bool? coopPadMode,
     int? preferredSeat,
     bool? playAsHost,
+    bool? showHostBitrate,
   }) async {
     if (multiController != null) {
       await _prefs.setBool(_multiControllerKey, multiController);
@@ -82,6 +89,9 @@ class StreamControllerSettings {
     }
     if (playAsHost != null) {
       await _prefs.setBool(_playAsHostKey, playAsHost);
+    }
+    if (showHostBitrate != null) {
+      await _prefs.setBool(_showHostBitrateKey, showHostBitrate);
     }
   }
 

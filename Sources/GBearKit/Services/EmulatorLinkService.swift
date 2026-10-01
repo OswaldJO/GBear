@@ -154,11 +154,8 @@ enum EmulatorLinkService {
     @MainActor
     static func refreshLibraryAfterLinkChange(modelContext: ModelContext) async {
         try? modelContext.save()
-        let scan = try? GamePathScanner.scan(modelContext: modelContext)
-        let romm = await RommSync.shared.sync(modelContext: modelContext)
-        if (scan?.added ?? 0) > 0 || romm.added > 0 {
-            MetadataBackgroundFetcher.shared.scheduleExtraPass(container: modelContext.container)
-        }
+        _ = try? GamePathScanner.scan(modelContext: modelContext)
+        _ = await RommSync.shared.sync(modelContext: modelContext)
     }
 
     private static func clear(_ emulator: EmulatorProfile) {

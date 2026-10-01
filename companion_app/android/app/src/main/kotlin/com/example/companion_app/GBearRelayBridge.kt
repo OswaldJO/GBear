@@ -225,6 +225,7 @@ object GBearRelayBridge {
             "ping" -> {
                 val pong = JSONObject().put("type", "pong").put("t", json.opt("t"))
                 webSocket.send(frame(CHANNEL_CONTROL, pong.toString().toByteArray()))
+                GBearHostBitrate.noteFrom(json)
             }
             "welcome" -> {
                 val seat = json.optInt("seat", 2).coerceIn(1, 8)

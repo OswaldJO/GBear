@@ -82,10 +82,44 @@ final class GBearGuestVideoWindow: NSObject, NSWindowDelegate {
 }
 
 private struct GBearGuestVideoWindowContent: View {
+    @AppStorage(GBearStreamGuestManager.showHostBitRateKey) private var showHostBitRate = true
+
     var body: some View {
         GBearGuestVideoView()
             .frame(maxWidth: .infinity, maxHeight: .infinity)
             .background(.black)
+            .overlay(alignment: .topLeading) {
+                if showHostBitRate {
+                    GBearHostBitRateBadge()
+                        .padding(10)
+                }
+            }
             .ignoresSafeArea()
+    }
+}
+
+/// The host's video bitrate, as the host reports it once a second.
+private struct GBearHostBitRateBadge: View {
+    @State private var guest = GBearStreamGuestManager.shared
+
+    var body: some View {
+        TimelineView(.periodic(from: .now, by: 1)) { context in
+            if let rate = guest.hostBitRate, context.date.timeIntervalSince(rate.receivedAt) < 4 {
+                Text(Self.text(rate))
+                    .font(.caption.monospacedDigit())
+                    .foregroundStyle(.white)
+                    .padding(.horizontal, 8)
+                    .padding(.vertical, 4)
+                    .background(.black.opacity(0.55), in: Capsule())
+                    .allowsHitTesting(false)
+                    .help("Video bitrate the host is sending. The number after the slash is the host's target.")
+            }
+        }
+    }
+
+    static func text(_ rate: GBearStreamGuestManager.HostBitRate) -> String {
+        let measured = String(format: "%.1f", Double(rate.measured) / 1_000_000)
+        guard rate.target > 0 else { return "Host \(measured) Mbit/s" }
+        return "Host \(measured) / \(String(format: "%.1f", Double(rate.target) / 1_000_000)) Mbit/s"
     }
 }

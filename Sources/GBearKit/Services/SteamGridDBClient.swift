@@ -69,6 +69,10 @@ enum SteamGridDBClient {
         if let match = try await pickCover(query: trimmed, replacesLibraryTitle: true) {
             return match
         }
+        let joined = RomTitleNormalizer.joiningInWordPunctuation(trimmed)
+        if joined != trimmed, let match = try await pickCover(query: joined, replacesLibraryTitle: true) {
+            return match
+        }
         guard let core = RomTitleNormalizer.titleThroughSequelNumber(trimmed),
               core.compare(trimmed, options: .caseInsensitive) != .orderedSame else {
             return nil

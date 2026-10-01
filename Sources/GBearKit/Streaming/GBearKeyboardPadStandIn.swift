@@ -2,9 +2,10 @@ import ApplicationServices
 import CoreGraphics
 import Foundation
 
-/// Presses keypad and F13–F20 keys for a remote player's pad when macOS refuses to create
-/// a `GBear Virtual Pad` (no `com.apple.developer.hid.virtual.device`). The host binds those
-/// keys as that player in the emulator. Sticks and triggers become on/off keys.
+/// Presses keys for a remote player's pad when macOS refuses to create a `GBear Virtual Pad`
+/// (no `com.apple.developer.hid.virtual.device`). Each player has their own key table
+/// (`GBearPadControl.standInKey(seat:)`) so the host can bind them as separate players in the
+/// emulator. Sticks and triggers become on/off keys.
 final class GBearKeyboardPadStandIn: @unchecked Sendable {
     static let shared = GBearKeyboardPadStandIn()
 
@@ -16,11 +17,14 @@ final class GBearKeyboardPadStandIn: @unchecked Sendable {
     /// them. `GameLauncher` also hides GBear when the game starts, and macOS drops a hidden
     /// app's private key events (BJ-097).
     private let hardwareSource: CGEventSource? = CGEventSource(stateID: .hidSystemState)
-    private var held: Set<GBearPadControl> = []
+    /// Held controls per player, so one friend letting go never releases another friend's key.
+    private var held: [Int: Set<GBearPadControl>] = [:]
     private var loggedMissingTrust = false
-    private var loggedActive = false
+    private var loggedSeats: Set<Int> = []
 
     func update(_ event: GBearGamepadEventFormat.Event) {
+        let seat = Int(event.seat)
+        guard GBearPadControl.seatsWithKeys.contains(seat) else { return }
         queue.async { [self] in
             guard AXIsProcessTrusted() else {
                 if !loggedMissingTrust {
@@ -33,44 +37,51 @@ final class GBearKeyboardPadStandIn: @unchecked Sendable {
                 return
             }
             loggedMissingTrust = false
-            if !loggedActive {
-                loggedActive = true
-                print("[GBearPadStandIn] virtual pads unavailable; seat \(event.seat) drives keypad + F13–F20 keys")
+            if loggedSeats.insert(seat).inserted {
+                print("[GBearPadStandIn] virtual pads unavailable; Player \(seat) drives its stand-in keys")
             }
-            apply(desiredKeys(for: event))
+            apply(desiredKeys(for: event, seat: seat), seat: seat)
+        }
+    }
+
+    func release(seat: Int) {
+        queue.async { [self] in
+            apply([], seat: seat)
         }
     }
 
     func releaseAll() {
         queue.async { [self] in
-            apply([])
+            for seat in held.keys {
+                apply([], seat: seat)
+            }
         }
     }
 
-    private func apply(_ desired: Set<GBearPadControl>) {
-        for control in held.subtracting(desired) {
-            post(control, down: false)
+    private func apply(_ desired: Set<GBearPadControl>, seat: Int) {
+        let current = held[seat] ?? []
+        for control in current.subtracting(desired) {
+            post(control, seat: seat, down: false)
         }
-        for control in desired.subtracting(held) {
-            post(control, down: true)
+        for control in desired.subtracting(current) {
+            post(control, seat: seat, down: true)
         }
-        held = desired
+        held[seat] = desired.isEmpty ? nil : desired
     }
 
-    private func post(_ control: GBearPadControl, down: Bool) {
-        guard let event = CGEvent(
-            keyboardEventSource: hardwareSource,
-            virtualKey: control.keyCode,
-            keyDown: down
-        ) else { return }
-        event.flags = control.isKeypadKey ? .maskNumericPad : []
+    private func post(_ control: GBearPadControl, seat: Int, down: Bool) {
+        guard let key = control.standInKey(seat: seat),
+              let event = CGEvent(keyboardEventSource: hardwareSource, virtualKey: key.code, keyDown: down)
+        else { return }
+        event.flags = key.isKeypad ? .maskNumericPad : []
         event.post(tap: .cghidEventTap)
     }
 
-    private func desiredKeys(for event: GBearGamepadEventFormat.Event) -> Set<GBearPadControl> {
+    private func desiredKeys(for event: GBearGamepadEventFormat.Event, seat: Int) -> Set<GBearPadControl> {
+        let current = held[seat] ?? []
         var keys: Set<GBearPadControl> = []
         for control in GBearPadControl.allCases {
-            let threshold = control.isAnalog && held.contains(control)
+            let threshold = control.isAnalog && current.contains(control)
                 ? Self.releaseThreshold
                 : GBearPadControl.pressThreshold
             if control.value(in: event) > threshold {

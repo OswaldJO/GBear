@@ -120,8 +120,12 @@ private struct ControllerReceiverMapPanel: View {
 
     private func summary(_ control: GBearPadControl, route: GBearPadInputMonitor.Route?) -> String {
         switch route {
-        case .keyboard, nil:
-            "Sends \(control.keyLabel)"
+        case .keyboard, .unrouted, nil:
+            if let key = control.standInKey(seat: seat) {
+                "Sends \(key.label)"
+            } else {
+                "Not delivered"
+            }
         case .virtualPad:
             "GBear Virtual Pad \(seat)"
         case .hostController:
@@ -131,13 +135,23 @@ private struct ControllerReceiverMapPanel: View {
 
     private func routeNote(_ route: GBearPadInputMonitor.Route?) -> String {
         switch route {
-        case .keyboard, nil:
-            "In the emulator, set Player \(seat) to the keyboard. Each button below presses the key shown."
+        case .keyboard, .unrouted, nil:
+            padMissingNote
         case .virtualPad:
-            "The emulator sees this player as GBear Virtual Pad \(seat)."
+            "The emulator sees this player as GBear Virtual Pad \(seat), a PlayStation 4 controller (some emulators list it as “PS4 Controller” or “Wireless Controller”)."
         case .hostController:
             "This Mac’s own controller. The emulator reads it directly."
         }
+    }
+
+    private var padMissingNote: String {
+        let why = GBearVirtualGamepad.isEntitled
+            ? "macOS refused to create GBear Virtual Pad \(seat) even though GBear has the Virtual HID permission (see Console for IOHIDUserDevice errors)."
+            : "This Mac can’t create GBear Virtual Pad \(seat) yet (needs Apple’s Virtual HID permission)."
+        if GBearPadControl.seatsWithKeys.contains(seat) {
+            return why + " Until then, set Player \(seat) to the keyboard in the emulator. Each button below presses its own key."
+        }
+        return why + " Only Players 1–4 have stand-in keys, so Player \(seat) reaches the game once virtual pads work."
     }
 
     private static func ageText(_ seconds: TimeInterval) -> String {

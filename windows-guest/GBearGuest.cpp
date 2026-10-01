@@ -1017,6 +1017,32 @@ public:
     int frameH = 0;
     BITMAPINFO frameInfo{};
 
+    // The host's video bitrate: relay pings carry it; LAN sessions poll /gbear/v1/status.
+    std::atomic<int> hostBitrate{0};
+    std::atomic<int> hostTargetBitrate{0};
+    std::atomic<ULONGLONG> hostBitrateAt{0};
+
+    void noteHostBitrate(const std::string& body) {
+        if (body.find("\"bitrate\"") == std::string::npos) return;
+        hostBitrate.store(jsonInt(body, "bitrate", 0));
+        hostTargetBitrate.store(jsonInt(body, "targetBitrate", 0));
+        hostBitrateAt.store(GetTickCount64());
+    }
+
+    // Empty when nothing arrived in the last few seconds (older host, or the stream stalled).
+    std::wstring hostBitrateLabel() const {
+        ULONGLONG at = hostBitrateAt.load();
+        if (at == 0 || GetTickCount64() - at > 4000) return L"";
+        wchar_t text[64];
+        int target = hostTargetBitrate.load();
+        if (target > 0) {
+            swprintf(text, 64, L"Host %.1f / %.1f Mbit/s", hostBitrate.load() / 1e6, target / 1e6);
+        } else {
+            swprintf(text, 64, L"Host %.1f Mbit/s", hostBitrate.load() / 1e6);
+        }
+        return text;
+    }
+
     void setStatus(const std::string& text) {
         {
             std::lock_guard<std::mutex> lock(statusMu);
@@ -1141,6 +1167,7 @@ public:
         EnableWindow(hostButton, TRUE);
         SetWindowTextW(joinButton, L"Join");
         streaming.store(false);
+        hostBitrateAt.store(0);
     }
 
     void runSession() {
@@ -1205,9 +1232,19 @@ public:
         std::thread videoThread([this, hostUtf8, videoPort] { videoLoop(hostUtf8, (uint16_t)videoPort); });
         std::thread audioThread([this, hostUtf8, audioPort] { audioLoop(hostUtf8, (uint16_t)audioPort); });
         std::thread padThread([this, hostUtf8, inputPort] { padLoop(hostUtf8, (uint16_t)inputPort); });
+        std::atomic<bool> sessionOver{false};
+        std::thread bitrateThread([this, &sessionOver] {
+            while (!stop.load() && !sessionOver.load()) {
+                noteHostBitrate(httpRequest(host, L"GET", L"/gbear/v1/status", "").body);
+                for (int i = 0; i < 10 && !stop.load() && !sessionOver.load(); i++) Sleep(100);
+            }
+        });
         videoThread.join();
         audioThread.join();
         padThread.join();
+        sessionOver.store(true);
+        bitrateThread.join();
+        hostBitrateAt.store(0);
         if (!host.empty() && !deviceId.empty()) {
             std::string stopBody = std::string("{\"deviceId\":\"") + jsonEscape(deviceId) + "\"}";
             httpRequest(host, L"POST", L"/gbear/v1/stream/stop", stopBody);
@@ -1422,6 +1459,7 @@ public:
                             // Answered right here so the host's round trip measures the network.
                             std::string pong = "{\"type\":\"pong\",\"t\":" + jsonRaw(body, "t") + "}";
                             socket.send(tunnelFrame(kChannelControl, pong.data(), pong.size()));
+                            noteHostBitrate(body);
                         } else if (type == "welcome") {
                             joinSeat = std::clamp(jsonInt(body, "seat", 2), 1, 8);
                             attempts = 0;
@@ -1862,6 +1900,20 @@ public:
             DIB_RGB_COLORS,
             SRCCOPY
         );
+        paintHostBitrate(dc, drawX + S(10), drawY + S(10));
+    }
+
+    void paintHostBitrate(HDC dc, int x, int y) {
+        std::wstring label = hostBitrateLabel();
+        if (label.empty()) return;
+        int w = ui::textWidth(dc, smallFont, label) + S(16);
+        int h = S(22);
+        {
+            Gdiplus::Graphics g(dc);
+            g.SetSmoothingMode(Gdiplus::SmoothingModeAntiAlias);
+            ui::fillRounded(g, (float)x, (float)y, (float)w, (float)h, h / 2.0f, RGB(0, 0, 0), 140);
+        }
+        ui::drawText(dc, smallFont, RGB(255, 255, 255), label, RECT{x, y, x + w, y + h}, DT_SINGLELINE | DT_CENTER | DT_VCENTER);
     }
 
     void drawButton(const DRAWITEMSTRUCT* item) {

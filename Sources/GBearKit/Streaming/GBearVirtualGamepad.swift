@@ -18,7 +18,7 @@ actor GBearVirtualGamepadManager {
         let valid = occupiedSeats.filter { GBearCoopSessionState.isValidSeat($0) }
         for seat in pads.keys where !valid.contains(seat) {
             if pads[seat]?.isAvailable == false {
-                GBearKeyboardPadStandIn.shared.releaseAll()
+                GBearKeyboardPadStandIn.shared.release(seat: seat)
             }
             pads[seat]?.reset()
             pads.removeValue(forKey: seat)
@@ -26,7 +26,6 @@ actor GBearVirtualGamepadManager {
         }
         for seat in valid where pads[seat] == nil {
             pads[seat] = GBearVirtualGamepad(seat: seat)
-            print("[GBearVirtualPad] seat \(seat) HID device created")
         }
     }
 
@@ -54,9 +53,11 @@ actor GBearVirtualGamepadManager {
         if pad.isAvailable {
             pad.update(routed)
             route = .virtualPad
-        } else {
+        } else if GBearPadControl.seatsWithKeys.contains(seat) {
             GBearKeyboardPadStandIn.shared.update(routed)
             route = .keyboard
+        } else {
+            route = .unrouted
         }
         Task { @MainActor in
             GBearPadInputMonitor.shared.record(seat: seat, event: routed, route: route)
@@ -99,17 +100,31 @@ actor GBearVirtualGamepadManager {
     }
 }
 
-/// Userspace HID gamepad via IOHIDUserDevice (C shim).
+/// One `GBear Virtual Pad N`: a userspace HID device (C shim) that presents as a wired DualShock 4,
+/// so SDL, RPCS3, RetroArch and GameController-based emulators map it on their own.
 final class GBearVirtualGamepad: @unchecked Sendable {
+    /// False until Apple grants `com.apple.developer.hid.virtual.device` and GBear ships with a
+    /// provisioning profile containing it (BJ-095, BJ-116).
+    static let isEntitled = GBearHIDHasVirtualDeviceEntitlement() != 0
+
     let seat: Int
     private var device: GBearHIDDeviceRef?
     private let queue = DispatchQueue(label: "com.gbear.virtualpad.\(UUID().uuidString)")
+    private var reportCounter: UInt8 = 0
+    private var timestamp: UInt16 = 0
 
     var isAvailable: Bool { device != nil }
 
     init(seat: Int) {
         self.seat = seat
-        createDevice()
+        device = GBearHIDDeviceCreate(Int32(seat))
+        if device == nil {
+            print("[GBearVirtualPad] seat \(seat) create failed (Virtual HID entitlement: \(Self.isEntitled ? "present" : "missing"))")
+        } else {
+            print("[GBearVirtualPad] seat \(seat) created as DualShock 4")
+            // Until the first report the pad reads as sticks up-left and D-pad up.
+            reset()
+        }
     }
 
     deinit {
@@ -141,30 +156,47 @@ final class GBearVirtualGamepad: @unchecked Sendable {
         }
     }
 
-    private func createDevice() {
-        let descriptor = Self.hidDescriptor
-        device = descriptor.withUnsafeBytes { raw -> GBearHIDDeviceRef? in
-            guard let base = raw.bindMemory(to: UInt8.self).baseAddress else { return nil }
-            return GBearHIDDeviceCreate(Int32(seat), base, descriptor.count)
-        }
-        if device == nil {
-            print("[GBearVirtualPad] seat \(seat) create failed")
-        }
-    }
-
+    /// DS4 USB input report 0x01 (64 bytes).
     private func sendReport(_ event: GBearGamepadEventFormat.Event) {
         guard let device else { return }
-        var report = [UInt8](repeating: 0, count: 15)
+        typealias Button = GBearGamepadEventFormat.Button
+        func has(_ bit: UInt32) -> Bool { event.buttons & bit != 0 }
+
+        var report = [UInt8](repeating: 0, count: 64)
         report[0] = 0x01
-        report[1] = UInt8(event.buttons & 0xFF)
-        report[2] = UInt8((event.buttons >> 8) & 0xFF)
-        report[3] = Self.axisByte(event.leftX)
-        report[4] = Self.axisByte(event.leftY)
-        report[5] = Self.axisByte(event.rightX)
-        report[6] = Self.axisByte(event.rightY)
-        report[7] = Self.triggerByte(event.leftTrigger)
-        report[8] = Self.triggerByte(event.rightTrigger)
-        report[9] = Self.hatFromButtons(event.buttons)
+        // DS4 sticks: 0…255, 128 centered, Y grows downward (GBG1 Y grows upward).
+        report[1] = Self.axisByte(event.leftX)
+        report[2] = Self.axisByte(-event.leftY)
+        report[3] = Self.axisByte(event.rightX)
+        report[4] = Self.axisByte(-event.rightY)
+        // Face buttons by position: Xbox A/B/X/Y = Cross/Circle/Square/Triangle.
+        var faceAndHat = Self.hatFromButtons(event.buttons)
+        if has(Button.x) { faceAndHat |= 0x10 }
+        if has(Button.a) { faceAndHat |= 0x20 }
+        if has(Button.b) { faceAndHat |= 0x40 }
+        if has(Button.y) { faceAndHat |= 0x80 }
+        report[5] = faceAndHat
+        var shoulders: UInt8 = 0
+        if has(Button.l1) { shoulders |= 0x01 }
+        if has(Button.r1) { shoulders |= 0x02 }
+        if event.leftTrigger > GBearPadControl.pressThreshold { shoulders |= 0x04 }
+        if event.rightTrigger > GBearPadControl.pressThreshold { shoulders |= 0x08 }
+        if has(Button.select) { shoulders |= 0x10 }
+        if has(Button.start) { shoulders |= 0x20 }
+        if has(Button.l3) { shoulders |= 0x40 }
+        if has(Button.r3) { shoulders |= 0x80 }
+        report[6] = shoulders
+        reportCounter = (reportCounter &+ 1) & 0x3F
+        report[7] = (reportCounter << 2) | (has(Button.guide) ? 0x01 : 0)
+        report[8] = Self.triggerByte(event.leftTrigger)
+        report[9] = Self.triggerByte(event.rightTrigger)
+        timestamp &+= 188
+        report[10] = UInt8(timestamp & 0xFF)
+        report[11] = UInt8(timestamp >> 8)
+        // Wired, battery full; no fingers on the touchpad (bit 7 set = not touching).
+        report[30] = 0x1B
+        report[35] = 0x80
+        report[39] = 0x80
         _ = report.withUnsafeBytes { raw -> Int32 in
             guard let base = raw.bindMemory(to: UInt8.self).baseAddress else { return -1 }
             return GBearHIDDeviceSendReport(device, base, report.count)
@@ -172,16 +204,16 @@ final class GBearVirtualGamepad: @unchecked Sendable {
     }
 
     private static func axisByte(_ value: Float) -> UInt8 {
-        let clamped = max(-1, min(1, value))
-        let scaled = Int(((clamped + 1) / 2) * 255)
-        return UInt8(max(0, min(255, scaled)))
+        let clamped = max(-1, min(1, value.isFinite ? value : 0))
+        return UInt8(max(0, min(255, (128 + clamped * 127).rounded())))
     }
 
     private static func triggerByte(_ value: Float) -> UInt8 {
-        let clamped = max(0, min(1, value))
-        return UInt8(clamped * 255)
+        let clamped = max(0, min(1, value.isFinite ? value : 0))
+        return UInt8((clamped * 255).rounded())
     }
 
+    /// DS4 hat: 0 = up, clockwise to 7 = up-left, 8 = centered.
     private static func hatFromButtons(_ buttons: UInt32) -> UInt8 {
         let up = buttons & GBearGamepadEventFormat.Button.dpadUp != 0
         let down = buttons & GBearGamepadEventFormat.Button.dpadDown != 0
@@ -199,46 +231,5 @@ final class GBearVirtualGamepad: @unchecked Sendable {
         default: return 8
         }
     }
-
-    private static let hidDescriptor: Data = Data([
-        0x05, 0x01,
-        0x09, 0x05,
-        0xA1, 0x01,
-        0x85, 0x01,
-        0x05, 0x09,
-        0x19, 0x01,
-        0x29, 0x10,
-        0x15, 0x00,
-        0x25, 0x01,
-        0x75, 0x01,
-        0x95, 0x10,
-        0x81, 0x02,
-        0x05, 0x01,
-        0x09, 0x30,
-        0x09, 0x31,
-        0x09, 0x32,
-        0x09, 0x35,
-        0x15, 0x00,
-        0x26, 0xFF, 0x00,
-        0x75, 0x08,
-        0x95, 0x04,
-        0x81, 0x02,
-        0x09, 0x33,
-        0x09, 0x34,
-        0x95, 0x02,
-        0x81, 0x02,
-        0x09, 0x39,
-        0x15, 0x00,
-        0x25, 0x07,
-        0x35, 0x00,
-        0x46, 0x3B, 0x01,
-        0x65, 0x14,
-        0x75, 0x04,
-        0x95, 0x01,
-        0x81, 0x02,
-        0x75, 0x04,
-        0x95, 0x01,
-        0x81, 0x03,
-        0xC0,
-    ])
 }
+

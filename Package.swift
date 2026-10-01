@@ -16,6 +16,7 @@ let package = Package(
             publicHeadersPath: "include",
             linkerSettings: [
                 .linkedFramework("IOKit"),
+                .linkedFramework("Security"),
             ]
         ),
         .target(

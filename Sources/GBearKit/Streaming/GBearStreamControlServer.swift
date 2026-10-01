@@ -36,6 +36,7 @@ actor GBearStreamControlServer {
     var onStreamStopRequested: (@Sendable () async -> Void)?
     var onPairingQueueChanged: (@Sendable () async -> Void)?
     var onSessionChanged: (@Sendable () async -> Void)?
+    private var bitRateProvider: (@Sendable () async -> GBearVideoStreamServer.BitRateSnapshot?)?
 
     init() {
         let base = FileManager.default.urls(for: .applicationSupportDirectory, in: .userDomainMask).first!
@@ -162,6 +163,11 @@ actor GBearStreamControlServer {
     ) {
         onStreamStartRequested = onStart
         onStreamStopRequested = onStop
+    }
+
+    /// Lets `/gbear/v1/status` report the host's video bitrate to LAN guests.
+    func setBitRateProvider(_ provider: @escaping @Sendable () async -> GBearVideoStreamServer.BitRateSnapshot?) {
+        bitRateProvider = provider
     }
 
     func setPairingQueueHandler(_ handler: @escaping @Sendable () async -> Void) {
@@ -443,6 +449,10 @@ actor GBearStreamControlServer {
                 body["session"] = coopSession.json
             } else {
                 body["session"] = NSNull()
+            }
+            if videoStreaming, let rate = await bitRateProvider?() {
+                body["bitrate"] = rate.measured
+                body["targetBitrate"] = rate.target
             }
             return httpResponse(status: 200, body: body)
         case ("POST", "/gbear/v1/session/create"):

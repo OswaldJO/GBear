@@ -2,7 +2,8 @@ import AppKit
 import Foundation
 import SwiftData
 
-/// Background metadata passes: periodically fills missing covers from local folders, ScreenScraper when a user is signed in, then IGDB, SteamGridDB, and finally TheGamesDB (user keys) when that leaves no cover.
+/// User-started library cover scrapes (**Scrape library**): local folders, ScreenScraper when a user is signed in, then IGDB,
+/// SteamGridDB, and finally TheGamesDB (user keys) when that leaves no cover. Nothing runs in the background.
 @Observable
 @MainActor
 final class MetadataBackgroundFetcher {
@@ -36,12 +37,7 @@ final class MetadataBackgroundFetcher {
     private(set) var lastLibraryScrapeSummary: ScrapeSummary?
     private(set) var lastLibraryScrapeFinishedAt: Date?
     private(set) var lastLibraryScrapeLogPath: String?
-    private(set) var backgroundPassInProgress = false
-    private(set) var libraryScrapeWaitingForBackground = false
-
-    private var loopTask: Task<Void, Never>?
     private var libraryScrapeTask: Task<Void, Never>?
-    private var container: ModelContainer?
     /// Why the last Scrape library request did not start or stopped early (every provider at its API limit).
     private(set) var libraryScrapeLimitMessage: String?
     /// Set for the rest of a batch after Twitch rejects the IGDB keys.
@@ -65,21 +61,16 @@ final class MetadataBackgroundFetcher {
         "cover", "covers", "boxart", "art", "images", "image", "posters", "media"
     ]
 
-    func startIfNeeded(container: ModelContainer) {
-        self.container = container
-        guard loopTask == nil else { return }
-        loopTask = Task { [weak self] in
-            await self?.runLoop()
-        }
+    enum ScrapeTrigger: Equatable {
+        /// **Scrape library**.
+        case library
+        /// After a path scan, ROMM sync or storefront import added games.
+        case newGames(reason: String)
     }
 
-    /// Run one batch soon (e.g. after a scan adds new games).
-    func scheduleExtraPass(container: ModelContainer) {
-        Task { @MainActor in
-            self.container = container
-            _ = await processBatch(container: container, forceAll: false, maxGames: 3, reportLibraryProgress: false)
-        }
-    }
+    /// The scrape running now, for the progress card.
+    private(set) var currentScrapeTrigger: ScrapeTrigger?
+    private var newGamesScrapePending: (container: ModelContainer, reason: String)?
 
     /// Starts a user-requested full-library scrape; observe [libraryScrapeInProgress] and counters for UI.
     func startLibraryScrape(container: ModelContainer) {
@@ -89,9 +80,54 @@ final class MetadataBackgroundFetcher {
             libraryScrapeLimitMessage = Self.allBlockedMessage(stopped: false)
             return
         }
-        self.container = container
+        let context = container.mainContext
+        let games = (try? context.fetch(FetchDescriptor<LibraryGame>(sortBy: [SortDescriptor(\.sortOrder)]))) ?? []
+        let onlyScanMissing = MetadataCredentials.screenScraperOnlyScanMissing
+        let candidates = games.filter { g in
+            if g.storefront != nil, g.coverImageURLString != nil { return false }
+            if onlyScanMissing, g.hasScreenScraperCover { return false }
+            return true
+        }
+        let skipNote = onlyScanMissing && games.count > candidates.count
+            ? "only_scan_missing skipped=\(games.count - candidates.count) remaining=\(candidates.count)"
+            : nil
+        runScrape(container: container, candidates: candidates, trigger: .library, notes: [skipNote].compactMap { $0 })
+    }
+
+    /// Covers for games that were never looked up and still have no cover. A cover file found beside the game is
+    /// applied first and that game is skipped. Runs after the current scrape when one is going.
+    func scrapeNewGames(container: ModelContainer, reason: String) {
+        if libraryScrapeInProgress {
+            newGamesScrapePending = (container, reason)
+            return
+        }
+        guard !CoverProviderQuota.shared.allScrapeProvidersBlocked else { return }
+        let context = container.mainContext
+        let games = (try? context.fetch(FetchDescriptor<LibraryGame>(sortBy: [SortDescriptor(\.sortOrder)]))) ?? []
+        var localCovers = 0
+        let candidates = games.filter { g in
+            guard g.metadataLastFetchAt == nil, g.coverImageURLString == nil else { return false }
+            if applyLocalCover(to: g) {
+                localCovers += 1
+                return false
+            }
+            return true
+        }
+        if localCovers > 0 {
+            try? context.save()
+        }
+        guard !candidates.isEmpty else { return }
+        var notes = ["trigger=new_games reason=\(reason)"]
+        if localCovers > 0 {
+            notes.append("local_covers_applied=\(localCovers)")
+        }
+        runScrape(container: container, candidates: candidates, trigger: .newGames(reason: reason), notes: notes)
+    }
+
+    private func runScrape(container: ModelContainer, candidates: [LibraryGame], trigger: ScrapeTrigger, notes: [String]) {
         libraryScrapeTask?.cancel()
         libraryScrapeInProgress = true
+        currentScrapeTrigger = trigger
         libraryScrapeProcessed = 0
         libraryScrapeTotal = 0
         libraryScrapeUpdated = 0
@@ -101,33 +137,36 @@ final class MetadataBackgroundFetcher {
         libraryScrapeTask = Task { @MainActor in
             defer {
                 libraryScrapeInProgress = false
-                libraryScrapeWaitingForBackground = false
+                currentScrapeTrigger = nil
                 libraryScrapeCurrentTitle = nil
                 libraryScrapeTask = nil
-            }
-
-            if backgroundPassInProgress {
-                libraryScrapeWaitingForBackground = true
-                while backgroundPassInProgress && !Task.isCancelled {
-                    try? await Task.sleep(for: .milliseconds(250))
+                if let pending = newGamesScrapePending {
+                    newGamesScrapePending = nil
+                    scrapeNewGames(container: pending.container, reason: pending.reason)
                 }
-                libraryScrapeWaitingForBackground = false
             }
-            guard !Task.isCancelled else { return }
-            let summary = await processBatch(
-                container: container,
-                forceAll: true,
-                maxGames: nil,
-                reportLibraryProgress: true
-            )
+            let summary = await processBatch(container: container, candidates: candidates, notes: notes)
             lastLibraryScrapeSummary = summary
             lastLibraryScrapeFinishedAt = Date()
             if let logURL = MetadataScrapeSessionLog.endSession(summary: summary),
                let saved = MetadataScrapeSessionLog.saveCopyToDownloads(from: logURL) {
                 lastLibraryScrapeLogPath = saved.path
-                NSWorkspace.shared.activateFileViewerSelecting([saved])
+                if trigger == .library {
+                    NSWorkspace.shared.activateFileViewerSelecting([saved])
+                }
             }
         }
+    }
+
+    /// Uses a cover image beside the game (or in a covers folder near it) when one matches. True when one was applied.
+    private func applyLocalCover(to game: LibraryGame) -> Bool {
+        guard !game.romPath.isEmpty else { return false }
+        let romStem = URL(fileURLWithPath: game.romPath).deletingPathExtension().lastPathComponent
+        guard let url = localCoverForGame(path: game.romPath, title: game.libraryListTitle, romStem: romStem) else {
+            return false
+        }
+        game.coverImageOptions = game.coverImageOptions + [url.absoluteString]
+        return game.coverImageURLString != nil
     }
 
     func cancelLibraryScrape() {
@@ -171,12 +210,6 @@ final class MetadataBackgroundFetcher {
         return cleared
     }
 
-    /// Legacy await API — prefer [startLibraryScrape] for UI progress.
-    func scrapeAllNow(container: ModelContainer) async -> ScrapeSummary {
-        self.container = container
-        return await processBatch(container: container, forceAll: true, maxGames: nil, reportLibraryProgress: false)
-    }
-
     static func allBlockedMessage(stopped: Bool) -> String {
         let quota = CoverProviderQuota.shared
         let names = CoverProviderQuota.scrapeProviders.map(\.displayName).joined(separator: ", ")
@@ -185,71 +218,22 @@ final class MetadataBackgroundFetcher {
             "every cover provider (\(names)) has reached its API limit.\(resume)"
     }
 
-    private func runLoop() async {
-        while !Task.isCancelled {
-            if let c = container, !libraryScrapeInProgress, !CoverProviderQuota.shared.allScrapeProvidersBlocked {
-                backgroundPassInProgress = true
-                defer { backgroundPassInProgress = false }
-                _ = await processBatch(container: c, forceAll: false, maxGames: 3, reportLibraryProgress: false)
-            }
-            try? await Task.sleep(for: .seconds(45))
-        }
-    }
-
-    private func processBatch(
-        container: ModelContainer,
-        forceAll: Bool,
-        maxGames: Int?,
-        reportLibraryProgress: Bool
-    ) async -> ScrapeSummary {
+    private func processBatch(container: ModelContainer, candidates selectedCandidates: [LibraryGame], notes: [String]) async -> ScrapeSummary {
         igdbPausedForCredentials = false
         steamGridDBPausedForKey = false
         providerUsage = [:]
         let context = container.mainContext
-        var descriptor = FetchDescriptor<LibraryGame>(sortBy: [SortDescriptor(\.sortOrder)])
-        descriptor.fetchLimit = forceAll ? 0 : 250
 
-        let games = (try? context.fetch(descriptor)) ?? []
-        let now = Date()
-        let retryInterval: TimeInterval = 24 * 3600
-
-        let onlyScanMissing = forceAll && MetadataCredentials.screenScraperOnlyScanMissing
-        let candidates = games.filter { g in
-            if g.storefront != nil, g.coverImageURLString != nil { return false }
-            if forceAll {
-                if onlyScanMissing, g.hasScreenScraperCover { return false }
-                return true
-            }
-            if let t = g.metadataLastFetchAt {
-                return now.timeIntervalSince(t) > retryInterval
-            }
-            return true
-        }
-
-        let selectedCandidates: [LibraryGame]
-        if let maxGames {
-            selectedCandidates = Array(candidates.prefix(maxGames))
-        } else {
-            selectedCandidates = candidates
-        }
-
-        if reportLibraryProgress {
-            relinkEmulators(in: selectedCandidates, context: context)
-            libraryScrapeTotal = selectedCandidates.count
-            libraryScrapeProcessed = 0
-            libraryScrapeUpdated = 0
-            MetadataScrapeSessionLog.startSession(
-                totalGames: selectedCandidates.count,
-                preferredRegion: MetadataCredentials.screenScraperRegionPriority.joined(separator: ",")
-            )
-            if onlyScanMissing {
-                let skipped = games.count - selectedCandidates.count
-                if skipped > 0 {
-                    MetadataScrapeSessionLog.i(
-                        "only_scan_missing skipped=\(skipped) remaining=\(selectedCandidates.count)"
-                    )
-                }
-            }
+        relinkEmulators(in: selectedCandidates, context: context)
+        libraryScrapeTotal = selectedCandidates.count
+        libraryScrapeProcessed = 0
+        libraryScrapeUpdated = 0
+        MetadataScrapeSessionLog.startSession(
+            totalGames: selectedCandidates.count,
+            preferredRegion: MetadataCredentials.screenScraperRegionPriority.joined(separator: ",")
+        )
+        for note in notes {
+            MetadataScrapeSessionLog.i(note)
         }
 
         var processed = 0
@@ -257,35 +241,29 @@ final class MetadataBackgroundFetcher {
         for game in selectedCandidates {
             if Task.isCancelled { break }
             if CoverProviderQuota.shared.allScrapeProvidersBlocked {
-                if reportLibraryProgress {
-                    libraryScrapeLimitMessage = Self.allBlockedMessage(stopped: true)
-                    MetadataScrapeSessionLog.w("all_providers_at_limit stopping processed=\(processed) remaining=\(selectedCandidates.count - processed)")
-                }
+                libraryScrapeLimitMessage = Self.allBlockedMessage(stopped: true)
+                MetadataScrapeSessionLog.w("all_providers_at_limit stopping processed=\(processed) remaining=\(selectedCandidates.count - processed)")
                 break
             }
-            if reportLibraryProgress {
-                libraryScrapeCurrentTitle = game.libraryListTitle
-            }
+            libraryScrapeCurrentTitle = game.libraryListTitle
             processed += 1
-            if await fetchAndSave(
-                gameID: game.id,
-                container: container,
-                logToSession: reportLibraryProgress,
-                allowBackupRetry: forceAll
-            ) {
+            if await fetchAndSave(gameID: game.id, container: container, logToSession: true, allowBackupRetry: true) {
                 updated += 1
             }
-            if reportLibraryProgress {
-                libraryScrapeProcessed = processed
-                libraryScrapeUpdated = updated
-            }
+            libraryScrapeProcessed = processed
+            libraryScrapeUpdated = updated
             try? await Task.sleep(for: .milliseconds(450))
         }
         let quota = CoverProviderQuota.shared
         for provider in CoverProviderQuota.scrapeProviders {
             let status = quota.status(provider)
             var note = quota.isAvailable(provider) ? "ok" : "blocked_until=\(status.blockedUntil.map { ISO8601DateFormatter().string(from: $0) } ?? "unknown")"
-            if let used = status.used, let limit = status.limit { note += " used_today=\(used)/\(limit)" }
+            if let used = status.used, let limit = status.limit {
+                note += " used_this_cycle=\(used)/\(limit)"
+                if let reset = CoverProviderQuota.nextCycleReset(for: provider) {
+                    note += " cycle_resets=\(ISO8601DateFormatter().string(from: reset))"
+                }
+            }
             if !quota.isAvailable(provider), let reason = status.reason { note += " reason=\"\(reason)\"" }
             recordUsage(provider) { $0.limitNote = note }
         }
@@ -299,8 +277,8 @@ final class MetadataBackgroundFetcher {
     private func fetchAndSave(
         gameID: UUID,
         container: ModelContainer,
-        logToSession: Bool = false,
-        allowBackupRetry: Bool = false
+        logToSession: Bool,
+        allowBackupRetry: Bool
     ) async -> Bool {
         let context = container.mainContext
         var desc = FetchDescriptor<LibraryGame>(predicate: #Predicate { $0.id == gameID })

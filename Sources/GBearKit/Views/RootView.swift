@@ -501,7 +501,7 @@ public struct RootView: View {
             if removed > 0 {
                 cleanupFeedback = "Removed \(removed) orphan game(s) from the library. These entries referenced missing emulators and could appear as ghost games."
             }
-            MetadataBackgroundFetcher.shared.startIfNeeded(container: modelContext.container)
+            await CoverImageCache.mergeDuplicateCoversOnce(context: modelContext)
         }
         .alert("Library Cleanup", isPresented: Binding(
             get: { cleanupFeedback != nil },
@@ -598,7 +598,7 @@ public struct RootView: View {
                 scanFeedback = "No new games found. Add folders in Paths or check that files use supported extensions."
             }
             if summary.added > 0 || storefront.added > 0 || romm.added > 0 {
-                MetadataBackgroundFetcher.shared.scheduleExtraPass(container: modelContext.container)
+                MetadataBackgroundFetcher.shared.scrapeNewGames(container: modelContext.container, reason: "scan")
             }
         }
     }
@@ -607,7 +607,7 @@ public struct RootView: View {
         Task {
             let summary = await RommSync.shared.sync(modelContext: modelContext)
             if summary.added > 0 {
-                MetadataBackgroundFetcher.shared.scheduleExtraPass(container: modelContext.container)
+                MetadataBackgroundFetcher.shared.scrapeNewGames(container: modelContext.container, reason: "romm_sync")
             }
         }
     }
@@ -628,7 +628,7 @@ public struct RootView: View {
                 scanFeedback = parts.joined(separator: ". ") + "."
             }
             if summary.added > 0 {
-                MetadataBackgroundFetcher.shared.scheduleExtraPass(container: modelContext.container)
+                MetadataBackgroundFetcher.shared.scrapeNewGames(container: modelContext.container, reason: "storefront_import")
             }
         }
     }

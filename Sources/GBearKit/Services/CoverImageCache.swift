@@ -1,6 +1,7 @@
 import AppKit
 import CryptoKit
 import Foundation
+import SwiftData
 import SwiftUI
 
 /// Persists remote cover art under Application Support so the library grid loads instantly.
@@ -25,11 +26,27 @@ enum CoverImageCache {
         return url
     }
 
+    /// Pre-index cache name (hash of the full address). Still checked so older downloads are reused.
     static func localFileURL(for remoteURL: URL) -> URL {
-        let digest = SHA256.hash(data: Data(remoteURL.absoluteString.utf8))
-        let hex = digest.map { String(format: "%02x", $0) }.joined()
+        let hex = hexDigest(Data(remoteURL.absoluteString.utf8))
         let ext = remoteURL.pathExtension.isEmpty ? "img" : remoteURL.pathExtension
         return cacheDirectory().appendingPathComponent("\(hex).\(ext)")
+    }
+
+    /// ScreenScraper answers from rotating mirror hosts and puts the dev/user credentials in every media address,
+    /// so the same image arrives under different addresses. Those parts are dropped from the cache key.
+    static func cacheKey(for remote: URL) -> String {
+        guard var components = URLComponents(url: remote, resolvingAgainstBaseURL: false) else { return remote.absoluteString }
+        components.scheme = "https"
+        if components.host?.lowercased().hasSuffix("screenscraper.fr") == true {
+            components.host = "screenscraper.fr"
+        }
+        let volatile: Set<String> = ["devid", "devpassword", "softname", "ssid", "sspassword", "output"]
+        let items = (components.queryItems ?? [])
+            .filter { !volatile.contains($0.name.lowercased()) }
+            .sorted { ($0.name, $0.value ?? "") < ($1.name, $1.value ?? "") }
+        components.queryItems = items.isEmpty ? nil : items
+        return components.string ?? remote.absoluteString
     }
 
     static func cachedFileURL(for urlString: String) -> URL? {
@@ -37,19 +54,18 @@ enum CoverImageCache {
         if url.isFileURL {
             return FileManager.default.fileExists(atPath: url.path) ? url : nil
         }
-        let local = localFileURL(for: url)
-        return FileManager.default.fileExists(atPath: local.path) ? local : nil
+        return existingFile(for: url)
     }
 
-    /// Downloads a remote cover once and returns a stable `file://` reference.
+    /// Downloads a remote cover once and returns a stable `file://` reference. Files are named by content,
+    /// so the same picture from different addresses is stored once.
     @discardableResult
     static func persistCoverReference(_ urlString: String) async -> String {
         guard let remote = normalizedURL(from: urlString), remote.scheme?.hasPrefix("http") == true else {
             return urlString
         }
-        let destination = localFileURL(for: remote)
-        if FileManager.default.fileExists(atPath: destination.path) {
-            return destination.absoluteString
+        if let existing = existingFile(for: remote) {
+            return existing.absoluteString
         }
         do {
             let (data, response) = try await URLSession.shared.data(from: remote)
@@ -59,14 +75,142 @@ enum CoverImageCache {
             guard NSImage(data: data) != nil else {
                 return urlString
             }
-            let writeURL = destination.pathExtension.lowercased() == "php"
-                ? destination.deletingPathExtension().appendingPathExtension("jpg")
-                : destination
-            try data.write(to: writeURL, options: .atomic)
-            return writeURL.absoluteString
+            let rawExt = remote.pathExtension.lowercased()
+            let ext = rawExt.isEmpty ? "img" : (rawExt == "php" ? "jpg" : rawExt)
+            let destination = cacheDirectory().appendingPathComponent("\(hexDigest(data)).\(ext)")
+            if !FileManager.default.fileExists(atPath: destination.path) {
+                try data.write(to: destination, options: .atomic)
+            }
+            Index.set(destination.lastPathComponent, for: cacheKey(for: remote))
+            return destination.absoluteString
         } catch {
             return urlString
         }
+    }
+
+    private static func existingFile(for remote: URL) -> URL? {
+        let fm = FileManager.default
+        let key = cacheKey(for: remote)
+        if let name = Index.fileName(for: key) {
+            let indexed = cacheDirectory().appendingPathComponent(name)
+            if fm.fileExists(atPath: indexed.path) { return indexed }
+        }
+        let legacy = localFileURL(for: remote)
+        for candidate in [legacy, legacy.deletingPathExtension().appendingPathExtension("jpg")]
+        where fm.fileExists(atPath: candidate.path) {
+            Index.set(candidate.lastPathComponent, for: key)
+            return candidate
+        }
+        return nil
+    }
+
+    static func hexDigest(_ data: Data) -> String {
+        SHA256.hash(data: data).map { String(format: "%02x", $0) }.joined()
+    }
+
+    /// Cache key → file name, saved as `index.json` in the cache folder.
+    private enum Index {
+        private static let lock = NSLock()
+        private nonisolated(unsafe) static var entries: [String: String]?
+
+        private static var fileURL: URL { cacheDirectory().appendingPathComponent("index.json") }
+
+        static func fileName(for key: String) -> String? {
+            lock.lock()
+            defer { lock.unlock() }
+            return loadedLocked()[key]
+        }
+
+        static func set(_ name: String, for key: String) {
+            lock.lock()
+            defer { lock.unlock() }
+            var map = loadedLocked()
+            guard map[key] != name else { return }
+            map[key] = name
+            entries = map
+            if let data = try? JSONEncoder().encode(map) {
+                try? data.write(to: fileURL, options: .atomic)
+            }
+        }
+
+        /// Points entries at kept files after duplicates were merged (`old file name → kept file name`).
+        static func remap(_ renames: [String: String]) {
+            lock.lock()
+            defer { lock.unlock() }
+            var map = loadedLocked()
+            for (key, name) in map {
+                if let kept = renames[name] { map[key] = kept }
+            }
+            entries = map
+            if let data = try? JSONEncoder().encode(map) {
+                try? data.write(to: fileURL, options: .atomic)
+            }
+        }
+
+        private static func loadedLocked() -> [String: String] {
+            if let entries { return entries }
+            let loaded = (try? Data(contentsOf: fileURL))
+                .flatMap { try? JSONDecoder().decode([String: String].self, from: $0) } ?? [:]
+            entries = loaded
+            return loaded
+        }
+    }
+
+    /// Byte-identical files in the cache folder: each duplicate's path → the copy to keep. Run off the main thread.
+    nonisolated static func duplicateFileMap() -> [String: String] {
+        let fm = FileManager.default
+        let directory = cacheDirectory()
+        guard let files = try? fm.contentsOfDirectory(at: directory, includingPropertiesForKeys: nil) else { return [:] }
+        var keeperByDigest: [String: URL] = [:]
+        var map: [String: String] = [:]
+        for file in files.sorted(by: { $0.lastPathComponent < $1.lastPathComponent }) where file.pathExtension != "json" {
+            guard let data = try? Data(contentsOf: file) else { continue }
+            let digest = hexDigest(data)
+            if let keeper = keeperByDigest[digest] {
+                map[file.standardizedFileURL.path] = keeper.standardizedFileURL.path
+            } else {
+                keeperByDigest[digest] = file
+            }
+        }
+        return map
+    }
+
+    private static let mergedDuplicatesKey = "CoverCache.MergedDuplicates.v1"
+
+    /// One time: earlier scrapes saved the same picture once per address (BJ-119). Points every game at one copy,
+    /// drops the repeats from its cover list, and deletes the extra files. Returns how many games changed.
+    @MainActor
+    @discardableResult
+    static func mergeDuplicateCoversOnce(context: ModelContext) async -> Int {
+        guard !UserDefaults.standard.bool(forKey: mergedDuplicatesKey) else { return 0 }
+        let map = await Task.detached(priority: .utility) { duplicateFileMap() }.value
+        defer { UserDefaults.standard.set(true, forKey: mergedDuplicatesKey) }
+        guard !map.isEmpty, let games = try? context.fetch(FetchDescriptor<LibraryGame>()) else { return 0 }
+
+        func kept(_ option: String) -> String {
+            guard let url = URL(string: option), url.isFileURL,
+                  let keeper = map[url.standardizedFileURL.path] else { return option }
+            return URL(fileURLWithPath: keeper).absoluteString
+        }
+
+        var changed = 0
+        for game in games {
+            let primary = game.coverImageURLString.map(kept)
+            let options = game.coverImageOptions.map(kept)
+            guard primary != game.coverImageURLString || options != game.coverImageOptions else { continue }
+            game.coverImageURLString = primary
+            game.coverImageOptions = options
+            changed += 1
+        }
+        try? context.save()
+
+        Index.remap(Dictionary(uniqueKeysWithValues: map.map {
+            (URL(fileURLWithPath: $0.key).lastPathComponent, URL(fileURLWithPath: $0.value).lastPathComponent)
+        }))
+        for duplicate in map.keys {
+            try? FileManager.default.removeItem(atPath: duplicate)
+        }
+        return changed
     }
 
     static func loadNSImage(urlString: String?) -> NSImage? {

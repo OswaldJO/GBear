@@ -233,7 +233,15 @@ final class GBearRemoteCoopHost {
             while !Task.isCancelled {
                 try? await Task.sleep(nanoseconds: 1_000_000_000)
                 guard !Task.isCancelled, !guests.isEmpty else { continue }
-                sendControl(bitrate.pingMessage())
+                // Friends show the host's bitrate from the ping; older guests ignore the extra keys.
+                let host = GBearStreamHostManager.shared
+                await host.refreshVideoBitRate()
+                var ping = bitrate.pingMessage()
+                if let rate = host.videoBitRate {
+                    ping["bitrate"] = rate.measured
+                    ping["targetBitrate"] = rate.target
+                }
+                sendControl(ping)
                 bitrate.tick()
             }
         }

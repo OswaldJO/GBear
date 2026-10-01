@@ -27,11 +27,11 @@ public final class LibraryGame {
     public var screenScraperSelectionSkipped: Bool = false
     /// Remote cover provider for the current scraped art: `screenscraper`, `igdb`, `steamgriddb`, or `thegamesdb`.
     public var remoteCoverSource: String?
-    /// Last TheGamesDB search for this game, including a miss, so background passes do not repeat it.
+    /// Last TheGamesDB search for this game, including a miss.
     public var theGamesDBCheckedAt: Date?
-    /// Last IGDB search for this game, including a miss, so background passes do not repeat it.
+    /// Last IGDB search for this game, including a miss.
     public var igdbCheckedAt: Date?
-    /// Last SteamGridDB search for this game, including a miss, so background passes do not repeat it.
+    /// Last SteamGridDB search for this game, including a miss.
     public var steamGridDBCheckedAt: Date?
     /// Storefront raw value (`epic`, `steam`, `gog`) for launcher-imported games; nil for ROMs and manual Mac games.
     public var librarySourceID: String?

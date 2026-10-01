@@ -23,6 +23,7 @@ final class GBearStreamGuestManager {
     var phase: Phase = .idle {
         didSet {
             guard phase != oldValue else { return }
+            if phase != .streaming { hostBitRate = nil }
             syncVideoWindow()
         }
     }
@@ -31,6 +32,19 @@ final class GBearStreamGuestManager {
     }
     var remoteStatusMessage: String = "Paste the invite line from the host Mac."
     var assignedSeat: Int = 1
+
+    struct HostBitRate: Equatable {
+        /// Encoded video over the host's last second, bits per second.
+        let measured: Int
+        let target: Int
+        let receivedAt: Date
+    }
+
+    static let showHostBitRateKey = "gbearGuestShowHostBitrate"
+
+    /// Latest bitrate the host reported (relay pings, or `/gbear/v1/status` on the LAN).
+    private(set) var hostBitRate: HostBitRate?
+    private var hostBitRatePoll: Task<Void, Never>?
 
     private let video = GBearVideoStreamClient()
     private let audio = GBearAudioStreamClient()
@@ -171,6 +185,12 @@ final class GBearStreamGuestManager {
                         if let pong = try? JSONSerialization.data(withJSONObject: ["type": "pong", "t": sent]) {
                             socket?.send(GBearTunnelFrame.pack(channel: .control, payload: pong))
                         }
+                        if let measured = json["bitrate"] as? Int {
+                            let target = json["targetBitrate"] as? Int ?? 0
+                            Task { @MainActor in
+                                GBearStreamGuestManager.shared.noteHostBitRate(measured: measured, target: target)
+                            }
+                        }
                         return
                     }
                     Task { @MainActor in
@@ -226,8 +246,34 @@ final class GBearStreamGuestManager {
         }
     }
 
+    fileprivate func noteHostBitRate(measured: Int, target: Int) {
+        guard phase == .streaming else { return }
+        hostBitRate = HostBitRate(measured: measured, target: target, receivedAt: Date())
+    }
+
+    /// LAN guests have no ping channel, so they ask the host's status endpoint once a second.
+    private func startHostBitRatePoll(host: String) {
+        hostBitRatePoll?.cancel()
+        hostBitRatePoll = Task { @MainActor [weak self] in
+            let url = URL(string: "http://\(host):\(GBearStreamPorts.controlHTTP)/gbear/v1/status")!
+            while !Task.isCancelled {
+                var request = URLRequest(url: url)
+                request.timeoutInterval = 2
+                if let (data, _) = try? await URLSession.shared.data(for: request),
+                   let json = (try? JSONSerialization.jsonObject(with: data)) as? [String: Any],
+                   let measured = json["bitrate"] as? Int {
+                    self?.noteHostBitRate(measured: measured, target: json["targetBitrate"] as? Int ?? 0)
+                }
+                try? await Task.sleep(nanoseconds: 1_000_000_000)
+            }
+        }
+    }
+
     func stop() async {
         wantsRelay = false
+        hostBitRatePoll?.cancel()
+        hostBitRatePoll = nil
+        hostBitRate = nil
         reconnectTask?.cancel()
         reconnectTask = nil
         relayURL = nil
@@ -384,6 +430,7 @@ final class GBearStreamGuestManager {
             sender.start()
             padSender = sender
             phase = .streaming
+            startHostBitRatePoll(host: host)
             statusMessage = "Playing as Player \(seat) on \(host)"
         } catch {
             phase = .failed(error.localizedDescription)

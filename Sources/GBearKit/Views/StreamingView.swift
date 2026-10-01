@@ -8,6 +8,7 @@ struct StreamingView: View {
     @State private var remoteHost = GBearRemoteCoopHost.shared
     @State private var bitrateOverlay = GBearBitrateOverlay.shared
     @AppStorage(GBearGuestVideoRenderer.upscaleDefaultsKey) private var guestUpscale = true
+    @AppStorage(GBearStreamGuestManager.showHostBitRateKey) private var showHostBitRate = true
     @State private var confirmDisconnect = false
     @State private var streamLogSavedPath: String?
     private let timer = Timer.publish(every: 1, on: .main, in: .common).autoconnect()
@@ -283,6 +284,8 @@ struct StreamingView: View {
             Toggle("Sharpen the picture with MetalFX", isOn: $guestUpscale)
                 .help("When the stream window is bigger than the picture the host sends, Apple's MetalFX upscaler enlarges it with sharper edges than plain scaling. Adds about 2 ms of GPU work per frame.")
         }
+        Toggle("Show the host’s bitrate on the picture", isOn: $showHostBitRate)
+            .help("A small readout in the stream window's top-left corner: the video bitrate the host is sending, then the host's target.")
     }
 
     @ViewBuilder
