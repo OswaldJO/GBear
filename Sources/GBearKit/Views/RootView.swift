@@ -847,9 +847,61 @@ private struct LibraryGamesGridView: View {
     let onPlay: (LibraryGame) -> Void
     let onDelete: (LibraryGame) -> Void
 
-    private let columns = [
-        GridItem(.adaptive(minimum: LibraryGridMetrics.cardWidth, maximum: LibraryGridMetrics.cardWidth), spacing: LibraryGridMetrics.horizontalSpacing, alignment: .top)
-    ]
+    @AppStorage("Library.CoverWidth") private var storedCardWidth: Double = Double(LibraryGridMetrics.defaultCardWidth)
+
+    private var cardWidth: CGFloat {
+        CGFloat(min(max(storedCardWidth, LibraryGridMetrics.minCardWidth), LibraryGridMetrics.maxCardWidth))
+    }
+
+    /// As many fixed-width columns as fit between equal outer margins; spare width widens the gaps between columns.
+    private static func columns(for width: CGFloat, card: CGFloat) -> [GridItem] {
+        let minSpacing = LibraryGridMetrics.horizontalSpacing
+        let available = width - LibraryGridMetrics.outerPadding * 2
+        let count = max(1, Int((available + minSpacing) / (card + minSpacing)))
+        let spacing = count > 1 ? max(minSpacing, (available - CGFloat(count) * card) / CGFloat(count - 1)) : minSpacing
+        return Array(
+            repeating: GridItem(.fixed(card), spacing: spacing, alignment: .top),
+            count: count
+        )
+    }
+
+    private func grid(columns: [GridItem]) -> some View {
+        LazyVGrid(columns: columns, alignment: .leading, spacing: LibraryGridMetrics.verticalSpacing) {
+            ForEach(games) { game in
+                GameLibraryTile(
+                    game: game,
+                    cardWidth: cardWidth,
+                    coverAspect: game.emulatorUUID.flatMap { coverAspects[$0] } ?? .default,
+                    showsActionOverlay: actionOverlayGameID == game.id,
+                    onCardTap: {
+                        if actionOverlayGameID == game.id {
+                            actionOverlayGameID = nil
+                        } else {
+                            actionOverlayGameID = game.id
+                        }
+                    },
+                    onPlay: {
+                        actionOverlayGameID = nil
+                        onPlay(game)
+                    },
+                    onInfo: {
+                        actionOverlayGameID = nil
+                        inspectorGameID = game.id
+                    }
+                )
+                .contextMenu {
+                    Button("Play", systemImage: "play.fill") { onPlay(game) }
+                    Button("Details…", systemImage: "info.circle") {
+                        inspectorGameID = game.id
+                    }
+                    Divider()
+                    Button("Remove from Library", systemImage: "trash", role: .destructive) {
+                        onDelete(game)
+                    }
+                }
+            }
+        }
+    }
 
     var body: some View {
         Group {
@@ -862,51 +914,51 @@ private struct LibraryGamesGridView: View {
                     description: Text("Use Paths and Scan Paths to import games, or add a game manually.")
                 )
             } else {
-                ScrollView {
-                    LazyVGrid(columns: columns, alignment: .leading, spacing: LibraryGridMetrics.verticalSpacing) {
-                        ForEach(games) { game in
-                            GameLibraryTile(
-                                game: game,
-                                coverAspect: game.emulatorUUID.flatMap { coverAspects[$0] } ?? .default,
-                                showsActionOverlay: actionOverlayGameID == game.id,
-                                onCardTap: {
-                                    if actionOverlayGameID == game.id {
-                                        actionOverlayGameID = nil
-                                    } else {
-                                        actionOverlayGameID = game.id
-                                    }
-                                },
-                                onPlay: {
-                                    actionOverlayGameID = nil
-                                    onPlay(game)
-                                },
-                                onInfo: {
-                                    actionOverlayGameID = nil
-                                    inspectorGameID = game.id
-                                }
-                            )
-                            .contextMenu {
-                                Button("Play", systemImage: "play.fill") { onPlay(game) }
-                                Button("Details…", systemImage: "info.circle") {
-                                    inspectorGameID = game.id
-                                }
-                                Divider()
-                                Button("Remove from Library", systemImage: "trash", role: .destructive) {
-                                    onDelete(game)
-                                }
-                            }
-                        }
+                GeometryReader { proxy in
+                    ScrollView {
+                        grid(columns: Self.columns(for: proxy.size.width, card: cardWidth))
+                            .padding(LibraryGridMetrics.outerPadding)
+                            .padding(.bottom, LibraryGridMetrics.sizeSliderClearance)
+                            .frame(maxWidth: .infinity, alignment: .leading)
                     }
-                    .padding(LibraryGridMetrics.outerPadding)
+                }
+                .overlay(alignment: .bottomTrailing) {
+                    coverSizeSlider
+                        .padding(12)
                 }
             }
         }
         .frame(maxWidth: .infinity, maxHeight: .infinity)
     }
+
+    private var coverSizeSlider: some View {
+        HStack(spacing: 8) {
+            Image(systemName: "photo")
+                .font(.system(size: 10))
+            Slider(
+                value: $storedCardWidth,
+                in: Double(LibraryGridMetrics.minCardWidth)...Double(LibraryGridMetrics.maxCardWidth)
+            )
+            .controlSize(.small)
+            .frame(width: 120)
+            Image(systemName: "photo")
+                .font(.system(size: 15))
+        }
+        .foregroundStyle(.secondary)
+        .padding(.horizontal, 12)
+        .padding(.vertical, 6)
+        .background(.regularMaterial, in: Capsule())
+        .overlay(Capsule().strokeBorder(.quaternary, lineWidth: 1))
+        .help("Cover size")
+        .accessibilityLabel("Cover size")
+    }
 }
 
 private enum LibraryGridMetrics {
-    static let cardWidth: CGFloat = 160
+    static let defaultCardWidth: CGFloat = 160
+    static let minCardWidth: CGFloat = 110
+    static let maxCardWidth: CGFloat = 320
+    static let sizeSliderClearance: CGFloat = 36
     static let titleHeight: CGFloat = 52 // reserve up to ~3 lines so rows align
     static let horizontalSpacing: CGFloat = 16
     static let verticalSpacing: CGFloat = 20
@@ -915,6 +967,7 @@ private enum LibraryGridMetrics {
 
 private struct GameLibraryTile: View {
     let game: LibraryGame
+    let cardWidth: CGFloat
     let coverAspect: CoverAspectRatio
     let showsActionOverlay: Bool
     let onCardTap: () -> Void
@@ -922,14 +975,18 @@ private struct GameLibraryTile: View {
     let onInfo: () -> Void
 
     private var coverHeight: CGFloat {
-        coverAspect.height(forWidth: LibraryGridMetrics.cardWidth)
+        coverAspect.height(forWidth: cardWidth)
+    }
+
+    private var actionIconSize: CGFloat {
+        min(40, cardWidth / 4)
     }
 
     var body: some View {
         VStack(alignment: .leading, spacing: 8) {
             ZStack {
                 CachedCoverThumbnail(urlString: game.coverImageURLString)
-                    .frame(width: LibraryGridMetrics.cardWidth, height: coverHeight)
+                    .frame(width: cardWidth, height: coverHeight)
                     .clipped()
                     .clipShape(RoundedRectangle(cornerRadius: 8))
                     .overlay {
@@ -973,12 +1030,12 @@ private struct GameLibraryTile: View {
                         .fill(Color.black.opacity(0.45))
                         .allowsHitTesting(false)
 
-                    HStack(spacing: 28) {
+                    HStack(spacing: actionIconSize * 0.7) {
                         Button {
                             onPlay()
                         } label: {
                             Image(systemName: "play.circle.fill")
-                                .font(.system(size: 40))
+                                .font(.system(size: actionIconSize))
                                 .symbolRenderingMode(.palette)
                                 .foregroundStyle(.white, Color.accentColor.opacity(0.95))
                         }
@@ -989,7 +1046,7 @@ private struct GameLibraryTile: View {
                             onInfo()
                         } label: {
                             Image(systemName: "info.circle.fill")
-                                .font(.system(size: 40))
+                                .font(.system(size: actionIconSize))
                                 .symbolRenderingMode(.palette)
                                 .foregroundStyle(.white, .secondary)
                         }
@@ -998,16 +1055,16 @@ private struct GameLibraryTile: View {
                     }
                 }
             }
-            .frame(width: LibraryGridMetrics.cardWidth, height: coverHeight)
+            .frame(width: cardWidth, height: coverHeight)
 
             Text(game.libraryListTitle)
                 .font(.subheadline.weight(.medium))
                 .foregroundStyle(.primary)
                 .multilineTextAlignment(.center)
                 .lineLimit(3)
-                .frame(width: LibraryGridMetrics.cardWidth, height: LibraryGridMetrics.titleHeight, alignment: .top)
+                .frame(width: cardWidth, height: LibraryGridMetrics.titleHeight, alignment: .top)
         }
-        .frame(width: LibraryGridMetrics.cardWidth, alignment: .leading)
+        .frame(width: cardWidth, alignment: .leading)
         .contentShape(Rectangle())
         .onTapGesture(perform: onCardTap)
         .help("Show actions for \(game.libraryListTitle)")

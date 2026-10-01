@@ -48,7 +48,7 @@ This document describes **how the app behaves today** and **where implementation
 
 ### Grid and play
 
-- `LibraryGamesGridView` / `GameLibraryTile`: tap for play/info overlay; play goes through `GameLauncher`. Tile size is **fixed width 160**; height follows that game’s emulator **cover art size** (`CoverAspectRatio`, default **2:3**). Mixed **All** rows can be uneven. Crop is **display-only** (`scaledToFill` + clip); scrape still stores the full image.
+- `LibraryGamesGridView` / `GameLibraryTile`: tap for play/info overlay; play goes through `GameLauncher`. Tile width comes from the **cover size slider** at the bottom right of the grid (110–320 pt, default 160, saved as `Library.CoverWidth`); the grid fits as many columns as possible between equal 20-pt outer margins and spreads spare width into the column gaps. Height follows that game’s emulator **cover art size** (`CoverAspectRatio`, default **2:3**). Mixed **All** rows can be uneven. Crop is **display-only** (`scaledToFill` + clip); scrape still stores the full image.
 - **Search** (`RootView.librarySearchText`, `.searchable(placement: .toolbar)` on the game-grid detail only): narrows the **selected sidebar section** (`sectionGames` → `filteredGames`). Every whitespace-separated term must match (`localizedStandardContains`, case/diacritic-insensitive) somewhere in display name, original title, ROM file name, platform hint or emulator name (“Mac” for Mac games). Sidebar count footer shows matches; empty result → `ContentUnavailableView.search`. On a narrow window the field collapses to a magnifying-glass button beside the toolbar `>>` overflow.
 
 ### Inspector (Info)
