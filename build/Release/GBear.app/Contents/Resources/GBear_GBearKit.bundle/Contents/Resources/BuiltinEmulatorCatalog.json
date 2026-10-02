@@ -11458,5 +11458,23 @@
       "m3u"
     ],
     "startupExecutableHint": null
+  },
+  {
+    "catalogId": 562,
+    "emulatorId": "astris",
+    "emulatorName": "Astris",
+    "website": null,
+    "profileName": "Default",
+    "startupArguments": "\"{ImagePath}\"",
+    "platforms": [
+      "nintendo_switch"
+    ],
+    "imageExtensions": [
+      "xci",
+      "nsp",
+      "xcz",
+      "nsz"
+    ],
+    "startupExecutableHint": null
   }
 ]

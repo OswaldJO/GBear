@@ -18,11 +18,11 @@
 		</data>
 		<key>Resources/GBear_GBearKit.bundle/Contents/Resources/BuiltinEmulatorCatalog.json</key>
 		<data>
-		ISK31/NZevAAUbs9nmM6wd2sHHo=
+		rwZEyvhblyi4ossGaiy73b4OEsE=
 		</data>
 		<key>Resources/GBear_GBearKit.bundle/Contents/_CodeSignature/CodeDirectory</key>
 		<data>
-		8UaCiIHT+w2JuZFI2IxzDOka1Bs=
+		WLTEyBVEmKWEeVLOonr+2vs840c=
 		</data>
 		<key>Resources/GBear_GBearKit.bundle/Contents/_CodeSignature/CodeRequirements</key>
 		<data>
@@ -30,11 +30,11 @@
 		</data>
 		<key>Resources/GBear_GBearKit.bundle/Contents/_CodeSignature/CodeResources</key>
 		<data>
-		md8HSMgq0Ayat2CjAxiOheiO5JQ=
+		Jn2W2OSF2EdsVgK3z6WQyg0IREM=
 		</data>
 		<key>Resources/GBear_GBearKit.bundle/Contents/_CodeSignature/CodeSignature</key>
 		<data>
-		sTBOmdeOykU7BGUhUDSfyzbd2cg=
+		Z5ReXMdSFhw+7JGKNUuVjTjsos4=
 		</data>
 	</dict>
 	<key>files2</key>
@@ -64,14 +64,14 @@
 		<dict>
 			<key>hash2</key>
 			<data>
-			nxtzABy0KbB/HK8N/JUtiQrWqCVQXpZdssFk20XbLJo=
+			AReMq6qKjCqqOGe5vLY3+DicNwwPIKoCqsL5uH5Hl10=
 			</data>
 		</dict>
 		<key>Resources/GBear_GBearKit.bundle/Contents/_CodeSignature/CodeDirectory</key>
 		<dict>
 			<key>hash2</key>
 			<data>
-			mANfIAKkhI/K251H8kVXghdxkk3kGxCsZcK1zbEZScg=
+			bZ+zU3Nk/RctRNxsIl7L3fx50fyB8sGsJ6xqc/l+bjI=
 			</data>
 		</dict>
 		<key>Resources/GBear_GBearKit.bundle/Contents/_CodeSignature/CodeRequirements</key>
@@ -85,14 +85,14 @@
 		<dict>
 			<key>hash2</key>
 			<data>
-			y/tMFdU3pNb5C8hVxrJFsNma6SZuD3IKGLSPW6/q1Uc=
+			6PeSzGsP3LKcjP1hY98kq51DDxJOIwgLr0ZDqxqOeHc=
 			</data>
 		</dict>
 		<key>Resources/GBear_GBearKit.bundle/Contents/_CodeSignature/CodeSignature</key>
 		<dict>
 			<key>hash2</key>
 			<data>
-			oNDnYiDPRAG/WC2GKcvNIICBqqGIWxg8aN6iwUzwRDg=
+			0VEvFKdWnt8QoB1xdWUXqYGk90WG/iX3sloYG3nuIes=
 			</data>
 		</dict>
 	</dict>
