@@ -51,6 +51,7 @@ targets:
         INFOPLIST_KEY_CFBundleDisplayName: GBear
         INFOPLIST_KEY_LSApplicationCategoryType: public.app-category.games
         INFOPLIST_KEY_NSHumanReadableCopyright: ""
+        INFOPLIST_KEY_NSLocalNetworkUsageDescription: GBear finds and controls your Roku TV's volume, and streams games to phones and computers on your network.
         INFOPLIST_KEY_NSScreenCaptureUsageDescription: GBear streams your desktop to your phone using an embedded streaming host.
         MARKETING_VERSION: "1.0"
         CURRENT_PROJECT_VERSION: "1"

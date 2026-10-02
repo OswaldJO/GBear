@@ -333,7 +333,8 @@ final class LibraryControllerNavigator {
 
     /// Select + L1 / R1 lower / raise the volume and Select + L2 / R2 the screen brightness, in GBear or in a
     /// game, repeating while held. Sent as the Mac's own media keys, so macOS shows its usual volume /
-    /// brightness indicator and uses whatever output is current.
+    /// brightness indicator and uses whatever output is current. While sound goes to a TV over HDMI, volume
+    /// goes to the TV instead when `TVVolumeControl` has a USB-CEC adapter or Roku TV.
     private func checkSystemCombos(now: CFTimeInterval) {
         var held = Set<SystemCombo>()
         for controller in GCController.controllers() {
@@ -356,6 +357,10 @@ final class LibraryControllerNavigator {
                 systemComboSince[combo] = now
             }
             systemComboLastFired[combo] = now
+            if combo == .volumeUp || combo == .volumeDown,
+               TVVolumeControl.shared.changeVolume(up: combo == .volumeUp) {
+                continue
+            }
             if !Self.pressMediaKey(combo.mediaKey), !loggedMissingAccessibility {
                 loggedMissingAccessibility = true
                 DebugLog.log("Controller volume / brightness: needs Accessibility permission to press media keys")

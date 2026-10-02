@@ -83,7 +83,7 @@ public struct ControllerHelpView: View {
             ("L3 / R3", "Smaller / bigger keyboard"),
         ], note: "Size and position are remembered."),
         Section(title: "Anywhere, including games", rows: [
-            ("Select + L1 / R1", "Volume down / up"),
+            ("Select + L1 / R1", "Volume down / up (the TV's, while sound plays through it over HDMI and Streaming → TV has an adapter or Roku)"),
             ("Select + L2 / R2", "Screen brightness down / up"),
             ("Hold Start + R2 for 5 s", "Put the Mac to sleep"),
         ], note: "Holding repeats volume and brightness, and macOS shows its usual indicator. In GBear, a shoulder button pressed with Select doesn't also switch games or areas, and Select doesn't open Info; R2 pressed with Start doesn't switch areas, and Start doesn't play. Controllers can't wake the Mac: wake it with the keyboard, trackpad, mouse or power button, then press the controller's PS / Xbox button to reconnect it."),

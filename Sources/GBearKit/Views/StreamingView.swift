@@ -9,6 +9,9 @@ struct StreamingView: View {
     @State private var bitrateOverlay = GBearBitrateOverlay.shared
     @AppStorage(GBearGuestVideoRenderer.upscaleDefaultsKey) private var guestUpscale = true
     @AppStorage(GBearStreamGuestManager.showHostBitRateKey) private var showHostBitRate = true
+    @AppStorage(TVVolumeControl.enabledKey) private var tvVolumeEnabled = true
+    @AppStorage(TVVolumeControl.rokuHostKey) private var rokuHost = ""
+    @State private var tvVolume = TVVolumeControl.shared
     @State private var confirmDisconnect = false
     @State private var streamLogSavedPath: String?
     private let timer = Timer.publish(every: 1, on: .main, in: .common).autoconnect()
@@ -33,6 +36,7 @@ struct StreamingView: View {
                     pairedSections(deviceName: deviceName)
                 }
 
+                tvSection
                 accessibilitySection
                 capabilitiesSection
             }
@@ -286,6 +290,41 @@ struct StreamingView: View {
         }
         Toggle("Show the host’s bitrate on the picture", isOn: $showHostBitRate)
             .help("A small readout in the stream window's top-left corner: the video bitrate the host is sending, then the host's target.")
+    }
+
+    @ViewBuilder
+    private var tvSection: some View {
+        Section("TV") {
+            Text("While the Mac's sound plays through a TV over HDMI, Select + L1 / R1 on the controller change the TV's volume. Your Mac's HDMI-CEC only turns the TV off and on with the Mac, so volume goes through a USB-CEC adapter (any TV) or a Roku TV over Wi‑Fi. Brightness stays on the Mac: TVs don't accept brightness commands.")
+                .font(.caption)
+                .foregroundStyle(.secondary)
+                .fixedSize(horizontal: false, vertical: true)
+            Toggle("Controller volume changes the TV's volume", isOn: $tvVolumeEnabled)
+            if tvVolume.rokus.count > 1 {
+                Picker("Roku TV", selection: $rokuHost) {
+                    ForEach(tvVolume.rokus) { roku in
+                        Text("\(roku.name) (\(roku.host))").tag(roku.host)
+                    }
+                }
+                .disabled(!tvVolumeEnabled)
+            }
+            HStack {
+                Text(tvVolume.isSearching ? "Looking for a USB-CEC adapter and Roku TVs…" : tvVolume.describeRoute())
+                    .font(.caption)
+                    .foregroundStyle(.secondary)
+                    .fixedSize(horizontal: false, vertical: true)
+                Spacer()
+                Button("Find Again") { tvVolume.refresh() }
+                    .disabled(tvVolume.isSearching || !tvVolumeEnabled)
+            }
+            Text("Roku: turn on Settings → System → Advanced system settings → Control by mobile apps. USB-CEC adapter (Pulse-Eight): plug it in between the Mac and the TV and install libcec (brew install libcec).")
+                .font(.caption)
+                .foregroundStyle(.secondary)
+                .fixedSize(horizontal: false, vertical: true)
+        }
+        .onAppear {
+            if tvVolumeEnabled, !tvVolume.isSearching { tvVolume.refresh() }
+        }
     }
 
     @ViewBuilder
