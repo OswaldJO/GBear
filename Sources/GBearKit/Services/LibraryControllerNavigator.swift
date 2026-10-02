@@ -91,6 +91,15 @@ final class LibraryControllerNavigator {
     @ObservationIgnored private var quitComboSince: CFTimeInterval?
     @ObservationIgnored private var quitComboFired = false
     @ObservationIgnored private var fullScreenComboDown = false
+    @ObservationIgnored private var systemComboSince: [SystemCombo: CFTimeInterval] = [:]
+    @ObservationIgnored private var systemComboLastFired: [SystemCombo: CFTimeInterval] = [:]
+    @ObservationIgnored private var loggedMissingAccessibility = false
+    /// Select is also the modifier for volume / brightness, so in GBear it opens Info on release, and only if
+    /// no shoulder button was pressed with it.
+    @ObservationIgnored private var selectDown = false
+    @ObservationIgnored private var selectUsedAsModifier = false
+    /// Shoulder buttons pressed with Select; ignored until let go, so they don't also switch games or areas.
+    @ObservationIgnored private var suppressedUntilRelease: Set<Input> = []
 
     private init() {}
 
@@ -129,6 +138,7 @@ final class LibraryControllerNavigator {
 
     private func poll() {
         checkGameCombos(now: CACurrentMediaTime())
+        checkSystemCombos(now: CACurrentMediaTime())
         let reason = blockedReason
         let state = reason.map { "blocked: \($0)" } ?? "active (\(GCController.controllers().count) controller(s))"
         if state != lastLoggedState {
@@ -138,6 +148,8 @@ final class LibraryControllerNavigator {
         guard reason == nil else {
             heldSince.removeAll()
             lastFired.removeAll()
+            suppressedUntilRelease.removeAll()
+            selectDown = false
             waitingForRelease = true
             return
         }
@@ -150,7 +162,22 @@ final class LibraryControllerNavigator {
             return
         }
         if OnScreenKeyboard.shared.isPresented { moveKeyboardWithRightStick(elapsed: elapsed) }
+        let selectHeld = pressed.contains(.select)
+        if selectHeld {
+            if !selectDown { selectUsedAsModifier = false }
+            for shoulder in [Input.l1, .r1, .l2, .r2] where pressed.contains(shoulder) {
+                suppressedUntilRelease.insert(shoulder)
+                selectUsedAsModifier = true
+            }
+        } else if selectDown, !selectUsedAsModifier {
+            fire(Input.select.command)
+        }
+        selectDown = selectHeld
         for input in Input.allCases {
+            if input == .select || suppressedUntilRelease.contains(input) {
+                if !pressed.contains(input) { suppressedUntilRelease.remove(input) }
+                continue
+            }
             guard pressed.contains(input) else {
                 heldSince[input] = nil
                 lastFired[input] = nil
@@ -202,6 +229,74 @@ final class LibraryControllerNavigator {
         guard !quitComboFired, now - since >= Self.quitComboHold else { return }
         quitComboFired = true
         quitFrontmostApp()
+    }
+
+
+    private enum SystemCombo: CaseIterable {
+        case volumeDown, volumeUp, brightnessDown, brightnessUp
+
+        /// `NX_KEYTYPE_*` media key codes.
+        var mediaKey: Int32 {
+            switch self {
+            case .volumeUp: 0
+            case .volumeDown: 1
+            case .brightnessUp: 2
+            case .brightnessDown: 3
+            }
+        }
+    }
+
+    /// Select + L1 / R1 lower / raise the volume and Select + L2 / R2 the screen brightness, in GBear or in a
+    /// game, repeating while held. Sent as the Mac's own media keys, so macOS shows its usual volume /
+    /// brightness indicator and uses whatever output is current.
+    private func checkSystemCombos(now: CFTimeInterval) {
+        var held = Set<SystemCombo>()
+        for controller in GCController.controllers() {
+            guard let pad = controller.extendedGamepad, pad.buttonOptions?.isPressed == true else { continue }
+            if pad.leftShoulder.isPressed { held.insert(.volumeDown) }
+            if pad.rightShoulder.isPressed { held.insert(.volumeUp) }
+            if pad.leftTrigger.isPressed { held.insert(.brightnessDown) }
+            if pad.rightTrigger.isPressed { held.insert(.brightnessUp) }
+        }
+        for combo in SystemCombo.allCases {
+            guard held.contains(combo) else {
+                systemComboSince[combo] = nil
+                systemComboLastFired[combo] = nil
+                continue
+            }
+            if let since = systemComboSince[combo] {
+                guard now - since >= Self.repeatDelay,
+                      now - (systemComboLastFired[combo] ?? since) >= Self.repeatInterval else { continue }
+            } else {
+                systemComboSince[combo] = now
+            }
+            systemComboLastFired[combo] = now
+            if !Self.pressMediaKey(combo.mediaKey), !loggedMissingAccessibility {
+                loggedMissingAccessibility = true
+                DebugLog.log("Controller volume / brightness: needs Accessibility permission to press media keys")
+            }
+        }
+    }
+
+    /// Posts a media key press (the system-defined event the keyboard's volume / brightness keys send).
+    private static func pressMediaKey(_ key: Int32) -> Bool {
+        guard AccessibilityPermission.isGranted else { return false }
+        for down in [true, false] {
+            let state = down ? 0xA00 : 0xB00
+            guard let event = NSEvent.otherEvent(
+                with: .systemDefined,
+                location: .zero,
+                modifierFlags: NSEvent.ModifierFlags(rawValue: UInt(state)),
+                timestamp: 0,
+                windowNumber: 0,
+                context: nil,
+                subtype: 8,
+                data1: Int(key) << 16 | state,
+                data2: -1
+            ) else { continue }
+            event.cgEvent?.post(tap: .cghidEventTap)
+        }
+        return true
     }
 
 
