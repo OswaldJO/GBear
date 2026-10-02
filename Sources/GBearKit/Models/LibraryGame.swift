@@ -41,6 +41,8 @@ public final class LibraryGame {
     public var storefrontGameID: String?
     /// False for owned storefront games that are not installed on this Mac. Nil for non-storefront games.
     public var storefrontInstalled: Bool?
+    /// True when the user turned off Roman-numeral-as-number sorting for this title (e.g. `Mega Man X`).
+    public var ignoresRomanNumeralsInSort: Bool?
     /// Comma-separated `GamePlatform` raw values the store lists for this game. Nil until known.
     public var storefrontPlatforms: String?
     /// ROMM status for games on an emulator linked to a ROMM platform: `in_romm` or `missing`. Nil when not linked.

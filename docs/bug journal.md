@@ -8,6 +8,15 @@ For release notes style summaries, see `source control log.md`. For architecture
 
 ## Mac library — scanning & covers
 
+### BJ-124 — Roman-numeral sequels sorted after numbered ones
+| | |
+|---|---|
+| **When** | Oct 1 2026 (**in progress**) |
+| **Symptom** | The library showed **Clock Tower**, **Clock Tower 3**, then **Clock Tower II** instead of putting II before 3. |
+| **Cause** | `DiscGroupService.librarySort` compared titles with `localizedStandardCompare`, which treats digit runs as numbers but Roman numerals as letters, so "II" sorted after every digit. |
+| **Fix** | `DiscGroupService.sortTitle` builds a sort-only title that turns standalone uppercase Roman numerals 1–39 (I, V, X letters; not the first word; a lone `I` only before the end or punctuation) into digits. Displayed titles are unchanged. A title ending in a letter-style `X` (e.g. **Mega Man X**) would sort as 10, so the inspector shows **Ignore Roman numerals when sorting** (`LibraryGame.ignoresRomanNumeralsInSort`) for any title the conversion changes; `sortTitle(for:)` then uses the title as written. |
+| **Commit** | *in progress* |
+
 ### BJ-123 — Unreal Engine / Fab assets imported as Epic games
 | | |
 |---|---|

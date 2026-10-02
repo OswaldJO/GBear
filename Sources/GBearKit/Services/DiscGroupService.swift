@@ -24,7 +24,7 @@ enum DiscGroupService {
             return discOrderValue(for: lhs) < discOrderValue(for: rhs)
         }
 
-        let titleCmp = lhs.libraryListTitle.localizedStandardCompare(rhs.libraryListTitle)
+        let titleCmp = sortTitle(for: lhs).localizedStandardCompare(sortTitle(for: rhs))
         if titleCmp != .orderedSame {
             return titleCmp == .orderedAscending
         }
@@ -37,6 +37,44 @@ enum DiscGroupService {
             return lhs.sortOrder < rhs.sortOrder
         }
         return lhs.dateAdded < rhs.dateAdded
+    }
+
+    /// Uppercase Roman numerals 1–39 standing alone after the first word (`Clock Tower II`, `Final Fantasy VII: …`).
+    /// A lone `I` counts only before the end or punctuation, so `… I Am …` stays a word.
+    private static let romanNumeral = try! NSRegularExpression(
+        pattern: #"(?<=[\s:\-–—])(X{0,3}(?:IX|IV|V?I{0,3}))(?=$|[\s:\-–—,.!?)\]])"#
+    )
+
+    static func sortTitle(for game: LibraryGame) -> String {
+        game.ignoresRomanNumeralsInSort == true ? game.libraryListTitle : sortTitle(game.libraryListTitle)
+    }
+
+    /// Title used only for ordering: Roman numerals become digits so `II` sorts between `1` and `3`.
+    static func sortTitle(_ title: String) -> String {
+        let ns = title as NSString
+        var result = title
+        for match in romanNumeral.matches(in: title, range: NSRange(location: 0, length: ns.length)).reversed() {
+            let numeral = ns.substring(with: match.range(at: 1))
+            guard !numeral.isEmpty, let value = romanValue(numeral) else { continue }
+            if numeral == "I" {
+                let after = match.range.location + match.range.length
+                if after < ns.length, ns.substring(with: NSRange(location: after, length: 1)) == " " { continue }
+            }
+            result = (result as NSString).replacingCharacters(in: match.range(at: 1), with: String(value))
+        }
+        return result
+    }
+
+    private static func romanValue(_ numeral: String) -> Int? {
+        let values: [Character: Int] = ["I": 1, "V": 5, "X": 10]
+        var total = 0
+        var previous = 0
+        for character in numeral.reversed() {
+            guard let value = values[character] else { return nil }
+            total += value < previous ? -value : value
+            previous = max(previous, value)
+        }
+        return total > 0 ? total : nil
     }
 
     static func moveDisc(in groupID: String, from index: Int, direction: Int, context: ModelContext) {

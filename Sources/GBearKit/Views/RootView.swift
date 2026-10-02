@@ -1116,6 +1116,18 @@ private struct LibraryGameInspectorView: View {
                 Text("Renames how this game appears here only. The file on disk is not renamed.")
                     .font(.caption)
                     .foregroundStyle(.secondary)
+                let numeralSortTitle = DiscGroupService.sortTitle(game.libraryListTitle)
+                if numeralSortTitle != game.libraryListTitle {
+                    Toggle("Ignore Roman numerals when sorting", isOn: Binding(
+                        get: { game.ignoresRomanNumeralsInSort == true },
+                        set: { game.ignoresRomanNumeralsInSort = $0 ? true : nil }
+                    ))
+                    Text(game.ignoresRomanNumeralsInSort == true
+                        ? "Sorted by its title as written."
+                        : "Sorted as “\(numeralSortTitle)”. Turn this on if the letters aren't a number here.")
+                        .font(.caption)
+                        .foregroundStyle(.secondary)
+                }
                 if game.emulatorUUID == nil {
                     TextField("Game path", text: pathBinding, axis: .vertical)
                         .textFieldStyle(.roundedBorder)
