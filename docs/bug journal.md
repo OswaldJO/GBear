@@ -8,6 +8,15 @@ For release notes style summaries, see `source control log.md`. For architecture
 
 ## Mac library — scanning & covers
 
+### BJ-129 — Keyboard Search still opened the on-screen keyboard
+| | |
+|---|---|
+| **When** | Oct 2 2026 (**in progress**) |
+| **Symptom** | Arrowing to **Search** in the toolbar strip and pressing Return showed the on-screen keyboard instead of putting the cursor in the toolbar search bar. |
+| **Cause** | `focusToolbarSearchField` looked for an `NSSearchToolbarItem`, didn't find one and fell back to the on-screen keyboard. A launch-time dump of the toolbar showed SwiftUI's `.searchable` is its own `AppKitToolbarItem` (`com.apple.SwiftUI.principalSearchItem`) hosting a `SwiftUI.AppKitSearchField`. |
+| **Fix** | `LibraryControllerNavigator.toolbarSearchField(in:)` finds the `NSSearchField` inside toolbar item views (then the title bar, skipping window content); Search makes it first responder. The same lookup decides when ↓ / Return / ↑ in the field go back to navigating. |
+| **Commit** | *in progress* |
+
 ### BJ-127 — Controller couldn't answer RPCS3's quit confirmation
 | | |
 |---|---|

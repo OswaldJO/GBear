@@ -405,14 +405,20 @@ public struct RootView: View {
         }
     }
 
-    /// `.searchable(placement: .toolbar)` is an `NSSearchToolbarItem`; `beginSearchInteraction` also expands it
-    /// when the toolbar has collapsed it to a button.
+    /// Puts the cursor in the toolbar search field. A collapsed `NSSearchToolbarItem` expands via
+    /// `beginSearchInteraction`; otherwise the field is made first responder directly.
     private func focusToolbarSearchField() -> Bool {
-        guard let item = NSApp.mainWindow?.toolbar?.items.lazy.compactMap({ $0 as? NSSearchToolbarItem }).first else {
-            return false
+        guard let window = NSApp.mainWindow else { return false }
+        if let item = window.toolbar?.items.lazy.compactMap({ $0 as? NSSearchToolbarItem }).first {
+            item.beginSearchInteraction()
+            return true
         }
-        item.beginSearchInteraction()
-        return true
+        if let field = LibraryControllerNavigator.toolbarSearchField(in: window), window.makeFirstResponder(field) {
+            return true
+        }
+        let items = window.toolbar?.items.map { "\(type(of: $0))(\($0.itemIdentifier.rawValue))" } ?? []
+        DebugLog.log("Keyboard Search: no toolbar search field found; toolbar items=\(items)")
+        return false
     }
 
     private var controllerToolbarStrip: some View {

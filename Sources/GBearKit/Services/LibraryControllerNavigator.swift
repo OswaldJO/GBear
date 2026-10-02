@@ -534,8 +534,8 @@ final class LibraryControllerNavigator {
             // Typing in a single-line field: up / down leave it and carry on navigating; in the toolbar search
             // field Return does too (the results already filter as you type). Everything else is for the field.
             guard let editor = text as? NSTextView, editor.isFieldEditor else { return false }
-            let toolbarSearch = NSApp.mainWindow?.toolbar?.items.lazy.compactMap { ($0 as? NSSearchToolbarItem)?.searchField }.first
-            if let toolbarSearch, editor.delegate === toolbarSearch {
+            if let window = NSApp.mainWindow, let toolbarSearch = Self.toolbarSearchField(in: window),
+               editor.delegate === toolbarSearch {
                 guard isUp || isDown || isReturn else { return false }
                 NSApp.keyWindow?.makeFirstResponder(nil)
                 area = .toolbar
@@ -561,6 +561,29 @@ final class LibraryControllerNavigator {
         }
         fire(command, fromKeyboard: true)
         return true
+    }
+
+    /// The `.searchable(placement: .toolbar)` field. SwiftUI may host it in an `NSSearchToolbarItem` or as a plain
+    /// `NSSearchField` inside a toolbar item's view, so the title bar's views are searched too (the window's
+    /// content is skipped, where tabs have search fields of their own).
+    static func toolbarSearchField(in window: NSWindow) -> NSSearchField? {
+        for item in window.toolbar?.items ?? [] {
+            if let search = item as? NSSearchToolbarItem { return search.searchField }
+            if let view = item.view, let field = firstSearchField(in: view) { return field }
+        }
+        guard let frame = window.contentView?.superview else { return nil }
+        for subview in frame.subviews where subview !== window.contentView {
+            if let field = firstSearchField(in: subview) { return field }
+        }
+        return nil
+    }
+
+    private static func firstSearchField(in view: NSView) -> NSSearchField? {
+        if let field = view as? NSSearchField { return field }
+        for subview in view.subviews {
+            if let field = firstSearchField(in: subview) { return field }
+        }
+        return nil
     }
 
     /// The Library's sidebar list: the first pane of its split view. (The Info column's grouped Form and other
