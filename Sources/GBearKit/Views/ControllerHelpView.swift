@@ -79,10 +79,16 @@ public struct ControllerHelpView: View {
         Section(title: "In a game or any other app", rows: [
             ("Start + R1", "Enter / exit full screen (sends Control-Command-F)"),
             ("Hold Select + Start for 5 s", "Quit the app (sends Command-Q), then come back to GBear"),
-        ], note: "These don't apply inside GBear, and GBear is never quit this way. The game still sees the buttons, so it may pause. Some emulators use their own full screen shortcut, or ask \"Are you sure?\" before quitting; answer that with the mouse or keyboard."),
+            ("Hold Select + Start again", "Force quit it if it's still open"),
+        ], note: "These don't apply inside GBear, and GBear is never quit this way. The game still sees the buttons, so it may pause. Some emulators use their own full screen shortcut."),
+        Section(title: "\"Are you sure?\" when quitting", rows: [
+            ("D-pad", "Move between the dialog's buttons (outlined)"),
+            ("Cross", "Press the outlined button"),
+            ("Circle / Triangle", "Cancel"),
+        ], note: "Some emulators (like RPCS3) ask before quitting. The outline starts on the dialog's default button, often No."),
         Section(
             title: "Permission",
-            note: "Volume, brightness, full screen and Command-Q press keys for you, which macOS only allows with Accessibility permission (System Settings > Privacy & Security > Accessibility > GBear). Without it, quitting still works by asking the app to quit, and the others do nothing."
+            note: "Volume, brightness, full screen, Command-Q and answering quit dialogs press keys and buttons for you, which macOS only allows with Accessibility permission (System Settings > Privacy & Security > Accessibility > GBear). Without it, quitting still works by asking the app to quit, and the others do nothing."
         ),
     ]
 

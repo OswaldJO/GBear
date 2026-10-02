@@ -101,6 +101,10 @@ final class LibraryControllerNavigator {
     /// Shoulder buttons pressed with Select; ignored until let go, so they don't also switch games or areas.
     @ObservationIgnored private var suppressedUntilRelease: Set<Input> = []
     @ObservationIgnored private var drivingFilePanel = false
+    /// The app Select + Start last asked to quit; holding the combo again while it's still running force quits it.
+    @ObservationIgnored private weak var quitRequestedApp: NSRunningApplication?
+    @ObservationIgnored private var quitDialogPressed: Set<Input> = []
+    @ObservationIgnored private var quitDialogWasActive = false
 
     private init() {}
 
@@ -151,6 +155,7 @@ final class LibraryControllerNavigator {
 
     private func poll() {
         checkGameCombos(now: CACurrentMediaTime())
+        checkQuitDialog(now: CACurrentMediaTime())
         checkSystemCombos(now: CACurrentMediaTime())
         let filePanel = drivesFilePanel
         let reason = filePanel ? nil : blockedReason
@@ -250,6 +255,30 @@ final class LibraryControllerNavigator {
         quitFrontmostApp()
     }
 
+
+    /// While the app Select + Start asked to quit shows a confirmation dialog: D-pad moves between its buttons,
+    /// Cross presses the outlined one, Circle / Triangle cancel. Buttons held when the dialog appears (the
+    /// combo itself) don't count until pressed again.
+    private func checkQuitDialog(now: CFTimeInterval) {
+        let dialog = ControllerDialogNavigator.shared
+        dialog.update(now: now)
+        let active = dialog.isActive && !NSApp.isActive
+        let pressed = active ? currentlyPressed() : []
+        defer {
+            quitDialogPressed = pressed
+            quitDialogWasActive = active
+        }
+        guard active, quitDialogWasActive, !pressed.contains(.select), !pressed.contains(.start) else { return }
+        for input in pressed.subtracting(quitDialogPressed) {
+            switch input {
+            case .left, .up: dialog.move(by: -1)
+            case .right, .down: dialog.move(by: 1)
+            case .a: dialog.pressFocused()
+            case .b, .y: dialog.cancel()
+            default: break
+            }
+        }
+    }
 
     private enum SystemCombo: CaseIterable {
         case volumeDown, volumeUp, brightnessDown, brightnessUp
@@ -354,15 +383,22 @@ final class LibraryControllerNavigator {
 
     private func quitFrontmostApp() {
         guard let app = Self.otherFrontmostApp else { return }
-        if Self.typeShortcut(key: 0x0C, modifiers: [(0x37, .maskCommand)]) {
+        if let asked = quitRequestedApp, asked.processIdentifier == app.processIdentifier, !asked.isTerminated {
+            // Second hold on an app that didn't quit (a dialog the controller can't reach, or it ignored ⌘Q).
+            DebugLog.log("Controller Select + Start: force quitting \(Self.name(of: app))")
+            app.forceTerminate()
+        } else if Self.typeShortcut(key: 0x0C, modifiers: [(0x37, .maskCommand)]) {
             DebugLog.log("Controller Select + Start: sent ⌘Q to \(Self.name(of: app))")
+            ControllerDialogNavigator.shared.watch(app)
         } else {
             // Without Accessibility GBear can't type ⌘Q; the quit request does the same thing for the app.
             DebugLog.log("Controller Select + Start: asking \(Self.name(of: app)) to quit (no Accessibility permission)")
             app.terminate()
         }
+        quitRequestedApp = app
         Task { @MainActor in
-            for _ in 0..<40 {
+            // Long enough to answer an "Are you sure?" dialog before GBear stops waiting to come back.
+            for _ in 0..<240 {
                 try? await Task.sleep(for: .milliseconds(250))
                 guard app.isTerminated else { continue }
                 NSApp.unhide(nil)

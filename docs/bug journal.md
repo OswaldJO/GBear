@@ -8,6 +8,15 @@ For release notes style summaries, see `source control log.md`. For architecture
 
 ## Mac library — scanning & covers
 
+### BJ-127 — Controller couldn't answer RPCS3's quit confirmation
+| | |
+|---|---|
+| **When** | Oct 1 2026 (**in progress**) |
+| **Symptom** | Holding Select + Start in an RPCS3 game sent ⌘Q, and RPCS3 asked "A game is currently running. Do you really want to close RPCS3?" (No / Yes), but nothing on the controller could answer it. |
+| **Cause** | Controller navigation only drives GBear's own windows; the dialog belongs to RPCS3, and while another app is in front the navigator only watched for the Select + Start / Start + R1 combos. |
+| **Fix** | `ControllerDialogNavigator`: after ⌘Q it watches the app for 60 s, finds a confirmation dialog in its focused window through Accessibility, outlines its buttons with a click-through `HighlightWindow`, and `checkQuitDialog` maps D-pad / Cross / Circle / Triangle to move / `AXPress` / cancel. A second Select + Start hold on the same still-running app force quits it, and GBear now waits up to 60 s (was 10 s) for the app to exit before coming back to the front. |
+| **Commit** | *in progress* |
+
 ### BJ-126 — Covers "fell" into view when the controller scrolled the grid
 | | |
 |---|---|

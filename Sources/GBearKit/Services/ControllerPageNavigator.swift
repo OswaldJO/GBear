@@ -258,26 +258,26 @@ final class ControllerPageNavigator {
         highlight.setFrame(window.convertToScreen(rect), display: true)
         if !highlight.isVisible { window.addChildWindow(highlight, ordered: .above) }
     }
+}
 
-    /// Borderless, click-through window drawn over the main window: views added to the SwiftUI hosting
-    /// view aren't reliably drawn.
-    private final class HighlightWindow: NSPanel {
-        init() {
-            super.init(contentRect: .zero, styleMask: [.borderless, .nonactivatingPanel], backing: .buffered, defer: true)
-            isOpaque = false
-            backgroundColor = .clear
-            hasShadow = false
-            ignoresMouseEvents = true
-            isReleasedWhenClosed = false
-            let outline = NSView()
-            outline.wantsLayer = true
-            outline.layer?.borderWidth = 3
-            outline.layer?.cornerRadius = 7
-            outline.layer?.borderColor = NSColor.controlAccentColor.cgColor
-            contentView = outline
-        }
-
-        override var canBecomeKey: Bool { false }
-        override var canBecomeMain: Bool { false }
+/// Borderless, click-through outline window around whatever the controller is on: over GBear's main window
+/// (views added to the SwiftUI hosting view aren't reliably drawn) or over another app's dialog.
+final class HighlightWindow: NSPanel {
+    init() {
+        super.init(contentRect: .zero, styleMask: [.borderless, .nonactivatingPanel], backing: .buffered, defer: true)
+        isOpaque = false
+        backgroundColor = .clear
+        hasShadow = false
+        ignoresMouseEvents = true
+        isReleasedWhenClosed = false
+        let outline = NSView()
+        outline.wantsLayer = true
+        outline.layer?.borderWidth = 3
+        outline.layer?.cornerRadius = 7
+        outline.layer?.borderColor = NSColor.controlAccentColor.cgColor
+        contentView = outline
     }
+
+    override var canBecomeKey: Bool { false }
+    override var canBecomeMain: Bool { false }
 }
