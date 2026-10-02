@@ -146,8 +146,8 @@ public struct RootView: View {
 
     /// The loop L2 / R2 cycle through, left to right as laid out in the window.
     private var controllerAreas: [LibraryControllerNavigator.Area] {
-        guard section == .library else { return [.toolbar] }
-        var areas: [LibraryControllerNavigator.Area] = [.sidebar]
+        guard section == .library else { return [.page, .toolbar] }
+        var areas: [LibraryControllerNavigator.Area] = columnVisibility == .detailOnly ? [] : [.sidebar]
         if showsGameGrid {
             areas.append(.covers)
             if inspectorGameID != nil { areas.append(.info) }
@@ -179,10 +179,23 @@ public struct RootView: View {
             if !controllerToolbarItems.contains(controllerToolbarItem) {
                 controllerToolbarItem = .tab(section)
             }
+        case .page:
+            if let window = NSApp.mainWindow ?? NSApp.keyWindow { ControllerPageNavigator.shared.enter(window: window) }
         case .sidebar, .info:
             break
         }
+        if area != .page { ControllerPageNavigator.shared.leave() }
         controllerNavigator.area = area
+    }
+
+    /// L3: collapse or expand the sidebar of All / Mac Games / emulators.
+    private func toggleLibrarySidebar() {
+        guard section == .library else { return }
+        let collapsing = columnVisibility != .detailOnly
+        withAnimation { columnVisibility = collapsing ? .detailOnly : .all }
+        if collapsing, controllerNavigator.area == .sidebar {
+            enterControllerArea(showsGameGrid ? .covers : .toolbar)
+        }
     }
 
     private func handleControllerCommand(_ command: LibraryControllerNavigator.Command?) {
@@ -215,7 +228,9 @@ public struct RootView: View {
             play(game)
         case .previousGame, .nextGame:
             stepControllerGame(by: command == .nextGame ? 1 : -1)
-        case .coverSize, .resizeKeyboard:
+        case .leftStickClick:
+            toggleLibrarySidebar()
+        case .coverSize, .rightStickClick:
             break
         case .back:
             switch area {
@@ -230,6 +245,8 @@ public struct RootView: View {
                 }
             case .sidebar, .toolbar:
                 if showsGameGrid { enterControllerArea(.covers) }
+            case .page:
+                enterControllerArea(.toolbar)
             }
         case .confirm:
             switch area {
@@ -249,6 +266,8 @@ public struct RootView: View {
                 if showsGameGrid { enterControllerArea(.covers) }
             case .toolbar:
                 activateToolbarItem(controllerToolbarItem)
+            case .page:
+                ControllerPageNavigator.shared.activate()
             case .info:
                 break
             }
@@ -265,6 +284,8 @@ public struct RootView: View {
                 let items = controllerToolbarItems
                 let index = items.firstIndex(of: controllerToolbarItem) ?? 0
                 controllerToolbarItem = items[min(max(index + dx, 0), items.count - 1)]
+            case .page:
+                ControllerPageNavigator.shared.move(dx: dx, dy: dy)
             default:
                 break
             }
@@ -292,7 +313,18 @@ public struct RootView: View {
 
     private func activateToolbarItem(_ item: ToolbarControllerItem) {
         switch item {
-        case .tab(let tab): section = tab
+        case .tab(let tab):
+            section = tab
+            // Picking a tab moves into it once its views are on screen.
+            Task { @MainActor in
+                try? await Task.sleep(for: .milliseconds(250))
+                guard section == tab, controllerNavigator.area == .toolbar else { return }
+                if tab != .library {
+                    enterControllerArea(.page)
+                } else if showsGameGrid {
+                    enterControllerArea(.covers)
+                }
+            }
         case .search:
             OnScreenKeyboard.shared.present(
                 title: "Search \(selectedLibrarySidebarTitle ?? "games")",
@@ -799,6 +831,18 @@ public struct RootView: View {
             controllerNavigator.start()
         }
         .onChange(of: controllerNavigator.commandID) { handleControllerCommand(controllerNavigator.command) }
+        .onChange(of: OnScreenKeyboard.shared.isPresented) { ControllerPageNavigator.shared.refreshHighlight() }
+        .onChange(of: section) { _, newSection in
+            guard controllerNavigator.area == .page else { return }
+            if newSection == .library {
+                enterControllerArea(showsGameGrid ? .covers : .toolbar)
+            } else {
+                Task { @MainActor in
+                    try? await Task.sleep(for: .milliseconds(250))
+                    if controllerNavigator.area == .page { enterControllerArea(.page) }
+                }
+            }
+        }
         .onChange(of: inspectorGameID) { _, id in
             if id == nil, controllerNavigator.area == .info { controllerNavigator.area = .covers }
         }

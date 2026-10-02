@@ -19,8 +19,10 @@ final class LibraryControllerNavigator {
         case play
         /// Square / Circle: one cover-size slider step smaller (-1) or larger (+1).
         case coverSize(step: Int)
-        /// L3 / R3: on-screen keyboard one size step smaller (-1) or larger (+1).
-        case resizeKeyboard(step: Int)
+        /// L3: collapses / expands the library sidebar, or shrinks the on-screen keyboard while it's up.
+        case leftStickClick
+        /// R3: grows the on-screen keyboard while it's up.
+        case rightStickClick
         case previousGame
         case nextGame
         case previousArea
@@ -33,6 +35,8 @@ final class LibraryControllerNavigator {
         case covers
         case info
         case toolbar
+        /// Emulators / Paths / Streaming tab content, driven by `ControllerPageNavigator`.
+        case page
     }
 
     private(set) var command: Command?
@@ -43,7 +47,7 @@ final class LibraryControllerNavigator {
     private enum Input: CaseIterable {
         case up, down, left, right, a, b, x, y, select, start, l1, r1, l2, r2, l3, r3
 
-        var repeats: Bool { [.up, .down, .left, .right, .l1, .r1, .x, .b, .l3, .r3].contains(self) }
+        var repeats: Bool { [.up, .down, .left, .right, .l1, .r1, .x, .b].contains(self) }
 
         /// Face buttons by position (Xbox letters): A / Cross bottom, B / Circle right, X / Square left, Y / Triangle top.
         var command: Command {
@@ -62,8 +66,8 @@ final class LibraryControllerNavigator {
             case .r1: return .nextGame
             case .l2: return .previousArea
             case .r2: return .nextArea
-            case .l3: return .resizeKeyboard(step: -1)
-            case .r3: return .resizeKeyboard(step: 1)
+            case .l3: return .leftStickClick
+            case .r3: return .rightStickClick
             }
         }
     }
@@ -105,6 +109,10 @@ final class LibraryControllerNavigator {
         if NSApp.modalWindow != nil { return "a modal window is open" }
         guard let main = NSApp.mainWindow else { return "no main window" }
         if NSApp.keyWindow !== main { return "the main window is not key" }
+        // Open / save panels from `begin` aren't modal and can become main.
+        if main is NSPanel || NSApp.windows.contains(where: { $0.isVisible && $0 is NSSavePanel }) {
+            return "a panel is open"
+        }
         if main.attachedSheet != nil { return "a sheet is open" }
         if GBearStreamHostManager.shared.isVideoStreaming { return "this Mac is streaming a game" }
         switch GBearStreamGuestManager.shared.phase {

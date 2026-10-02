@@ -161,7 +161,8 @@ final class OnScreenKeyboard {
         case .nextGame: press(.cursorRight)
         case .previousArea: press(.shift)
         case .nextArea, .play: dismiss()
-        case .resizeKeyboard(let step): resize(by: step)
+        case .leftStickClick: resize(by: -1)
+        case .rightStickClick: resize(by: 1)
         case .toggleInfo: break
         }
     }
