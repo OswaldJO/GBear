@@ -11,110 +11,110 @@ For release notes style summaries, see `source control log.md`. For architecture
 ### BJ-129 — Keyboard Search still opened the on-screen keyboard
 | | |
 |---|---|
-| **When** | Oct 2 2026 (**in progress**) |
+| **When** | Oct 2 2026 |
 | **Symptom** | Arrowing to **Search** in the toolbar strip and pressing Return showed the on-screen keyboard instead of putting the cursor in the toolbar search bar. |
 | **Cause** | `focusToolbarSearchField` looked for an `NSSearchToolbarItem`, didn't find one and fell back to the on-screen keyboard. A launch-time dump of the toolbar showed SwiftUI's `.searchable` is its own `AppKitToolbarItem` (`com.apple.SwiftUI.principalSearchItem`) hosting a `SwiftUI.AppKitSearchField`. |
 | **Fix** | `LibraryControllerNavigator.toolbarSearchField(in:)` finds the `NSSearchField` inside toolbar item views (then the title bar, skipping window content); Search makes it first responder. The same lookup decides when ↓ / Return / ↑ in the field go back to navigating. |
-| **Commit** | *in progress* |
+| **Commit** | release **v1.4.0** |
 
 ### BJ-127 — Controller couldn't answer RPCS3's quit confirmation
 | | |
 |---|---|
-| **When** | Oct 1 2026 (**in progress**) |
+| **When** | Oct 1 2026 |
 | **Symptom** | Holding Select + Start in an RPCS3 game sent ⌘Q, and RPCS3 asked "A game is currently running. Do you really want to close RPCS3?" (No / Yes), but nothing on the controller could answer it. |
 | **Cause** | Controller navigation only drives GBear's own windows; the dialog belongs to RPCS3, and while another app is in front the navigator only watched for the Select + Start / Start + R1 combos. |
 | **Fix** | `ControllerDialogNavigator`: after ⌘Q it watches the app for 60 s, finds a confirmation dialog in its focused window through Accessibility, outlines its buttons with a click-through `HighlightWindow`, and `checkQuitDialog` maps D-pad / Cross / Circle / Triangle to move / `AXPress` / cancel. A second Select + Start hold on the same still-running app force quits it, and GBear now waits up to 60 s (was 10 s) for the app to exit before coming back to the front. |
-| **Commit** | *in progress* |
+| **Commit** | release **v1.4.0** |
 
 ### BJ-126 — Covers "fell" into view when the controller scrolled the grid
 | | |
 |---|---|
-| **When** | Oct 1 2026 (**in progress**) |
+| **When** | Oct 1 2026 |
 | **Symptom** | Moving down the covers with the D-pad, covers in a row coming into view slid / jumped into place for a few frames instead of scrolling in like trackpad scrolling. Most reliable repro: scroll to the bottom, race back to the top, then D-pad down; it kicked in around the 10th–12th cover (at "Bug Too!" on the second descent). Also seen after toggling the sidebar with L3. |
 | **Cause** | Main cause, found frame by frame in a screen recording: only the **newly selected** cover fell. Going down column 1, Chameleon Twist was first drawn on top of Baten Kaitos two rows up and slid down to its row over ~3 frames; on the next press Chrono Cross did the same. `GameLibraryTile` animated the ring's scale pop with `.animation(.easeOut(duration: 0.12), value: controllerRing)` over the whole cover, so the update that lit the ring also animated the cover's **position**. When `LazyVGrid` had just created that row at an estimated offset (estimates go stale after racing to the bottom and back, or after L3 changes the column count) and then re-placed it, the cover glided from the guess to its real row. Contributing: `CachedCoverThumbnail` had no in-memory cache, so recreated tiles first drew a default-height placeholder and resized once the file loaded. |
 | **Fix** | The pop now uses the scoped `.animation(_:body:)`, which animates only the `scaleEffect` inside it, never the cover's frame. Earlier passes, still in place: `CoverImageCache.image(for:)` keeps loaded covers in an `NSCache` (600 entries); `CachedCoverThumbnail` seeds its `@State` image from it in `init`, and `GameLibraryTile.coverSize` uses the cached image's size, so a recreated tile draws at its final size on its first frame. Tiles also drop inherited animations (`.transaction { $0.animation = nil }`), which didn't help on its own because the value-based animation sat inside the tile. |
-| **Commit** | *in progress* |
+| **Commit** | release **v1.4.0** |
 
 ### BJ-125 — Controller didn't navigate the library at all
 | | |
 |---|---|
-| **When** | Oct 1 2026 (**in progress**) |
+| **When** | Oct 1 2026 |
 | **Symptom** | With a DualSense already connected over Bluetooth, the new controller navigation did nothing in the library, even with GBear frontmost. |
 | **Cause** | `LibraryControllerNavigator` refused input whenever `GBearHostLocalGamepad.isActive` was true. The stream host seats this Mac as local co-op player 1 by default (`syncSessionDevices`), so that flag is on as soon as the host starts, with no stream running. The log showed `active (1 controller(s))` immediately followed by `blocked: local co-op owns the controllers`. |
 | **Fix** | Gate on `GBearStreamHostManager.isVideoStreaming` (a stream is actually running) instead of the local co-op flag. The frontmost-app, key-window, sheet and guest-stream checks are unchanged. Each change in gate state is now logged via `DebugLog`. |
-| **Commit** | *in progress* |
+| **Commit** | release **v1.4.0** |
 
 ### BJ-124 — Roman-numeral sequels sorted after numbered ones
 | | |
 |---|---|
-| **When** | Oct 1 2026 (**in progress**) |
+| **When** | Oct 1 2026 |
 | **Symptom** | The library showed **Clock Tower**, **Clock Tower 3**, then **Clock Tower II** instead of putting II before 3. |
 | **Cause** | `DiscGroupService.librarySort` compared titles with `localizedStandardCompare`, which treats digit runs as numbers but Roman numerals as letters, so "II" sorted after every digit. |
 | **Fix** | `DiscGroupService.sortTitle` builds a sort-only title that turns standalone uppercase Roman numerals 1–39 (I, V, X letters; not the first word; a lone `I` only before the end or punctuation) into digits. Displayed titles are unchanged. A title ending in a letter-style `X` (e.g. **Mega Man X**) would sort as 10, so the inspector shows **Ignore Roman numerals when sorting** (`LibraryGame.ignoresRomanNumeralsInSort`) for any title the conversion changes; `sortTitle(for:)` then uses the title as written. |
-| **Commit** | *in progress* |
+| **Commit** | release **v1.4.0** |
 
 ### BJ-123 — Unreal Engine / Fab assets imported as Epic games
 | | |
 |---|---|
-| **When** | Oct 1 2026 (**in progress**) |
+| **When** | Oct 1 2026 |
 | **Symptom** | After signing in to Epic, the library filled with non-games such as **4K Materials: Wood Flooring Vol.01**, **Advanced Cel Shader Lite** and **Advanced Glass Material Pack**, all without covers. |
 | **Cause** | Epic's library service also lists Unreal Engine marketplace / Fab purchases. `EpicClient` skipped only the `ue` namespace and the `addons` / `engines` / `digitalextras` categories, but Fab items live in their own namespaces and are tagged `plugins`, `asset-format/…`, `type/format-item` and similar. Rows already in the library also skipped the catalog check entirely. |
 | **Fix** | Skip private-sandbox records (as Legendary does) and treat catalog categories starting with `assets`, `asset-format`, `plugins`, `projects` or `type/format-item` as non-games too. Rejected app names are remembered and excluded from the owned set, so the importer deletes their rows. `gameFilterVersion` 2 re-checks every Epic item once, which cleans up rows imported before the fix. |
-| **Commit** | *in progress* |
+| **Commit** | release **v1.4.0** |
 
 ### BJ-122 — Steam sign-in "expired" minutes after signing in
 | | |
 |---|---|
-| **When** | Oct 1 2026 (**in progress**) |
+| **When** | Oct 1 2026 |
 | **Symptom** | Right after signing in to Steam with the new native sign-in, **Import** failed with "Steam: Steam sign-in expired. Sign in again." |
 | **Cause** | `SteamAuth` asked for **WebBrowser** tokens. The refresh token was valid for 211 more days, but Steam answers `GenerateAccessTokenForApp` for WebBrowser tokens with `AccessDenied` (EResult 15); only MobileApp tokens can be renewed that way over the Web API. The access token from sign-in was not saved, so the first import already needed a renewal, and every renewal failure was reported as "expired". |
 | **Fix** | Sign in as **MobileApp** (`platform_type` 3, `website_id` Mobile, device details), save the access token and reuse it until 5 minutes before it expires, renew with `renewal_type` 1, and report AccessDenied as "sign in again (older sign-ins can't be renewed)" instead of "expired". Existing sign-ins need one more sign-in. |
-| **Commit** | *in progress* |
+| **Commit** | release **v1.4.0** |
 
 ### BJ-121 — GOG "Continue with Google" button did nothing
 | | |
 |---|---|
-| **When** | Oct 1 2026 (**in progress**) |
+| **When** | Oct 1 2026 |
 | **Symptom** | In **Sign in to GOG**, tapping **Google** (or Steam / Discord / Xbox) under the email and password fields did nothing. |
 | **Cause** | Those buttons open a pop-up window (`window.open`). `StorefrontLoginWebView` had no `WKUIDelegate`, and WebKit silently drops pop-ups without one. |
 | **Fix** | The web view is now hosted in a container and its coordinator is the `WKUIDelegate`: `createWebViewWith` builds the pop-up with WebKit's configuration (keeps `window.opener`), stacks it over the sign-in page, and removes it on `webViewDidClose`. The pop-up shares the navigation delegate, so the GOG code is caught in either window. Google may still refuse embedded sign-in, so GOG now also has the **Trouble signing in?** fallback: sign in in the browser and paste the `on_login_success` address (`GOGClient.authorizationCode(fromPastedText:)`). |
-| **Commit** | *in progress* |
+| **Commit** | release **v1.4.0** |
 
 ### BJ-120 — Library covers looked zoomed in and cropped
 | | |
 |---|---|
-| **When** | Oct 1 2026 (**in progress**) |
+| **When** | Oct 1 2026 |
 | **Symptom** | Many tiles in the library grid (for example **Costume Quest**, **Clock Tower 3**) cut off the top, bottom or sides of the box art. |
 | **Cause** | `GameLibraryTile` drew `CachedCoverThumbnail` with its default `.fill` mode inside a fixed slot (card width × the emulator's cover aspect, default 2:3) and clipped it, so any cover whose shape didn't match the setting got zoomed in to fill the slot. |
 | **Fix** | The tile uses `.fit` and applies the clip, border, badges and Play/Info overlay to the fitted image. A first pass bottom-aligned covers inside the old fixed slot, which broke top alignment and left large gaps in mixed-emulator rows; the tile is now sized from the image's own shape (card width, capped at the emulator's cover height), tiles top-align in each row, and titles no longer reserve 3 lines, so rows are only as tall as their tallest tile. |
-| **Commit** | *in progress* |
+| **Commit** | release **v1.4.0** |
 
 ### BJ-119 — Same cover listed several times under Detected covers
 | | |
 |---|---|
-| **When** | Oct 1 2026 (**in progress**) |
+| **When** | Oct 1 2026 |
 | **Symptom** | Games such as **A Short Hike**, **Gris** and **Super Mario Odyssey** listed the same box art three or four times in the inspector's Detected covers. The cover cache held 881 files for about 263 games, with groups of 4–6 byte-identical images. |
 | **Cause** | `CoverImageCache` named each download by a hash of its full address. ScreenScraper media addresses carry the dev and user credentials and come from rotating mirror hosts, so the same image came back under a new address after signing in or on another scrape, got a new file, and was appended to the game's cover list as a new option. Separately, the "already downloaded" check looked for `<hash>.php` while ScreenScraper images were saved as `<hash>.jpg`, so those were downloaded again on every scrape. |
 | **Fix** | Downloads are named by a hash of their bytes, with `index.json` mapping a normalized address (no mirror host or credential parameters) to the file; older address-named files are still found. `mergeDuplicateCoversOnce` runs once at launch: it groups cache files by content, rewrites every game's primary cover and cover list to one copy (the list setter drops the repeats), remaps the index, and deletes the extra files. |
-| **Commit** | *in progress* |
+| **Commit** | release **v1.4.0** |
 
 ### BJ-118 — ScreenScraper showed 510 requests after one manual scrape
 | | |
 |---|---|
-| **When** | Oct 1 2026 (**in progress**) |
+| **When** | Oct 1 2026 |
 | **Symptom** | A **Scrape library** run for one game reported `used_today=510/20000` for ScreenScraper, though the user had only scraped once that day. |
 | **Cause** | `MetadataBackgroundFetcher.runLoop` ran every 45 s and fetched 3 games whose `metadataLastFetchAt` was over 24 h old, covers or not, so the whole library (~263 games) was re-checked through ScreenScraper every day while signed in. `scheduleExtraPass` added more after scans, ROMM syncs, storefront imports and link changes. Those passes wrote no scrape log. ScreenScraper's counter also runs from midnight Paris time (3 PM Pacific), so "today" included the afternoon before. |
 | **Fix** | Removed the background loop, `scheduleExtraPass`, `startIfNeeded`, the unused `scrapeAllNow`, and the "waiting for background pass" UI. Cover providers are called from **Scrape library**, **Search for Covers…**, and `scrapeNewGames` after a scan, ROMM sync or storefront import adds games. That pass only takes games never looked up and without a cover, applies a cover file found beside the game first, and writes its own log. The usage line and Manage Providers now say "used this cycle" with the reset time (`used_this_cycle=` / `cycle_resets=`, `CoverProviderQuota.nextCycleReset`) instead of "today". |
-| **Commit** | *in progress* |
+| **Commit** | release **v1.4.0** |
 
 ### BJ-117 — SP(LR)ITE searched as "Spite" and found no cover
 | | |
 |---|---|
-| **When** | Oct 1 2026 (**in progress**) |
+| **When** | Oct 1 2026 |
 | **Symptom** | The scrape log showed `steamgriddb_no_match title=SP(LR)ITE query=Spite`. The game is **Sp(L/R)ite**, which SteamGridDB has. |
 | **Cause** | `RomTitleNormalizer.searchQuery` removed every `(...)` / `[...]` group anywhere in the title, treating `(LR)` like a dump tag such as `(USA)`. The strict backup check (`MetadataService.backupTitleMatches`) also split `Sp(L/R)ite` into `sp` + `ite`, and a Japanese subtitle on the candidate (`Sp(L/R)ite スプライト`) counted as an extra word, so even the right spelling would not have matched. |
 | **Fix** | Groups wedged inside a word (letter or digit on both sides) are kept in the query; tags after a space or at the end are still removed. `RomTitleNormalizer.joiningInWordPunctuation` turns `SP(LR)ITE`, `Sp(L/R)ite` and `SpLRite` into the same word for matching. `backupTitleMatches` uses it on both sides and ignores non-Latin words in the candidate when the query is written in Latin letters. `SteamGridDBClient.searchFrontCover` retries with the joined spelling when the first search finds nothing. The query is now right (`Sp(l/r)ite`), but this game still gets no cover from SteamGridDB: its entry there is misspelled `Sprlite` (game 5436987, Steam app 2533920) and has no grids uploaded at all, so another provider (IGDB, ScreenScraper) or an upload to SteamGridDB is needed. |
-| **Commit** | *in progress* |
+| **Commit** | release **v1.4.0** |
 
 ### BJ-105 — Flycast kept ROMM duplicates after unlinking from Redream
 | | |
@@ -312,11 +312,11 @@ For release notes style summaries, see `source control log.md`. For architecture
 ### BJ-128 — Astris (Switch) opened without the game
 | | |
 |---|---|
-| **When** | Oct 1 2026 (**in progress**) |
+| **When** | Oct 1 2026 |
 | **Symptom** | After pointing the Switch profile at `/Applications/Astris.app` (template still Ryujinx's `"{ImagePath}"`), Play opened Astris but the game never started. |
 | **Cause** | Astris is an **App Sandbox** app. GBear launched it with the ROM path in argv (`ps` showed `Astris /Volumes/PNY 512/Switch/….nsp`), but a sandboxed app may only read files Launch Services hands it, so it couldn't open the path. Its `Info.plist` declares `nsp` / `xci` / `nsz` / `xcz` / `nca` / `nro` / `nso` document types; `open -a Astris <rom>` booted the game (`lsof` showed the `.nsp` and its update opened). |
 | **Fix** | `GameLauncher` checks the emulator's entitlements (`isSandboxedApp`); sandboxed `.app`s get the game through `NSWorkspace.open([rom], withApplicationAt:)` after quitting running copies (`launchSandboxedApp`), instead of argv. Extra template arguments can't be passed that way and are logged as dropped. |
-| **Commit** | *in progress* |
+| **Commit** | release **v1.4.0** |
 
 ### BJ-080 — ARMSX2 opens but stays on the game list (no ISO)
 | | |
@@ -383,7 +383,7 @@ For release notes style summaries, see `source control log.md`. For architecture
 | **Symptom** | With several remote friends in a session, every friend's pad moved Player 2 in the emulator. |
 | **Cause** | Still no Virtual HID entitlement (BJ-095), so every remote seat fell back to `GBearKeyboardPadStandIn`, which had one key table and one set of held keys for everyone. The Mac has too few keys for 7 players × 25 controls. The kernel enforces the entitlement in `IOHIDResourceUserClient` (running as root does not help), so no app-side workaround creates a real pad. |
 | **Fix** | Stopgap: `GBearPadControl.standInKey(seat:)` gives Players 1–2 the keypad + F13–F20 table, Player 3 letters, Player 4 the number row and punctuation. The stand-in keeps held keys per player and `release(seat:)` frees only the friend who left. Players 5–8 get no keys; the Controller map says so (`Route.unrouted`). Per-emulator network inputs (RetroArch network pad, Dolphin pipes, Cemu DSU) were built and then removed: GBear should not need code for each emulator. Real fix, for every emulator and all 8 players: Apple grants `com.apple.developer.hid.virtual.device` to team AFYV687T82 for `com.funnybearapps.gbear`, and GBear ships with a provisioning profile that contains it. Prepared for that: `GBearHIDUserDevice.c` now presents each pad as a wired DualShock 4 (054C:09CC, real 64-byte report 0x01, answers calibration / MAC / firmware feature reports, accepts rumble output) with a unique serial, MAC and location per seat, so SDL, RPCS3, RetroArch and GameController apps auto-map it instead of seeing an unknown `1209:BEAx` pad. Creation is skipped when the entitlement is missing (`GBearHIDHasVirtualDeviceEntitlement`), so the keyboard fallback still engages. `Scripts/sign-virtual-hid.sh` embeds the profile and re-signs with the entitlement after the Release build, refusing profiles that lack it. Untested until Apple approves. |
-| **Commit** | *in progress* |
+| **Commit** | release **v1.4.0** |
 
 ### BJ-115 — Windows guest could not join with an invite line
 | | |
