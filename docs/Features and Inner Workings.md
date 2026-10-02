@@ -339,7 +339,8 @@ Legacy bindings that used **Alt** (`0x12`) still map to left Option on the Mac.
 
 ## Help menu (app target)
 
-- Replaces default Help group with topic buttons (RetroArch, RPCS3, orphan cleanup, **Games missing after scan**, **ROMM**, **Keystrokes permission**). Implemented in `GBear.swift`.
+- Replaces default Help group with topic buttons (RetroArch, RPCS3, orphan cleanup, **Games missing after scan**, **ROMM**, **Controller Navigation**, **Keystrokes permission**). Implemented in `GBear.swift`.
+- **Controller Navigation** shows `ControllerHelpView` (GBearKit, SwiftUI in an `NSHostingView` as the alert's accessory view, fixed 520 × 460 scroll area) instead of plain text: one Button / Action table per area (anywhere in GBear, covers, sidebar, Info column, toolbar, Emulators / Paths / Streaming pages, on-screen keyboard), then the combos that work outside GBear (volume, brightness, full screen, quit), with short notes and the Accessibility permission they need. Keep its `sections` in sync with `LibraryControllerNavigator`, `ControllerPageNavigator` and `OnScreenKeyboard` when controls change.
 
 ---
 

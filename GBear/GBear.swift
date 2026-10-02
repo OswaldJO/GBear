@@ -150,6 +150,13 @@ struct GBear: App {
                     )
                 }
 
+                Button("Controller Navigation") {
+                    showHelpDialog(
+                        title: "Controller Navigation",
+                        accessory: NSHostingView(rootView: ControllerHelpView())
+                    )
+                }
+
                 Button("Keystrokes permission") {
                     showHelpDialog(
                         title: "Keystrokes permission",
@@ -177,6 +184,16 @@ struct GBear: App {
         alert.alertStyle = .informational
         alert.messageText = title
         alert.informativeText = message
+        alert.addButton(withTitle: "OK")
+        alert.runModal()
+    }
+
+    private func showHelpDialog(title: String, accessory: NSView) {
+        let alert = NSAlert()
+        alert.alertStyle = .informational
+        alert.messageText = title
+        accessory.frame.size = accessory.fittingSize
+        alert.accessoryView = accessory
         alert.addButton(withTitle: "OK")
         alert.runModal()
     }
