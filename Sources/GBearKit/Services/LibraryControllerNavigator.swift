@@ -78,6 +78,7 @@ final class LibraryControllerNavigator {
     private static let rightStickDeadZone: Float = 0.15
     /// Points per second with the right stick fully tilted.
     private static let keyboardMoveSpeed: CGFloat = 1100
+    private static let quitComboHold: CFTimeInterval = 5
 
     @ObservationIgnored private var timer: Timer?
     @ObservationIgnored private var heldSince: [Input: CFTimeInterval] = [:]
@@ -87,6 +88,9 @@ final class LibraryControllerNavigator {
     @ObservationIgnored private var waitingForRelease = true
     @ObservationIgnored private var lastLoggedState: String?
     @ObservationIgnored private var lastPoll: CFTimeInterval?
+    @ObservationIgnored private var quitComboSince: CFTimeInterval?
+    @ObservationIgnored private var quitComboFired = false
+    @ObservationIgnored private var fullScreenComboDown = false
 
     private init() {}
 
@@ -97,6 +101,8 @@ final class LibraryControllerNavigator {
         }
         RunLoop.main.add(timer, forMode: .common)
         self.timer = timer
+        // Needed for the Select + Start / Start + R1 combos while a game is in front.
+        GCController.shouldMonitorBackgroundEvents = true
         DebugLog.log("Controller navigation started")
     }
 
@@ -122,6 +128,7 @@ final class LibraryControllerNavigator {
     }
 
     private func poll() {
+        checkGameCombos(now: CACurrentMediaTime())
         let reason = blockedReason
         let state = reason.map { "blocked: \($0)" } ?? "active (\(GCController.controllers().count) controller(s))"
         if state != lastLoggedState {
@@ -157,6 +164,97 @@ final class LibraryControllerNavigator {
             }
             lastFired[input] = now
             fire(input.command)
+        }
+    }
+
+    /// Shortcuts for the game in front (never while GBear is in front, where Start and R1 have their own jobs):
+    /// Select + Start held for 5 s quits it with ⌘Q, so a game can be left from the couch (fires once per hold;
+    /// GBear itself is never quit this way). Start + R1 toggles full screen with ⌃⌘F, once per press.
+    private func checkGameCombos(now: CFTimeInterval) {
+        var quitHeld = false
+        var fullScreenHeld = false
+        if !NSApp.isActive {
+            for controller in GCController.controllers() {
+                guard let pad = controller.extendedGamepad else { continue }
+                let select = pad.buttonOptions
+                if let select, select.preferredSystemGestureState != .disabled { select.preferredSystemGestureState = .disabled }
+                guard pad.buttonMenu.isPressed else { continue }
+                if select?.isPressed == true { quitHeld = true }
+                if pad.rightShoulder.isPressed { fullScreenHeld = true }
+            }
+        }
+
+        if fullScreenHeld, !fullScreenComboDown, let app = Self.otherFrontmostApp {
+            DebugLog.log("Controller Start + R1: sending ⌃⌘F to \(Self.name(of: app))")
+            if !Self.typeShortcut(key: 0x03, modifiers: [(0x3B, .maskControl), (0x37, .maskCommand)]) {
+                DebugLog.log("Controller Start + R1: needs Accessibility permission to type ⌃⌘F")
+            }
+        }
+        fullScreenComboDown = fullScreenHeld
+
+        guard quitHeld else {
+            quitComboSince = nil
+            quitComboFired = false
+            return
+        }
+        let since = quitComboSince ?? now
+        quitComboSince = since
+        guard !quitComboFired, now - since >= Self.quitComboHold else { return }
+        quitComboFired = true
+        quitFrontmostApp()
+    }
+
+
+    private static var otherFrontmostApp: NSRunningApplication? {
+        guard let app = NSWorkspace.shared.frontmostApplication,
+              app.processIdentifier != ProcessInfo.processInfo.processIdentifier else { return nil }
+        return app
+    }
+
+    private static func name(of app: NSRunningApplication) -> String {
+        app.localizedName ?? app.bundleIdentifier ?? "pid \(app.processIdentifier)"
+    }
+
+    /// Types a shortcut into the frontmost app as real key presses (modifiers down, key, modifiers up).
+    /// Returns false without Accessibility permission, which macOS requires for posting key events.
+    private static func typeShortcut(key: CGKeyCode, modifiers: [(key: CGKeyCode, flag: CGEventFlags)]) -> Bool {
+        guard AccessibilityPermission.isGranted, let source = CGEventSource(stateID: .hidSystemState) else { return false }
+        func post(_ code: CGKeyCode, down: Bool, flags: CGEventFlags) {
+            let event = CGEvent(keyboardEventSource: source, virtualKey: code, keyDown: down)
+            event?.flags = flags
+            event?.post(tap: .cghidEventTap)
+        }
+        var flags: CGEventFlags = []
+        for modifier in modifiers {
+            flags.insert(modifier.flag)
+            post(modifier.key, down: true, flags: flags)
+        }
+        post(key, down: true, flags: flags)
+        post(key, down: false, flags: flags)
+        for modifier in modifiers.reversed() {
+            flags.remove(modifier.flag)
+            post(modifier.key, down: false, flags: flags)
+        }
+        return true
+    }
+
+    private func quitFrontmostApp() {
+        guard let app = Self.otherFrontmostApp else { return }
+        if Self.typeShortcut(key: 0x0C, modifiers: [(0x37, .maskCommand)]) {
+            DebugLog.log("Controller Select + Start: sent ⌘Q to \(Self.name(of: app))")
+        } else {
+            // Without Accessibility GBear can't type ⌘Q; the quit request does the same thing for the app.
+            DebugLog.log("Controller Select + Start: asking \(Self.name(of: app)) to quit (no Accessibility permission)")
+            app.terminate()
+        }
+        Task { @MainActor in
+            for _ in 0..<40 {
+                try? await Task.sleep(for: .milliseconds(250))
+                guard app.isTerminated else { continue }
+                NSApp.unhide(nil)
+                NSApp.activate(ignoringOtherApps: true)
+                return
+            }
         }
     }
 
