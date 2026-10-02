@@ -93,6 +93,7 @@ final class LibraryControllerNavigator {
     /// Points per second with the right stick fully tilted.
     private static let keyboardMoveSpeed: CGFloat = 1100
     private static let quitComboHold: CFTimeInterval = 5
+    private static let sleepComboHold: CFTimeInterval = 5
 
     @ObservationIgnored private var timer: Timer?
     @ObservationIgnored private var keyMonitor: Any?
@@ -106,6 +107,8 @@ final class LibraryControllerNavigator {
     @ObservationIgnored private var quitComboSince: CFTimeInterval?
     @ObservationIgnored private var quitComboFired = false
     @ObservationIgnored private var fullScreenComboDown = false
+    @ObservationIgnored private var sleepComboSince: CFTimeInterval?
+    @ObservationIgnored private var sleepComboFired = false
     @ObservationIgnored private var systemComboSince: [SystemCombo: CFTimeInterval] = [:]
     @ObservationIgnored private var systemComboLastFired: [SystemCombo: CFTimeInterval] = [:]
     @ObservationIgnored private var loggedMissingAccessibility = false
@@ -113,6 +116,9 @@ final class LibraryControllerNavigator {
     /// no shoulder button was pressed with it.
     @ObservationIgnored private var selectDown = false
     @ObservationIgnored private var selectUsedAsModifier = false
+    /// Start + R2 is the sleep combo, so in GBear Start plays on release, and only if R2 wasn't pressed with it.
+    @ObservationIgnored private var startDown = false
+    @ObservationIgnored private var startUsedAsModifier = false
     /// Shoulder buttons pressed with Select; ignored until let go, so they don't also switch games or areas.
     @ObservationIgnored private var suppressedUntilRelease: Set<Input> = []
     @ObservationIgnored private var drivingFilePanel = false
@@ -175,6 +181,7 @@ final class LibraryControllerNavigator {
         checkGameCombos(now: CACurrentMediaTime())
         checkQuitDialog(now: CACurrentMediaTime())
         checkSystemCombos(now: CACurrentMediaTime())
+        checkSleepCombo(now: CACurrentMediaTime())
         let filePanel = drivesFilePanel
         let reason = filePanel ? nil : blockedReason
         let state = filePanel ? "active (file panel)"
@@ -192,6 +199,7 @@ final class LibraryControllerNavigator {
             lastFired.removeAll()
             suppressedUntilRelease.removeAll()
             selectDown = false
+            startDown = false
             waitingForRelease = true
             return
         }
@@ -215,8 +223,19 @@ final class LibraryControllerNavigator {
             fire(Input.select.command)
         }
         selectDown = selectHeld
+        let startHeld = pressed.contains(.start)
+        if startHeld {
+            if !startDown { startUsedAsModifier = false }
+            if pressed.contains(.r2) {
+                suppressedUntilRelease.insert(.r2)
+                startUsedAsModifier = true
+            }
+        } else if startDown, !startUsedAsModifier {
+            fire(Input.start.command)
+        }
+        startDown = startHeld
         for input in Input.allCases {
-            if input == .select || suppressedUntilRelease.contains(input) {
+            if input == .select || input == .start || suppressedUntilRelease.contains(input) {
                 if !pressed.contains(input) { suppressedUntilRelease.remove(input) }
                 continue
             }
@@ -341,6 +360,33 @@ final class LibraryControllerNavigator {
                 loggedMissingAccessibility = true
                 DebugLog.log("Controller volume / brightness: needs Accessibility permission to press media keys")
             }
+        }
+    }
+
+    /// Start + R2 held for 5 s puts the Mac to sleep, in GBear or in a game (once per hold). `pmset sleepnow`
+    /// needs no Accessibility permission or admin rights.
+    private func checkSleepCombo(now: CFTimeInterval) {
+        let held = GCController.controllers().contains { controller in
+            guard let pad = controller.extendedGamepad else { return false }
+            return pad.buttonMenu.isPressed && pad.rightTrigger.isPressed
+        }
+        guard held else {
+            sleepComboSince = nil
+            sleepComboFired = false
+            return
+        }
+        let since = sleepComboSince ?? now
+        sleepComboSince = since
+        guard !sleepComboFired, now - since >= Self.sleepComboHold else { return }
+        sleepComboFired = true
+        DebugLog.log("Controller Start + R2: putting the Mac to sleep")
+        let process = Process()
+        process.executableURL = URL(fileURLWithPath: "/usr/bin/pmset")
+        process.arguments = ["sleepnow"]
+        do {
+            try process.run()
+        } catch {
+            DebugLog.log("Controller Start + R2: pmset sleepnow failed: \(error.localizedDescription)")
         }
     }
 

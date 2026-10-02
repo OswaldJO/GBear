@@ -19,7 +19,7 @@ public struct ControllerHelpView: View {
             ("L2 / R2", "Move between areas in a loop: sidebar, covers, Info column (while open), toolbar. On Emulators, Paths and Streaming: the page and the toolbar."),
             ("L1 / R1", "Previous / next game"),
             ("Select", "Open / close the Info column (when you let go)"),
-            ("Start", "Play the selected game right away"),
+            ("Start", "Play the selected game (when you let go)"),
             ("Square / Circle", "Smaller / bigger covers"),
             ("L3", "Collapse / expand the sidebar"),
         ], note: "The focused item has an outline."),
@@ -85,7 +85,8 @@ public struct ControllerHelpView: View {
         Section(title: "Anywhere, including games", rows: [
             ("Select + L1 / R1", "Volume down / up"),
             ("Select + L2 / R2", "Screen brightness down / up"),
-        ], note: "Holding repeats, and macOS shows its usual indicator. In GBear, a shoulder button pressed with Select doesn't also switch games or areas, and Select doesn't open Info."),
+            ("Hold Start + R2 for 5 s", "Put the Mac to sleep"),
+        ], note: "Holding repeats volume and brightness, and macOS shows its usual indicator. In GBear, a shoulder button pressed with Select doesn't also switch games or areas, and Select doesn't open Info; R2 pressed with Start doesn't switch areas, and Start doesn't play. Controllers can't wake the Mac: wake it with the keyboard, trackpad, mouse or power button, then press the controller's PS / Xbox button to reconnect it."),
         Section(title: "In a game or any other app", rows: [
             ("Start + R1", "Enter / exit full screen (sends Control-Command-F)"),
             ("Hold Select + Start for 5 s", "Quit the app (sends Command-Q), then come back to GBear"),
@@ -98,7 +99,7 @@ public struct ControllerHelpView: View {
         ], note: "Some emulators (like RPCS3) ask before quitting. The outline starts on the dialog's default button, often No."),
         Section(
             title: "Permission",
-            note: "Volume, brightness, full screen, Command-Q and answering quit dialogs press keys and buttons for you, which macOS only allows with Accessibility permission (System Settings > Privacy & Security > Accessibility > GBear). Without it, quitting still works by asking the app to quit, and the others do nothing."
+            note: "Volume, brightness, full screen, Command-Q and answering quit dialogs press keys and buttons for you, which macOS only allows with Accessibility permission (System Settings > Privacy & Security > Accessibility > GBear). Without it, quitting still works by asking the app to quit, sleep works, and the others do nothing."
         ),
     ]
 
