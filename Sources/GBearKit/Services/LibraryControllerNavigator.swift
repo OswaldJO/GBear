@@ -27,6 +27,8 @@ final class LibraryControllerNavigator {
         case nextGame
         case previousArea
         case nextArea
+        /// An arrow key pressed against the edge of the current area: move to the area on that side.
+        case leaveArea(dx: Int, dy: Int)
     }
 
     /// The part of the window the D-pad and A button act on. L2 / R2 cycle through them.
@@ -37,12 +39,24 @@ final class LibraryControllerNavigator {
         case toolbar
         /// Emulators / Paths / Streaming tab content, driven by `ControllerPageNavigator`.
         case page
+        /// The cover size slider under the grid (reached with the down arrow from the last row).
+        case coverSize
     }
 
     private(set) var command: Command?
     /// Bumped on every command so views can react to repeats of the same command.
     private(set) var commandID = 0
-    var area: Area = .covers
+    /// The current command came from the keyboard's arrow / Return keys. Arrows step out of an area at its
+    /// edges (`leaveArea`); the controller uses L2 / R2 for that instead, so held D-pad repeats stay put.
+    private(set) var commandFromKeyboard = false
+    var area: Area = .covers {
+        didSet {
+            // Let go of the sidebar list's keyboard focus so it doesn't also act on arrow keys.
+            if area != .sidebar, let window = NSApp.mainWindow, window.firstResponder is NSTableView {
+                window.makeFirstResponder(nil)
+            }
+        }
+    }
 
     private enum Input: CaseIterable {
         case up, down, left, right, a, b, x, y, select, start, l1, r1, l2, r2, l3, r3
@@ -81,6 +95,7 @@ final class LibraryControllerNavigator {
     private static let quitComboHold: CFTimeInterval = 5
 
     @ObservationIgnored private var timer: Timer?
+    @ObservationIgnored private var keyMonitor: Any?
     @ObservationIgnored private var heldSince: [Input: CFTimeInterval] = [:]
     @ObservationIgnored private var lastFired: [Input: CFTimeInterval] = [:]
     /// After GBear comes back to the front, wait for every button to be let go, so a press meant for a game
@@ -115,6 +130,9 @@ final class LibraryControllerNavigator {
         }
         RunLoop.main.add(timer, forMode: .common)
         self.timer = timer
+        keyMonitor = NSEvent.addLocalMonitorForEvents(matching: .keyDown) { event in
+            MainActor.assumeIsolated { LibraryControllerNavigator.shared.handleKey(event) } ? nil : event
+        }
         // Needed for the Select + Start / Start + R1 combos while a game is in front.
         GCController.shouldMonitorBackgroundEvents = true
         DebugLog.log("Controller navigation started")
@@ -503,7 +521,66 @@ final class LibraryControllerNavigator {
         }
     }
 
-    private func fire(_ command: Command) {
+    /// Arrow keys and Return drive GBear like the D-pad and A, unless a modifier is held or anything that blocks
+    /// the controller is up. Returns true when the key was used.
+    private func handleKey(_ event: NSEvent) -> Bool {
+        guard blockedReason == nil, !OnScreenKeyboard.shared.isPresented,
+              event.modifierFlags.intersection([.command, .option, .control, .shift]).isEmpty else { return false }
+        let responder = NSApp.keyWindow?.firstResponder
+        let isUp = event.keyCode == 0x7E
+        let isDown = event.keyCode == 0x7D
+        let isReturn = event.keyCode == 0x24 || event.keyCode == 0x4C
+        if let text = responder as? NSText {
+            // Typing in a single-line field: up / down leave it and carry on navigating; in the toolbar search
+            // field Return does too (the results already filter as you type). Everything else is for the field.
+            guard let editor = text as? NSTextView, editor.isFieldEditor else { return false }
+            let toolbarSearch = NSApp.mainWindow?.toolbar?.items.lazy.compactMap { ($0 as? NSSearchToolbarItem)?.searchField }.first
+            if let toolbarSearch, editor.delegate === toolbarSearch {
+                guard isUp || isDown || isReturn else { return false }
+                NSApp.keyWindow?.makeFirstResponder(nil)
+                area = .toolbar
+                if !isUp { fire(.leaveArea(dx: 0, dy: 1), fromKeyboard: true) }
+                return true
+            }
+            guard isUp || isDown else { return false }
+            NSApp.keyWindow?.makeFirstResponder(nil)
+        }
+        let command: Command
+        switch event.keyCode {
+        case 0x7B: command = .move(dx: -1, dy: 0)
+        case 0x7C: command = .move(dx: 1, dy: 0)
+        case _ where isDown: command = .move(dx: 0, dy: 1)
+        case _ where isUp: command = .move(dx: 0, dy: -1)
+        case _ where isReturn: command = .confirm
+        default: return false
+        }
+        // The sidebar list only holds keyboard focus after a click (areas resign it on the way out), so a
+        // click there means the arrows should start in the sidebar.
+        if let table = responder as? NSTableView, Self.isSidebar(table), area != .sidebar {
+            area = .sidebar
+        }
+        fire(command, fromKeyboard: true)
+        return true
+    }
+
+    /// The Library's sidebar list: the first pane of its split view. (The Info column's grouped Form and other
+    /// tabs' lists can be tables too.)
+    private static func isSidebar(_ table: NSTableView) -> Bool {
+        var view: NSView = table
+        while let parent = view.superview {
+            if let split = parent as? NSSplitView { return split.subviews.first === view }
+            view = parent
+        }
+        return false
+    }
+
+    /// Called by an area's handler when a keyboard arrow can't move any further inside it.
+    func leaveArea(dx: Int, dy: Int) {
+        fire(.leaveArea(dx: dx, dy: dy), fromKeyboard: true)
+    }
+
+    private func fire(_ command: Command, fromKeyboard: Bool = false) {
+        commandFromKeyboard = fromKeyboard
         if drivingFilePanel {
             handleFilePanel(command)
             return

@@ -52,25 +52,34 @@ final class ControllerPageNavigator {
         observers = []
     }
 
-    func move(dx: Int, dy: Int) {
-        guard let window else { return }
+    /// The outline is on screen (the page has been entered and not left since).
+    var isShowing: Bool { highlight != nil }
+
+    /// Returns false when there's no control in that direction.
+    @discardableResult
+    func move(dx: Int, dy: Int) -> Bool {
+        guard let window else { return false }
         let targets = targets(in: window)
         guard let current = targets.first(where: { $0.view === focused }) else {
             focused = Self.firstVisible(targets, in: window)?.view
             showHighlight()
-            return
+            return true
         }
-        if dx != 0, adjust(current, by: dx) { return }
-        guard let next = Self.nearest(to: current, dx: dx, dy: dy, among: targets) else { return }
+        if dx != 0, adjust(current, by: dx) { return true }
+        guard let next = Self.nearest(to: current, dx: dx, dy: dy, among: targets) else { return false }
         focused = next.view
         showHighlight()
+        return true
     }
 
-    func activate() {
+    /// `fromKeyboard`: a text field gets keyboard focus for typing instead of the on-screen keyboard.
+    func activate(fromKeyboard: Bool = false) {
         guard let window, let target = targets(in: window).first(where: { $0.view === focused }) else { return }
         switch target.kind {
         case .click:
             click(target, in: window)
+        case .textField(let field) where fromKeyboard:
+            window.makeFirstResponder(field)
         case .textField(let field):
             OnScreenKeyboard.shared.present(
                 title: field.placeholderString?.isEmpty == false ? field.placeholderString! : "Text",

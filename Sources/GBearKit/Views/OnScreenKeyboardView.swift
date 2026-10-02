@@ -163,7 +163,7 @@ final class OnScreenKeyboard {
         case .nextArea, .play: dismiss()
         case .leftStickClick: resize(by: -1)
         case .rightStickClick: resize(by: 1)
-        case .toggleInfo: break
+        case .toggleInfo, .leaveArea: break
         }
     }
 

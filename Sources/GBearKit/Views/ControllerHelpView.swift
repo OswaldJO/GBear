@@ -23,6 +23,16 @@ public struct ControllerHelpView: View {
             ("Square / Circle", "Smaller / bigger covers"),
             ("L3", "Collapse / expand the sidebar"),
         ], note: "The focused item has an outline."),
+        Section(title: "Keyboard", rows: [
+            ("Arrow keys", "Move like the D-pad; at an edge, move to the area on that side"),
+            ("Left from the first column", "Sidebar (right goes back to the covers)"),
+            ("Right from the last column", "Info column, when it's open (left goes back)"),
+            ("Up from the top row", "Tabs and Search strip (down goes back)"),
+            ("Down from the bottom row", "Cover size slider: left / right resize, up goes back"),
+            ("Return", "Same as Cross; on Search, type in the search bar"),
+            ("Down or Return in the search bar", "Back to the covers (up goes to the strip)"),
+            ("Emulators, Paths, Streaming", "Arrows move between controls; up from the top goes to the strip"),
+        ], note: "While typing in a text field, keys go to the field; up / down leave it. In the Info column, left / right change Launch with or move a disc or cover first, like the D-pad."),
         Section(title: "Covers", rows: [
             ("D-pad / left stick", "Move between covers (hold to repeat)"),
             ("Cross", "Show Play / Info; press again to play"),

@@ -184,7 +184,7 @@ public struct RootView: View {
             }
         case .page:
             if let window = NSApp.mainWindow ?? NSApp.keyWindow { ControllerPageNavigator.shared.enter(window: window) }
-        case .sidebar, .info:
+        case .sidebar, .info, .coverSize:
             break
         }
         if area != .page { ControllerPageNavigator.shared.leave() }
@@ -201,10 +201,60 @@ public struct RootView: View {
         }
     }
 
+    /// Keyboard arrow pressed against an area's edge: covers ← sidebar, covers → Info column, covers ↑ toolbar strip,
+    /// covers ↓ cover size slider, and back the other way.
+    private func leaveControllerArea(_ area: LibraryControllerNavigator.Area, dx: Int, dy: Int) {
+        let sidebarShown = columnVisibility != .detailOnly
+        switch area {
+        case .covers:
+            if dx < 0, sidebarShown {
+                enterControllerArea(.sidebar)
+            } else if dx > 0, inspectorGameID != nil {
+                enterControllerArea(.info)
+            } else if dy < 0 {
+                enterControllerArea(.toolbar)
+            } else if dy > 0 {
+                enterControllerArea(.coverSize)
+            }
+        case .sidebar:
+            if dx > 0, showsGameGrid {
+                enterControllerArea(.covers)
+            } else if dy < 0 {
+                enterControllerArea(.toolbar)
+            }
+        case .info:
+            if dx < 0 { enterControllerArea(.covers) }
+        case .toolbar:
+            guard dy > 0 else { return }
+            if section != .library {
+                enterControllerArea(.page)
+            } else {
+                enterControllerArea(showsGameGrid ? .covers : sidebarShown ? .sidebar : .toolbar)
+            }
+        case .coverSize:
+            if dy < 0 { enterControllerArea(.covers) }
+        case .page:
+            if dy < 0 { enterControllerArea(.toolbar) }
+        }
+    }
+
     private func handleControllerCommand(_ command: LibraryControllerNavigator.Command?) {
         guard let command else { return }
         let area = controllerNavigator.area
+        if controllerNavigator.commandFromKeyboard, case .move(let dx, let dy) = command {
+            let atEdge = switch area {
+            case .sidebar: dx != 0 || (dy < 0 && controllerSidebarRows.first == sidebarSelection)
+            case .toolbar: dy != 0
+            default: false
+            }
+            if atEdge {
+                leaveControllerArea(area, dx: dx, dy: dy)
+                return
+            }
+        }
         switch command {
+        case .leaveArea(let dx, let dy):
+            leaveControllerArea(area, dx: dx, dy: dy)
         case .previousArea, .nextArea:
             let areas = controllerAreas
             let step = command == .nextArea ? 1 : -1
@@ -246,7 +296,7 @@ public struct RootView: View {
                 } else {
                     controllerSelectedGameID = nil
                 }
-            case .sidebar, .toolbar:
+            case .sidebar, .toolbar, .coverSize:
                 if showsGameGrid { enterControllerArea(.covers) }
             case .page:
                 enterControllerArea(.toolbar)
@@ -268,10 +318,10 @@ public struct RootView: View {
             case .sidebar:
                 if showsGameGrid { enterControllerArea(.covers) }
             case .toolbar:
-                activateToolbarItem(controllerToolbarItem)
+                activateToolbarItem(controllerToolbarItem, fromKeyboard: controllerNavigator.commandFromKeyboard)
             case .page:
-                ControllerPageNavigator.shared.activate()
-            case .info:
+                ControllerPageNavigator.shared.activate(fromKeyboard: controllerNavigator.commandFromKeyboard)
+            case .info, .coverSize:
                 break
             }
         case .move(let dx, let dy):
@@ -288,7 +338,12 @@ public struct RootView: View {
                 let index = items.firstIndex(of: controllerToolbarItem) ?? 0
                 controllerToolbarItem = items[min(max(index + dx, 0), items.count - 1)]
             case .page:
-                ControllerPageNavigator.shared.move(dx: dx, dy: dy)
+                let page = ControllerPageNavigator.shared
+                if !page.isShowing, let window = NSApp.mainWindow {
+                    page.enter(window: window)
+                } else if !page.move(dx: dx, dy: dy), controllerNavigator.commandFromKeyboard, dy < 0 {
+                    leaveControllerArea(.page, dx: 0, dy: -1)
+                }
             default:
                 break
             }
@@ -314,7 +369,12 @@ public struct RootView: View {
         if inspectorGameID != nil { inspectorGameID = id }
     }
 
-    private func activateToolbarItem(_ item: ToolbarControllerItem) {
+    /// `fromKeyboard`: Search focuses the real toolbar search field for typing instead of the on-screen keyboard.
+    private func activateToolbarItem(_ item: ToolbarControllerItem, fromKeyboard: Bool = false) {
+        if item == .search, fromKeyboard, focusToolbarSearchField() {
+            enterControllerArea(.covers)
+            return
+        }
         switch item {
         case .tab(let tab):
             section = tab
@@ -343,6 +403,16 @@ public struct RootView: View {
         case .blockedList: showBlockedGames = true
         case .toggleNames: libraryShowsTitles.toggle()
         }
+    }
+
+    /// `.searchable(placement: .toolbar)` is an `NSSearchToolbarItem`; `beginSearchInteraction` also expands it
+    /// when the toolbar has collapsed it to a button.
+    private func focusToolbarSearchField() -> Bool {
+        guard let item = NSApp.mainWindow?.toolbar?.items.lazy.compactMap({ $0 as? NSSearchToolbarItem }).first else {
+            return false
+        }
+        item.beginSearchInteraction()
+        return true
     }
 
     private var controllerToolbarStrip: some View {
@@ -863,15 +933,21 @@ public struct RootView: View {
         }
         .onChange(of: controllerNavigator.commandID) { handleControllerCommand(controllerNavigator.command) }
         .onChange(of: OnScreenKeyboard.shared.isPresented) { ControllerPageNavigator.shared.refreshHighlight() }
+        .onChange(of: showsGameGrid) { _, shows in
+            guard !shows, section == .library, [.covers, .info, .coverSize].contains(controllerNavigator.area) else { return }
+            enterControllerArea(columnVisibility == .detailOnly ? .toolbar : .sidebar)
+        }
         .onChange(of: section) { _, newSection in
-            guard controllerNavigator.area == .page else { return }
             if newSection == .library {
-                enterControllerArea(showsGameGrid ? .covers : .toolbar)
-            } else {
+                if controllerNavigator.area == .page { enterControllerArea(showsGameGrid ? .covers : .toolbar) }
+            } else if controllerNavigator.area == .page {
                 Task { @MainActor in
                     try? await Task.sleep(for: .milliseconds(250))
                     if controllerNavigator.area == .page { enterControllerArea(.page) }
                 }
+            } else if controllerNavigator.area != .toolbar {
+                // Switched tabs with the mouse: arrow keys start on the page (its outline appears on the first press).
+                controllerNavigator.area = .page
             }
         }
         .onChange(of: inspectorGameID) { _, id in
@@ -1346,21 +1422,47 @@ private struct LibraryGamesGridView: View {
     /// D-pad moves (which need the column count) and cover size; `RootView` handles every other controller command.
     private func handleControllerCommand(_ command: LibraryControllerNavigator.Command?) {
         if case .coverSize(let step) = command {
-            let increment = Double(LibraryGridMetrics.cardWidthStep)
-            let lower = Double(LibraryGridMetrics.minCardWidth)
-            let index = ((storedCardWidth - lower) / increment).rounded() + Double(step)
-            storedCardWidth = min(max(lower + index * increment, lower), Double(LibraryGridMetrics.maxCardWidth))
+            stepCoverSize(by: step)
             return
         }
-        guard navigator.area == .covers, case .move(let dx, let dy) = command else { return }
+        guard case .move(let dx, let dy) = command else { return }
+        if navigator.area == .coverSize {
+            if dx != 0 {
+                stepCoverSize(by: dx)
+            } else if dy < 0 {
+                navigator.leaveArea(dx: 0, dy: -1)
+            }
+            return
+        }
+        guard navigator.area == .covers else { return }
         guard let index = controllerSelectedGameID.flatMap({ id in games.firstIndex { $0.id == id } }) else {
             controllerSelectedGameID = games.first?.id
             return
         }
-        let target = index + dx + dy * max(1, columnCount)
+        let columns = max(1, columnCount)
+        var target = index + dx + dy * columns
+        if navigator.commandFromKeyboard {
+            let column = index % columns
+            let onLastRow = index / columns == (games.count - 1) / columns
+            if (dx < 0 && column == 0) || (dx > 0 && (column == columns - 1 || index == games.count - 1))
+                || (dy < 0 && index < columns) || (dy > 0 && onLastRow) {
+                navigator.leaveArea(dx: dx, dy: dy)
+                return
+            }
+            // Down into a shorter last row lands on its last cover.
+            if dy > 0 { target = min(target, games.count - 1) }
+        }
         guard games.indices.contains(target) else { return }
         actionOverlayGameID = nil
         controllerSelectedGameID = games[target].id
+    }
+
+    /// One slider increment smaller (-1) or larger (+1).
+    private func stepCoverSize(by step: Int) {
+        let increment = Double(LibraryGridMetrics.cardWidthStep)
+        let lower = Double(LibraryGridMetrics.minCardWidth)
+        let index = ((storedCardWidth - lower) / increment).rounded() + Double(step)
+        storedCardWidth = min(max(lower + index * increment, lower), Double(LibraryGridMetrics.maxCardWidth))
     }
 
     var body: some View {
@@ -1420,6 +1522,7 @@ private struct LibraryGamesGridView: View {
         .padding(.vertical, 6)
         .background(.regularMaterial, in: Capsule())
         .overlay(Capsule().strokeBorder(.quaternary, lineWidth: 1))
+        .controllerRing(navigator.area == .coverSize ? .active : nil, cornerRadius: 18, outset: 3)
         .help("Cover size")
         .accessibilityLabel("Cover size")
     }
@@ -1643,7 +1746,9 @@ private struct LibraryGameInspectorView: View {
             guard let index = items.firstIndex(of: current), items.indices.contains(index + dy) else { return }
             controllerItem = items[index + dy]
         case .move(let dx, _):
-            adjust(current, by: dx)
+            if !adjust(current, by: dx), dx < 0, navigator.commandFromKeyboard {
+                navigator.leaveArea(dx: -1, dy: 0)
+            }
         case .confirm:
             activate(current)
         default:
@@ -1688,26 +1793,31 @@ private struct LibraryGameInspectorView: View {
     }
 
     /// Left / right: step the launch emulator, or move a disc or detected cover earlier / later.
-    private func adjust(_ item: InspectorControllerItem, by step: Int) {
+    /// Returns false when the item has nothing to step in that direction.
+    @discardableResult
+    private func adjust(_ item: InspectorControllerItem, by step: Int) -> Bool {
         switch item {
         case .launchWith:
-            guard let libraryEmulatorID = game.emulatorUUID else { return }
+            guard let libraryEmulatorID = game.emulatorUUID else { return false }
             let defaultID = EmulatorLinkService.group(containing: libraryEmulatorID, in: emulators)?.defaultEmulator.id ?? libraryEmulatorID
             let choices: [UUID?] = [nil] + emulators.filter { $0.id != defaultID }.map(\.id)
             let binding = launchEmulatorBinding(defaultEmulatorID: defaultID)
             let index = choices.firstIndex(of: binding.wrappedValue) ?? 0
             binding.wrappedValue = choices[(index + step + choices.count) % choices.count]
+            return true
         case .disc(let index):
             let linked = DiscGroupService.linkedGames(for: game, context: modelContext)
-            guard linked.indices.contains(index + step) else { return }
+            guard linked.indices.contains(index + step) else { return false }
             moveLinkedDisc(at: index, direction: step, in: linked)
             controllerItem = .disc(index + step)
+            return true
         case .coverOption(let index):
-            guard game.coverImageOptions.indices.contains(index + step) else { return }
+            guard game.coverImageOptions.indices.contains(index + step) else { return false }
             moveCover(from: index, direction: step)
             controllerItem = .coverOption(index + step)
+            return true
         default:
-            break
+            return false
         }
     }
 
