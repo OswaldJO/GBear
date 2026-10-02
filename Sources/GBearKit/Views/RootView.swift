@@ -68,6 +68,7 @@ public struct RootView: View {
     @Bindable private var screenScraperDisambiguationCoordinator = ScreenScraperDisambiguationCoordinator.shared
     @State private var clearEmulatorGamesID: UUID?
     @State private var pendingROMMDownload: PendingROMMDownload?
+    @AppStorage(LibraryGridMetrics.showsTitlesKey) private var libraryShowsTitles = true
     /// Game card showing play / info overlay.
     @State private var actionOverlayGameID: UUID?
     /// Game open in the trailing inspector column.
@@ -402,6 +403,13 @@ public struct RootView: View {
                         showBlockedGames = true
                     } label: {
                         Label("Manage Blocked List", systemImage: "hand.raised")
+                            .labelStyle(.titleAndIcon)
+                    }
+
+                    Button {
+                        libraryShowsTitles.toggle()
+                    } label: {
+                        Label(libraryShowsTitles ? "Hide Names" : "Show Names", systemImage: libraryShowsTitles ? "text.badge.minus" : "text.badge.plus")
                             .labelStyle(.titleAndIcon)
                     }
                 }
@@ -848,6 +856,7 @@ private struct LibraryGamesGridView: View {
     let onDelete: (LibraryGame) -> Void
 
     @AppStorage("Library.CoverWidth") private var storedCardWidth: Double = Double(LibraryGridMetrics.defaultCardWidth)
+    @AppStorage(LibraryGridMetrics.showsTitlesKey) private var showsTitles = true
 
     private var cardWidth: CGFloat {
         CGFloat(min(max(storedCardWidth, LibraryGridMetrics.minCardWidth), LibraryGridMetrics.maxCardWidth))
@@ -871,6 +880,7 @@ private struct LibraryGamesGridView: View {
                 GameLibraryTile(
                     game: game,
                     cardWidth: cardWidth,
+                    showsTitle: showsTitles,
                     coverAspect: game.emulatorUUID.flatMap { coverAspects[$0] } ?? .default,
                     showsActionOverlay: actionOverlayGameID == game.id,
                     onCardTap: {
@@ -955,6 +965,7 @@ private struct LibraryGamesGridView: View {
 }
 
 private enum LibraryGridMetrics {
+    static let showsTitlesKey = "Library.ShowsTitles"
     static let defaultCardWidth: CGFloat = 160
     static let minCardWidth: CGFloat = 110
     static let maxCardWidth: CGFloat = 320
@@ -967,6 +978,7 @@ private enum LibraryGridMetrics {
 private struct GameLibraryTile: View {
     let game: LibraryGame
     let cardWidth: CGFloat
+    let showsTitle: Bool
     let coverAspect: CoverAspectRatio
     let showsActionOverlay: Bool
     let onCardTap: () -> Void
@@ -1031,13 +1043,15 @@ private struct GameLibraryTile: View {
                 .overlay { coverOverlays }
                 .frame(width: cardWidth)
 
-            Text(game.libraryListTitle)
-                .font(.subheadline.weight(.medium))
-                .foregroundStyle(.primary)
-                .multilineTextAlignment(.center)
-                .lineLimit(3)
-                .frame(width: cardWidth, alignment: .top)
-                .fixedSize(horizontal: false, vertical: true)
+            if showsTitle {
+                Text(game.libraryListTitle)
+                    .font(.subheadline.weight(.medium))
+                    .foregroundStyle(.primary)
+                    .multilineTextAlignment(.center)
+                    .lineLimit(3)
+                    .frame(width: cardWidth, alignment: .top)
+                    .fixedSize(horizontal: false, vertical: true)
+            }
         }
         .frame(width: cardWidth, alignment: .leading)
         .contentShape(Rectangle())
