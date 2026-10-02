@@ -61,31 +61,39 @@ enum CoverImageCache {
     /// so the same picture from different addresses is stored once.
     @discardableResult
     static func persistCoverReference(_ urlString: String) async -> String {
+        await persistCover(urlString).reference
+    }
+
+    /// Like `persistCoverReference`, plus why the download failed (status and the start of the reply, or the error).
+    static func persistCover(_ urlString: String) async -> (reference: String, failure: String?) {
         guard let remote = normalizedURL(from: urlString), remote.scheme?.hasPrefix("http") == true else {
-            return urlString
+            return (urlString, nil)
         }
         if let existing = existingFile(for: remote) {
-            return existing.absoluteString
+            return (existing.absoluteString, nil)
         }
+        let failure: String
         do {
-            let (data, response) = try await URLSession.shared.data(from: remote)
-            guard let http = response as? HTTPURLResponse, (200 ... 299).contains(http.statusCode), !data.isEmpty else {
-                return urlString
+            let (data, response) = try await URLSession.shared.data(from: ScreenScraperClient.withOwnCredentials(remote))
+            let status = (response as? HTTPURLResponse)?.statusCode ?? -1
+            if (200 ... 299).contains(status), !data.isEmpty, NSImage(data: data) != nil {
+                let rawExt = remote.pathExtension.lowercased()
+                let ext = rawExt.isEmpty ? "img" : (rawExt == "php" ? "jpg" : rawExt)
+                let destination = cacheDirectory().appendingPathComponent("\(hexDigest(data)).\(ext)")
+                if !FileManager.default.fileExists(atPath: destination.path) {
+                    try data.write(to: destination, options: .atomic)
+                }
+                Index.set(destination.lastPathComponent, for: cacheKey(for: remote))
+                return (destination.absoluteString, nil)
             }
-            guard NSImage(data: data) != nil else {
-                return urlString
-            }
-            let rawExt = remote.pathExtension.lowercased()
-            let ext = rawExt.isEmpty ? "img" : (rawExt == "php" ? "jpg" : rawExt)
-            let destination = cacheDirectory().appendingPathComponent("\(hexDigest(data)).\(ext)")
-            if !FileManager.default.fileExists(atPath: destination.path) {
-                try data.write(to: destination, options: .atomic)
-            }
-            Index.set(destination.lastPathComponent, for: cacheKey(for: remote))
-            return destination.absoluteString
+            let reply = String(decoding: data.prefix(100), as: UTF8.self)
+                .replacingOccurrences(of: "\n", with: " ")
+            failure = "status=\(status) type=\(response.mimeType ?? "unknown") bytes=\(data.count) reply=\"\(reply)\""
         } catch {
-            return urlString
+            failure = "error=\"\(error.localizedDescription)\""
         }
+        DebugLog.log("Cover download failed: \(failure)")
+        return (urlString, failure)
     }
 
     private static func existingFile(for remote: URL) -> URL? {
@@ -210,6 +218,32 @@ enum CoverImageCache {
         for duplicate in map.keys {
             try? FileManager.default.removeItem(atPath: duplicate)
         }
+        return changed
+    }
+
+    /// Games whose cover is still a web address (a download that failed when it was scraped or synced): downloads
+    /// each one, one at a time, and points the game at the saved file. Returns how many games changed.
+    @MainActor
+    @discardableResult
+    static func localizeRemoteCovers(context: ModelContext) async -> Int {
+        guard let games = try? context.fetch(FetchDescriptor<LibraryGame>()) else { return 0 }
+        let remote = games.filter { $0.coverImageURLString?.lowercased().hasPrefix("http") == true }
+        guard !remote.isEmpty else { return 0 }
+        var changed = 0
+        var failed = 0
+        for game in remote {
+            guard let original = game.coverImageURLString else { continue }
+            let persisted = await persistCoverReference(original)
+            guard persisted != original, URL(string: persisted)?.isFileURL == true else {
+                failed += 1
+                continue
+            }
+            game.coverImageURLString = persisted
+            game.coverImageOptions = game.coverImageOptions.map { $0 == original ? persisted : $0 }
+            changed += 1
+        }
+        try? context.save()
+        DebugLog.log("Remote covers saved locally: \(changed) of \(remote.count) (\(failed) failed)")
         return changed
     }
 

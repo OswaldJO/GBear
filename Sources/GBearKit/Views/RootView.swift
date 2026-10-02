@@ -936,6 +936,7 @@ public struct RootView: View {
             }
             await CoverImageCache.mergeDuplicateCoversOnce(context: modelContext)
             controllerNavigator.start()
+            await CoverImageCache.localizeRemoteCovers(context: modelContext)
         }
         .onChange(of: controllerNavigator.commandID) { handleControllerCommand(controllerNavigator.command) }
         .onChange(of: OnScreenKeyboard.shared.isPresented) { ControllerPageNavigator.shared.refreshHighlight() }

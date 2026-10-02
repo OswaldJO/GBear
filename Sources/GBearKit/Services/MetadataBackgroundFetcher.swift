@@ -146,6 +146,7 @@ final class MetadataBackgroundFetcher {
                 }
             }
             let summary = await processBatch(container: container, candidates: candidates, notes: notes)
+            await CoverImageCache.localizeRemoteCovers(context: container.mainContext)
             lastLibraryScrapeSummary = summary
             lastLibraryScrapeFinishedAt = Date()
             if let logURL = MetadataScrapeSessionLog.endSession(summary: summary),
@@ -480,7 +481,16 @@ final class MetadataBackgroundFetcher {
         let remoteCoverString = remoteResult?.coverImageURL?.absoluteString ?? backupCover?.url.absoluteString
         let remoteCoverSource = remoteResult?.coverImageURL != nil ? "screenscraper" : backupCover?.source
         if let remoteCoverString {
-            cachedRemotePrimary = await CoverImageCache.persistCoverReference(remoteCoverString)
+            let persisted = await CoverImageCache.persistCover(remoteCoverString)
+            if URL(string: persisted.reference)?.isFileURL == true {
+                cachedRemotePrimary = persisted.reference
+            } else if logToSession {
+                // Saving the web address would count as a cover and keep later scrapes from trying again.
+                MetadataScrapeSessionLog.w(
+                    "cover_download_failed title=\(searchTitle) source=\(remoteCoverSource ?? "unknown") " +
+                        (persisted.failure ?? "reason=unknown")
+                )
+            }
             if let remoteCandidate = cachedRemotePrimary, !options.contains(remoteCandidate) {
                 options.append(remoteCandidate)
                 didChange = true

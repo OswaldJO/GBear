@@ -75,7 +75,13 @@ enum MetadataScrapeSessionLog {
 
     private static func writeLocked(_ level: String, _ message: String) {
         let stamp = ISO8601DateFormatter().string(from: Date())
-        let line = "\(stamp) [\(level)] \(message)\n"
+        // Cover addresses carry the ScreenScraper developer and user passwords; the log is copied to Downloads.
+        let redacted = message.replacingOccurrences(
+            of: #"(devpassword|sspassword)=[^&\s]*"#,
+            with: "$1=***",
+            options: [.regularExpression, .caseInsensitive]
+        )
+        let line = "\(stamp) [\(level)] \(redacted)\n"
         guard let data = line.data(using: .utf8) else { return }
         writer?.write(data)
     }

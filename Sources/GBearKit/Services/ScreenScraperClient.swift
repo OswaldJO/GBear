@@ -241,6 +241,21 @@ enum ScreenScraperClient {
         return nil
     }
 
+    /// ScreenScraper media addresses carry the developer and user login of whoever looked them up. RomM's
+    /// `url_cover` has RomM's, which ScreenScraper rejects from GBear ("Erreur de login"), so downloads swap in ours.
+    static func withOwnCredentials(_ url: URL) -> URL {
+        guard url.host?.lowercased().hasSuffix("screenscraper.fr") == true,
+              let devID = MetadataCredentials.screenScraperDevID,
+              let devPassword = MetadataCredentials.screenScraperDevPassword,
+              var components = URLComponents(url: url, resolvingAgainstBaseURL: false),
+              let items = components.queryItems,
+              items.contains(where: { $0.name.lowercased() == "devid" }) else { return url }
+        let replaced: Set<String> = ["devid", "devpassword", "softname", "ssid", "sspassword", "output"]
+        components.queryItems = buildBaseQueryItems(devID: devID, devPassword: devPassword).filter { $0.name != "output" }
+            + items.filter { !replaced.contains($0.name.lowercased()) }
+        return components.url ?? url
+    }
+
     private static func buildBaseQueryItems(devID: String, devPassword: String) -> [URLQueryItem] {
         var queryItems: [URLQueryItem] = [
             URLQueryItem(name: "devid", value: devID),
