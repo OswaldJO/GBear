@@ -141,7 +141,41 @@ final class LibraryControllerNavigator {
         }
     }
 
+    /// Buttons by position, for showing the connected controller's own glyphs (△ on PlayStation, Y on Xbox).
+    enum ControllerButton {
+        case bottom, right, left, top, l1, r1, l2, r2
+    }
+
+    func buttonSymbol(_ button: ControllerButton) -> String {
+        let pad = (GCController.current ?? GCController.controllers().first)?.extendedGamepad
+        let element: GCControllerElement? = switch button {
+        case .bottom: pad?.buttonA
+        case .right: pad?.buttonB
+        case .left: pad?.buttonX
+        case .top: pad?.buttonY
+        case .l1: pad?.leftShoulder
+        case .r1: pad?.rightShoulder
+        case .l2: pad?.leftTrigger
+        case .r2: pad?.rightTrigger
+        }
+        if let name = element?.sfSymbolsName { return name }
+        switch button {
+        case .bottom: return "a.circle"
+        case .right: return "b.circle"
+        case .left: return "x.circle"
+        case .top: return "y.circle"
+        case .l1: return "l1.rectangle.roundedbottom"
+        case .r1: return "r1.rectangle.roundedbottom"
+        case .l2: return "l2.rectangle.roundedtop"
+        case .r2: return "r2.rectangle.roundedtop"
+        }
+    }
+
     private func fire(_ command: Command) {
+        if OnScreenKeyboard.shared.isPresented {
+            OnScreenKeyboard.shared.handle(command)
+            return
+        }
         self.command = command
         commandID &+= 1
     }

@@ -293,7 +293,13 @@ public struct RootView: View {
     private func activateToolbarItem(_ item: ToolbarControllerItem) {
         switch item {
         case .tab(let tab): section = tab
-        case .search: focusToolbarSearchField()
+        case .search:
+            OnScreenKeyboard.shared.present(
+                title: "Search \(selectedLibrarySidebarTitle ?? "games")",
+                text: librarySearchText,
+                onChange: { librarySearchText = $0 },
+                onCommit: { librarySearchText = $0 }
+            )
         case .addGame: addManualMacGame()
         case .scanPaths: performScan()
         case .importStorefront:
@@ -302,23 +308,6 @@ public struct RootView: View {
         case .blockedList: showBlockedGames = true
         case .toggleNames: libraryShowsTitles.toggle()
         }
-    }
-
-    private func focusToolbarSearchField() {
-        guard let window = NSApp.mainWindow else { return }
-        if let item = window.toolbar?.items.lazy.compactMap({ $0 as? NSSearchToolbarItem }).first {
-            item.beginSearchInteraction()
-        } else if let field = window.contentView?.superview.flatMap(Self.firstSearchField(in:)) {
-            window.makeFirstResponder(field)
-        }
-    }
-
-    private static func firstSearchField(in view: NSView) -> NSSearchField? {
-        if let field = view as? NSSearchField { return field }
-        for subview in view.subviews {
-            if let field = firstSearchField(in: subview) { return field }
-        }
-        return nil
     }
 
     private var controllerToolbarStrip: some View {
@@ -819,6 +808,19 @@ public struct RootView: View {
             }
         }
         .animation(.easeOut(duration: 0.15), value: controllerNavigator.area)
+        .overlay {
+            if OnScreenKeyboard.shared.isPresented {
+                ZStack(alignment: .bottom) {
+                    Color.black.opacity(0.45)
+                        .ignoresSafeArea()
+                        .onTapGesture { OnScreenKeyboard.shared.dismiss() }
+                    OnScreenKeyboardView(keyboard: .shared)
+                        .padding(.bottom, 28)
+                }
+                .transition(.opacity)
+            }
+        }
+        .animation(.easeOut(duration: 0.15), value: OnScreenKeyboard.shared.isPresented)
         .alert("Library Cleanup", isPresented: Binding(
             get: { cleanupFeedback != nil },
             set: { if !$0 { cleanupFeedback = nil } }
@@ -1503,13 +1505,7 @@ private struct LibraryGameInspectorView: View {
     @State private var platformLookupFailed = false
     /// Control the game controller is on while the Info column has controller focus; nil means the first one.
     @State private var controllerItem: InspectorControllerItem?
-    @FocusState private var focusedField: InspectorTextField?
     private let navigator = LibraryControllerNavigator.shared
-
-    private enum InspectorTextField: Hashable {
-        case name
-        case path
-    }
 
     /// Every control the controller can land on, top to bottom as the form lays them out.
     private enum InspectorControllerItem: Hashable {
@@ -1556,7 +1552,6 @@ private struct LibraryGameInspectorView: View {
         switch command {
         case .move(_, let dy) where dy != 0:
             guard let index = items.firstIndex(of: current), items.indices.contains(index + dy) else { return }
-            focusedField = nil
             controllerItem = items[index + dy]
         case .move(let dx, _):
             adjust(current, by: dx)
@@ -1569,9 +1564,13 @@ private struct LibraryGameInspectorView: View {
 
     private func activate(_ item: InspectorControllerItem) {
         switch item {
-        case .name: focusedField = .name
+        case .name:
+            let binding = nameBinding
+            OnScreenKeyboard.shared.present(title: "Name in library", text: binding.wrappedValue) { binding.wrappedValue = $0 }
         case .ignoreNumerals: game.ignoresRomanNumeralsInSort = game.ignoresRomanNumeralsInSort == true ? nil : true
-        case .gamePath: focusedField = .path
+        case .gamePath:
+            let binding = pathBinding
+            OnScreenKeyboard.shared.present(title: "Game path", text: binding.wrappedValue) { binding.wrappedValue = $0 }
         case .chooseGame: pickGamePath()
         case .revealFile: revealROMInFinder()
         case .downloadROMM: onDownloadFromROMM()
@@ -1642,7 +1641,6 @@ private struct LibraryGameInspectorView: View {
             Section {
                 TextField("Name in library", text: nameBinding, axis: .vertical)
                     .textFieldStyle(.roundedBorder)
-                    .focused($focusedField, equals: .name)
                     .controllerRing(ring(.name))                    .id(InspectorControllerItem.name)
                 Text("Renames how this game appears here only. The file on disk is not renamed.")
                     .font(.caption)
@@ -1664,7 +1662,6 @@ private struct LibraryGameInspectorView: View {
                 if game.emulatorUUID == nil {
                     TextField("Game path", text: pathBinding, axis: .vertical)
                         .textFieldStyle(.roundedBorder)
-                        .focused($focusedField, equals: .path)
                         .controllerRing(ring(.gamePath))
                         .id(InspectorControllerItem.gamePath)
                     Text("Edit the app/executable path for this Mac game, or choose a new target.")
