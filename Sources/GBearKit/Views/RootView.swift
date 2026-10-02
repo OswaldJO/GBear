@@ -28,6 +28,51 @@ private enum LibrarySidebarSelection: Hashable {
     case screenScraper
 }
 
+/// Everything in the window's toolbar (including what's folded into its overflow menu), in the order the
+/// controller's toolbar strip shows them.
+private enum ToolbarControllerItem: Hashable {
+    case tab(MainSection)
+    case search
+    case addGame
+    case scanPaths
+    case importStorefront
+    case screenScraperLogin
+    case blockedList
+    case toggleNames
+
+    func title(showsTitles: Bool) -> String {
+        switch self {
+        case .tab(.library): return "Library"
+        case .tab(.emulators): return "Emulators"
+        case .tab(.paths): return "Paths"
+        case .tab(.streaming): return "Streaming"
+        case .search: return "Search"
+        case .addGame: return "Add Game"
+        case .scanPaths: return "Scan Paths"
+        case .importStorefront: return "Import Storefront Games"
+        case .screenScraperLogin: return "ScreenScraper Login"
+        case .blockedList: return "Manage Blocked List"
+        case .toggleNames: return showsTitles ? "Hide Names" : "Show Names"
+        }
+    }
+
+    var systemImage: String {
+        switch self {
+        case .tab(.library): return "square.grid.2x2"
+        case .tab(.emulators): return "gearshape.2"
+        case .tab(.paths): return "folder"
+        case .tab(.streaming): return "dot.radiowaves.left.and.right"
+        case .search: return "magnifyingglass"
+        case .addGame: return "plus"
+        case .scanPaths: return "arrow.triangle.2.circlepath"
+        case .importStorefront: return "shippingbox"
+        case .screenScraperLogin: return "person.badge.key"
+        case .blockedList: return "hand.raised"
+        case .toggleNames: return "textformat"
+        }
+    }
+}
+
 private enum LibrarySidebarSection: Identifiable {
     case emulator(EmulatorProfile)
     case group(EmulatorLinkService.Group)
@@ -75,6 +120,243 @@ public struct RootView: View {
     @State private var inspectorGameID: UUID?
     /// Toolbar search; narrows the selected sidebar section.
     @State private var librarySearchText = ""
+    /// Cover highlighted by controller navigation; nil until a controller is used.
+    @State private var controllerSelectedGameID: UUID?
+    private let controllerNavigator = LibraryControllerNavigator.shared
+
+    @State private var controllerToolbarItem: ToolbarControllerItem = .tab(.library)
+
+    /// Every sidebar row, top to bottom, for D-pad moves in the sidebar.
+    private var controllerSidebarRows: [LibrarySidebarSelection] {
+        [.all, .macGames] + librarySidebarSections.map { entry in
+            switch entry {
+            case .emulator(let emulator): return .emulator(emulator.id)
+            case .group(let group): return .emulatorGroup(group.id)
+            }
+        } + [.storefrontManager, .romm, .screenScraper]
+    }
+
+    private var showsGameGrid: Bool {
+        guard section == .library else { return false }
+        switch sidebarSelection {
+        case .all, .macGames, .emulator, .emulatorGroup: return true
+        case .storefrontManager, .romm, .screenScraper: return false
+        }
+    }
+
+    /// The loop L2 / R2 cycle through, left to right as laid out in the window.
+    private var controllerAreas: [LibraryControllerNavigator.Area] {
+        guard section == .library else { return [.toolbar] }
+        var areas: [LibraryControllerNavigator.Area] = [.sidebar]
+        if showsGameGrid {
+            areas.append(.covers)
+            if inspectorGameID != nil { areas.append(.info) }
+        }
+        areas.append(.toolbar)
+        return areas
+    }
+
+    private var controllerToolbarItems: [ToolbarControllerItem] {
+        var items: [ToolbarControllerItem] = [.tab(.library), .tab(.emulators), .tab(.paths), .tab(.streaming)]
+        guard section == .library else { return items }
+        if showsGameGrid { items.append(.search) }
+        items += [.addGame, .scanPaths, .importStorefront, .screenScraperLogin, .blockedList, .toggleNames]
+        return items
+    }
+
+    private func sidebarRing(_ row: LibrarySidebarSelection) -> ControllerRing? {
+        controllerNavigator.area == .sidebar && sidebarSelection == row ? .active : nil
+    }
+
+    private func enterControllerArea(_ area: LibraryControllerNavigator.Area) {
+        switch area {
+        case .covers:
+            let games = filteredGames
+            if !games.contains(where: { $0.id == controllerSelectedGameID }) {
+                controllerSelectedGameID = games.first?.id
+            }
+        case .toolbar:
+            if !controllerToolbarItems.contains(controllerToolbarItem) {
+                controllerToolbarItem = .tab(section)
+            }
+        case .sidebar, .info:
+            break
+        }
+        controllerNavigator.area = area
+    }
+
+    private func handleControllerCommand(_ command: LibraryControllerNavigator.Command?) {
+        guard let command else { return }
+        let area = controllerNavigator.area
+        switch command {
+        case .previousArea, .nextArea:
+            let areas = controllerAreas
+            let step = command == .nextArea ? 1 : -1
+            if let index = areas.firstIndex(of: area) {
+                enterControllerArea(areas[(index + step + areas.count) % areas.count])
+            } else {
+                enterControllerArea(areas.contains(.covers) ? .covers : areas[0])
+            }
+        case .toggleInfo:
+            guard showsGameGrid else { return }
+            actionOverlayGameID = nil
+            if inspectorGameID != nil {
+                inspectorGameID = nil
+                if area == .info { controllerNavigator.area = .covers }
+            } else if let id = controllerSelectedGameID ?? filteredGames.first?.id {
+                controllerSelectedGameID = id
+                inspectorGameID = id
+                controllerNavigator.area = .info
+            }
+        case .play:
+            guard showsGameGrid, let id = controllerSelectedGameID ?? inspectorGameID,
+                  let game = filteredGames.first(where: { $0.id == id }) else { return }
+            actionOverlayGameID = nil
+            play(game)
+        case .previousGame, .nextGame:
+            stepControllerGame(by: command == .nextGame ? 1 : -1)
+        case .coverSize:
+            break
+        case .back:
+            switch area {
+            case .info:
+                inspectorGameID = nil
+                controllerNavigator.area = .covers
+            case .covers:
+                if actionOverlayGameID != nil {
+                    actionOverlayGameID = nil
+                } else {
+                    controllerSelectedGameID = nil
+                }
+            case .sidebar, .toolbar:
+                if showsGameGrid { enterControllerArea(.covers) }
+            }
+        case .confirm:
+            switch area {
+            case .covers:
+                guard showsGameGrid else { return }
+                guard let id = controllerSelectedGameID, let game = filteredGames.first(where: { $0.id == id }) else {
+                    controllerSelectedGameID = filteredGames.first?.id
+                    return
+                }
+                if actionOverlayGameID == id {
+                    actionOverlayGameID = nil
+                    play(game)
+                } else {
+                    actionOverlayGameID = id
+                }
+            case .sidebar:
+                if showsGameGrid { enterControllerArea(.covers) }
+            case .toolbar:
+                activateToolbarItem(controllerToolbarItem)
+            case .info:
+                break
+            }
+        case .move(let dx, let dy):
+            switch area {
+            case .sidebar where dy != 0 && section == .library:
+                let rows = controllerSidebarRows
+                let index = rows.firstIndex(of: sidebarSelection) ?? 0
+                let target = min(max(index + dy, 0), rows.count - 1)
+                guard rows[target] != sidebarSelection else { return }
+                actionOverlayGameID = nil
+                sidebarSelection = rows[target]
+            case .toolbar where dx != 0:
+                let items = controllerToolbarItems
+                let index = items.firstIndex(of: controllerToolbarItem) ?? 0
+                controllerToolbarItem = items[min(max(index + dx, 0), items.count - 1)]
+            default:
+                break
+            }
+        }
+    }
+
+    /// L1 / R1: previous or next game in the grid's order, from any area. The Info column follows along.
+    private func stepControllerGame(by offset: Int) {
+        guard showsGameGrid else { return }
+        let games = filteredGames
+        guard !games.isEmpty else { return }
+        let target: Int
+        if let current = controllerSelectedGameID ?? inspectorGameID,
+           let index = games.firstIndex(where: { $0.id == current }) {
+            target = index + offset
+            guard games.indices.contains(target) else { return }
+        } else {
+            target = 0
+        }
+        let id = games[target].id
+        actionOverlayGameID = nil
+        controllerSelectedGameID = id
+        if inspectorGameID != nil { inspectorGameID = id }
+    }
+
+    private func activateToolbarItem(_ item: ToolbarControllerItem) {
+        switch item {
+        case .tab(let tab): section = tab
+        case .search: focusToolbarSearchField()
+        case .addGame: addManualMacGame()
+        case .scanPaths: performScan()
+        case .importStorefront:
+            if !StorefrontImporter.shared.isImporting { importStorefrontGames() }
+        case .screenScraperLogin: showScreenScraperSettings = true
+        case .blockedList: showBlockedGames = true
+        case .toggleNames: libraryShowsTitles.toggle()
+        }
+    }
+
+    private func focusToolbarSearchField() {
+        guard let window = NSApp.mainWindow else { return }
+        if let item = window.toolbar?.items.lazy.compactMap({ $0 as? NSSearchToolbarItem }).first {
+            item.beginSearchInteraction()
+        } else if let field = window.contentView?.superview.flatMap(Self.firstSearchField(in:)) {
+            window.makeFirstResponder(field)
+        }
+    }
+
+    private static func firstSearchField(in view: NSView) -> NSSearchField? {
+        if let field = view as? NSSearchField { return field }
+        for subview in view.subviews {
+            if let field = firstSearchField(in: subview) { return field }
+        }
+        return nil
+    }
+
+    private var controllerToolbarStrip: some View {
+        ScrollViewReader { proxy in
+            ScrollView(.horizontal, showsIndicators: false) {
+                HStack(spacing: 10) {
+                    ForEach(controllerToolbarItems, id: \.self) { item in
+                        Button {
+                            controllerToolbarItem = item
+                            activateToolbarItem(item)
+                        } label: {
+                            Label(item.title(showsTitles: libraryShowsTitles), systemImage: item.systemImage)
+                                .labelStyle(.titleAndIcon)
+                                .padding(.horizontal, 10)
+                                .padding(.vertical, 6)
+                                .background(
+                                    item == .tab(section) ? AnyShapeStyle(.tint.opacity(0.25)) : AnyShapeStyle(.quaternary),
+                                    in: RoundedRectangle(cornerRadius: 7)
+                                )
+                        }
+                        .buttonStyle(.plain)
+                        .controllerRing(item == controllerToolbarItem ? .active : nil, cornerRadius: 9, outset: 2)
+                        .id(item)
+                    }
+                }
+                .padding(10)
+            }
+            .onChange(of: controllerToolbarItem) { _, item in
+                withAnimation(.easeInOut(duration: 0.15)) { proxy.scrollTo(item, anchor: .center) }
+            }
+            .onAppear { proxy.scrollTo(controllerToolbarItem, anchor: .center) }
+        }
+        .background(.regularMaterial, in: RoundedRectangle(cornerRadius: 12))
+        .shadow(radius: 8, y: 2)
+        .padding(.horizontal, 16)
+        .padding(.top, 8)
+        .fixedSize(horizontal: false, vertical: true)
+    }
 
     private var activeEmulatorIDs: Set<UUID> {
         Set(emulators.map(\.id))
@@ -219,6 +501,8 @@ public struct RootView: View {
     @ViewBuilder
     private var macGamesSidebarItem: some View {
         Text("Mac Games")
+            .frame(maxWidth: .infinity, alignment: .leading)
+            .controllerRing(sidebarRing(.macGames), color: .white)
             .tag(LibrarySidebarSelection.macGames)
             .contextMenu {
                 Button("Clear Mac Games…", systemImage: "trash", role: .destructive) {
@@ -264,7 +548,8 @@ public struct RootView: View {
                     actionOverlayGameID: $actionOverlayGameID,
                     inspectorGameID: $inspectorGameID,
                     onPlay: { play($0) },
-                    onDelete: { deleteGame($0) }
+                    onDelete: { deleteGame($0) },
+                    controllerSelectedGameID: $controllerSelectedGameID
                 )
                 .frame(minWidth: 240)
                 .layoutPriority(1)
@@ -303,6 +588,8 @@ public struct RootView: View {
             List(selection: $sidebarSelection) {
                 Section("Library") {
                     Text("All")
+                        .frame(maxWidth: .infinity, alignment: .leading)
+                        .controllerRing(sidebarRing(.all), color: .white)
                         .tag(LibrarySidebarSelection.all)
                         .contextMenu {
                             Button("Clear All Games…", systemImage: "trash", role: .destructive) {
@@ -314,6 +601,8 @@ public struct RootView: View {
                         switch entry {
                         case .emulator(let emu):
                             Text(emu.name)
+                                .frame(maxWidth: .infinity, alignment: .leading)
+                                .controllerRing(sidebarRing(.emulator(emu.id)), color: .white)
                                 .tag(LibrarySidebarSelection.emulator(emu.id))
                                 .contextMenu {
                                     Button("Clear Games for “\(emu.name)”…", systemImage: "trash", role: .destructive) {
@@ -327,6 +616,8 @@ public struct RootView: View {
                                     .font(.caption)
                                     .foregroundStyle(.secondary)
                             }
+                            .frame(maxWidth: .infinity, alignment: .leading)
+                            .controllerRing(sidebarRing(.emulatorGroup(group.id)), color: .white)
                             .tag(LibrarySidebarSelection.emulatorGroup(group.id))
                                 .help("Linked: \(group.members.map(\.name).joined(separator: ", ")). Opens with \(group.defaultEmulator.name) by default.")
                                 .contextMenu {
@@ -341,14 +632,20 @@ public struct RootView: View {
                 }
                 Section("Storefront Manager") {
                     Label("Show Manager", systemImage: "storefront")
+                        .frame(maxWidth: .infinity, alignment: .leading)
+                        .controllerRing(sidebarRing(.storefrontManager), color: .white)
                         .tag(LibrarySidebarSelection.storefrontManager)
                 }
                 Section("ROMM") {
                     Label("Show ROMM", systemImage: "server.rack")
+                        .frame(maxWidth: .infinity, alignment: .leading)
+                        .controllerRing(sidebarRing(.romm), color: .white)
                         .tag(LibrarySidebarSelection.romm)
                 }
                 Section("Cover Art and Metadata") {
                     ScreenScraperSidebarRow(fetcher: MetadataBackgroundFetcher.shared)
+                        .frame(maxWidth: .infinity, alignment: .leading)
+                        .controllerRing(sidebarRing(.screenScraper), color: .white)
                         .tag(LibrarySidebarSelection.screenScraper)
                 }
             }
@@ -510,7 +807,18 @@ public struct RootView: View {
                 cleanupFeedback = "Removed \(removed) orphan game(s) from the library. These entries referenced missing emulators and could appear as ghost games."
             }
             await CoverImageCache.mergeDuplicateCoversOnce(context: modelContext)
+            controllerNavigator.start()        }
+        .onChange(of: controllerNavigator.commandID) { handleControllerCommand(controllerNavigator.command) }
+        .onChange(of: inspectorGameID) { _, id in
+            if id == nil, controllerNavigator.area == .info { controllerNavigator.area = .covers }
         }
+        .overlay(alignment: .top) {
+            if controllerNavigator.area == .toolbar {
+                controllerToolbarStrip
+                    .transition(.move(edge: .top).combined(with: .opacity))
+            }
+        }
+        .animation(.easeOut(duration: 0.15), value: controllerNavigator.area)
         .alert("Library Cleanup", isPresented: Binding(
             get: { cleanupFeedback != nil },
             set: { if !$0 { cleanupFeedback = nil } }
@@ -844,6 +1152,33 @@ public struct RootView: View {
     }
 }
 
+// MARK: - Controller highlight
+
+/// Ring drawn around whatever the controller is on. `.inactive` marks the remembered spot in an area
+/// the controller has moved away from.
+private enum ControllerRing: Equatable {
+    case active
+    case inactive
+}
+
+private extension View {
+    func controllerRing(
+        _ ring: ControllerRing?,
+        cornerRadius: CGFloat = 6,
+        outset: CGFloat = 3,
+        color: Color = .accentColor
+    ) -> some View {
+        overlay {
+            if let ring {
+                RoundedRectangle(cornerRadius: cornerRadius)
+                    .strokeBorder(color.opacity(ring == .active ? 1 : 0.35), lineWidth: ring == .active ? 3 : 2)
+                    .padding(-outset)
+                    .allowsHitTesting(false)
+            }
+        }
+    }
+}
+
 // MARK: - Library grid (main column)
 
 private struct LibraryGamesGridView: View {
@@ -857,6 +1192,9 @@ private struct LibraryGamesGridView: View {
 
     @AppStorage("Library.CoverWidth") private var storedCardWidth: Double = Double(LibraryGridMetrics.defaultCardWidth)
     @AppStorage(LibraryGridMetrics.showsTitlesKey) private var showsTitles = true
+    @Binding var controllerSelectedGameID: UUID?
+    @State private var columnCount = 1
+    private let navigator = LibraryControllerNavigator.shared
 
     private var cardWidth: CGFloat {
         CGFloat(min(max(storedCardWidth, LibraryGridMetrics.minCardWidth), LibraryGridMetrics.maxCardWidth))
@@ -881,9 +1219,13 @@ private struct LibraryGamesGridView: View {
                     game: game,
                     cardWidth: cardWidth,
                     showsTitle: showsTitles,
+                    controllerRing: controllerSelectedGameID == game.id
+                        ? (navigator.area == .covers ? .active : .inactive)
+                        : nil,
                     coverAspect: game.emulatorUUID.flatMap { coverAspects[$0] } ?? .default,
                     showsActionOverlay: actionOverlayGameID == game.id,
                     onCardTap: {
+                        if controllerSelectedGameID != nil { controllerSelectedGameID = game.id }
                         if actionOverlayGameID == game.id {
                             actionOverlayGameID = nil
                         } else {
@@ -909,8 +1251,29 @@ private struct LibraryGamesGridView: View {
                         onDelete(game)
                     }
                 }
+                .id(game.id)
             }
         }
+    }
+
+    /// D-pad moves (which need the column count) and cover size; `RootView` handles every other controller command.
+    private func handleControllerCommand(_ command: LibraryControllerNavigator.Command?) {
+        if case .coverSize(let step) = command {
+            let increment = Double(LibraryGridMetrics.cardWidthStep)
+            let lower = Double(LibraryGridMetrics.minCardWidth)
+            let index = ((storedCardWidth - lower) / increment).rounded() + Double(step)
+            storedCardWidth = min(max(lower + index * increment, lower), Double(LibraryGridMetrics.maxCardWidth))
+            return
+        }
+        guard navigator.area == .covers, case .move(let dx, let dy) = command else { return }
+        guard let index = controllerSelectedGameID.flatMap({ id in games.firstIndex { $0.id == id } }) else {
+            controllerSelectedGameID = games.first?.id
+            return
+        }
+        let target = index + dx + dy * max(1, columnCount)
+        guard games.indices.contains(target) else { return }
+        actionOverlayGameID = nil
+        controllerSelectedGameID = games[target].id
     }
 
     var body: some View {
@@ -925,13 +1288,23 @@ private struct LibraryGamesGridView: View {
                 )
             } else {
                 GeometryReader { proxy in
-                    ScrollView {
-                        grid(columns: Self.columns(for: proxy.size.width, card: cardWidth))
-                            .padding(LibraryGridMetrics.outerPadding)
-                            .padding(.bottom, LibraryGridMetrics.sizeSliderClearance)
-                            .frame(maxWidth: .infinity, alignment: .leading)
+                    let columns = Self.columns(for: proxy.size.width, card: cardWidth)
+                    ScrollViewReader { scroller in
+                        ScrollView {
+                            grid(columns: columns)
+                                .padding(LibraryGridMetrics.outerPadding)
+                                .padding(.bottom, LibraryGridMetrics.sizeSliderClearance)
+                                .frame(maxWidth: .infinity, alignment: .leading)
+                        }
+                        .onChange(of: controllerSelectedGameID) { _, id in
+                            guard let id else { return }
+                            withAnimation(.easeInOut(duration: 0.15)) { scroller.scrollTo(id) }
+                        }
                     }
+                    .onAppear { columnCount = columns.count }
+                    .onChange(of: columns.count) { _, count in columnCount = count }
                 }
+                .onChange(of: navigator.commandID) { handleControllerCommand(navigator.command) }
                 .overlay(alignment: .bottomTrailing) {
                     coverSizeSlider
                         .padding(12)
@@ -947,7 +1320,8 @@ private struct LibraryGamesGridView: View {
                 .font(.system(size: 10))
             Slider(
                 value: $storedCardWidth,
-                in: Double(LibraryGridMetrics.minCardWidth)...Double(LibraryGridMetrics.maxCardWidth)
+                in: Double(LibraryGridMetrics.minCardWidth)...Double(LibraryGridMetrics.maxCardWidth),
+                step: Double(LibraryGridMetrics.cardWidthStep)
             )
             .controlSize(.small)
             .frame(width: 120)
@@ -969,6 +1343,8 @@ private enum LibraryGridMetrics {
     static let defaultCardWidth: CGFloat = 160
     static let minCardWidth: CGFloat = 110
     static let maxCardWidth: CGFloat = 320
+    /// 25 steps across the slider's range.
+    static let cardWidthStep: CGFloat = (maxCardWidth - minCardWidth) / 25
     static let sizeSliderClearance: CGFloat = 36
     static let horizontalSpacing: CGFloat = 16
     static let verticalSpacing: CGFloat = 20
@@ -979,6 +1355,7 @@ private struct GameLibraryTile: View {
     let game: LibraryGame
     let cardWidth: CGFloat
     let showsTitle: Bool
+    let controllerRing: ControllerRing?
     let coverAspect: CoverAspectRatio
     let showsActionOverlay: Bool
     let onCardTap: () -> Void
@@ -1041,6 +1418,9 @@ private struct GameLibraryTile: View {
                     }
                 }
                 .overlay { coverOverlays }
+                .controllerRing(controllerRing, cornerRadius: 10, outset: 4)
+                .scaleEffect(controllerRing == .active ? 1.03 : 1)
+                .animation(.easeOut(duration: 0.12), value: controllerRing)
                 .frame(width: cardWidth)
 
             if showsTitle {
@@ -1121,12 +1501,149 @@ private struct LibraryGameInspectorView: View {
     @State private var showDiscGroupLinkSheet = false
     @State private var platformLookupInProgress = false
     @State private var platformLookupFailed = false
+    /// Control the game controller is on while the Info column has controller focus; nil means the first one.
+    @State private var controllerItem: InspectorControllerItem?
+    @FocusState private var focusedField: InspectorTextField?
+    private let navigator = LibraryControllerNavigator.shared
+
+    private enum InspectorTextField: Hashable {
+        case name
+        case path
+    }
+
+    /// Every control the controller can land on, top to bottom as the form lays them out.
+    private enum InspectorControllerItem: Hashable {
+        case name, ignoreNumerals, gamePath, chooseGame, revealFile, downloadROMM, openROMM, launchWith
+        case linkDiscs, linkSuggested, disc(Int), resetDiscOrder, changeDiscs, unlinkDisc
+        case chooseImage, searchCovers, allowAutoMatch, clearCover, coverOption(Int)
+    }
+
+    private var controllerItems: [InspectorControllerItem] {
+        var items: [InspectorControllerItem] = [.name]
+        if DiscGroupService.sortTitle(game.libraryListTitle) != game.libraryListTitle { items.append(.ignoreNumerals) }
+        if game.emulatorUUID == nil {
+            items += [.gamePath, .chooseGame]
+        } else {
+            if game.isFilePresent { items.append(.revealFile) }
+            if game.needsROMMDownload, !RommSync.shared.downloading.contains(game.id) { items.append(.downloadROMM) }
+        }
+        if game.rommStatus != nil, game.rommPath != nil { items.append(.openROMM) }
+        if game.emulatorUUID != nil { items.append(.launchWith) }
+        let linked = DiscGroupService.linkedGames(for: game, context: modelContext)
+        if linked.isEmpty {
+            items.append(.linkDiscs)
+            if !DiscGroupService.suggestedLinkCandidates(for: game, among: allGames).isEmpty { items.append(.linkSuggested) }
+        } else {
+            items += linked.indices.map(InspectorControllerItem.disc)
+            items += [.resetDiscOrder, .changeDiscs, .unlinkDisc]
+        }
+        items.append(.chooseImage)
+        if !CoverProvider.configured.isEmpty { items.append(.searchCovers) }
+        if game.screenScraperSelectionSkipped { items.append(.allowAutoMatch) }
+        if game.coverImageURLString != nil { items.append(.clearCover) }
+        items += game.coverImageOptions.indices.map(InspectorControllerItem.coverOption)
+        return items
+    }
+
+    private func ring(_ item: InspectorControllerItem) -> ControllerRing? {
+        navigator.area == .info && (controllerItem ?? .name) == item ? .active : nil
+    }
+
+    private func handleControllerCommand(_ command: LibraryControllerNavigator.Command?) {
+        guard navigator.area == .info, let command else { return }
+        let items = controllerItems
+        let current = controllerItem.flatMap { items.contains($0) ? $0 : nil } ?? .name
+        switch command {
+        case .move(_, let dy) where dy != 0:
+            guard let index = items.firstIndex(of: current), items.indices.contains(index + dy) else { return }
+            focusedField = nil
+            controllerItem = items[index + dy]
+        case .move(let dx, _):
+            adjust(current, by: dx)
+        case .confirm:
+            activate(current)
+        default:
+            break
+        }
+    }
+
+    private func activate(_ item: InspectorControllerItem) {
+        switch item {
+        case .name: focusedField = .name
+        case .ignoreNumerals: game.ignoresRomanNumeralsInSort = game.ignoresRomanNumeralsInSort == true ? nil : true
+        case .gamePath: focusedField = .path
+        case .chooseGame: pickGamePath()
+        case .revealFile: revealROMInFinder()
+        case .downloadROMM: onDownloadFromROMM()
+        case .openROMM:
+            if let romID = game.rommRomID, let url = RommClient.webURL(romID: romID) { NSWorkspace.shared.open(url) }
+        case .launchWith: adjust(item, by: 1)
+        case .linkDiscs, .changeDiscs: showDiscGroupLinkSheet = true
+        case .linkSuggested:
+            DiscGroupService.link([game] + DiscGroupService.suggestedLinkCandidates(for: game, among: allGames), context: modelContext)
+        case .disc: break
+        case .resetDiscOrder:
+            guard game.discGroupIDString != nil else { return }
+            DiscGroupService.normalizeDiscOrderFromFilenames(
+                DiscGroupService.linkedGames(for: game, context: modelContext),
+                context: modelContext
+            )
+        case .unlinkDisc: DiscGroupService.unlink(game, context: modelContext)
+        case .chooseImage: pickCoverImage()
+        case .searchCovers: showCoverSearch = true
+        case .allowAutoMatch:
+            game.screenScraperSelectionSkipped = false
+            try? modelContext.save()
+        case .clearCover: applyCoverMutation { game.coverImageURLString = nil }
+        case .coverOption(let index): setPrimaryCover(index: index)
+        }
+    }
+
+    /// Left / right: step the launch emulator, or move a disc or detected cover earlier / later.
+    private func adjust(_ item: InspectorControllerItem, by step: Int) {
+        switch item {
+        case .launchWith:
+            guard let libraryEmulatorID = game.emulatorUUID else { return }
+            let defaultID = EmulatorLinkService.group(containing: libraryEmulatorID, in: emulators)?.defaultEmulator.id ?? libraryEmulatorID
+            let choices: [UUID?] = [nil] + emulators.filter { $0.id != defaultID }.map(\.id)
+            let binding = launchEmulatorBinding(defaultEmulatorID: defaultID)
+            let index = choices.firstIndex(of: binding.wrappedValue) ?? 0
+            binding.wrappedValue = choices[(index + step + choices.count) % choices.count]
+        case .disc(let index):
+            let linked = DiscGroupService.linkedGames(for: game, context: modelContext)
+            guard linked.indices.contains(index + step) else { return }
+            moveLinkedDisc(at: index, direction: step, in: linked)
+            controllerItem = .disc(index + step)
+        case .coverOption(let index):
+            guard game.coverImageOptions.indices.contains(index + step) else { return }
+            moveCover(from: index, direction: step)
+            controllerItem = .coverOption(index + step)
+        default:
+            break
+        }
+    }
 
     var body: some View {
+        ScrollViewReader { proxy in
+            form
+                .onChange(of: controllerItem) { _, item in
+                    guard let item else { return }
+                    withAnimation(.easeInOut(duration: 0.15)) { proxy.scrollTo(item, anchor: .center) }
+                }
+        }
+        .onChange(of: navigator.commandID) { handleControllerCommand(navigator.command) }
+        .onChange(of: game.id) {
+            if let item = controllerItem, !controllerItems.contains(item) { controllerItem = nil }
+        }
+    }
+
+    private var form: some View {
         Form {
             Section {
                 TextField("Name in library", text: nameBinding, axis: .vertical)
                     .textFieldStyle(.roundedBorder)
+                    .focused($focusedField, equals: .name)
+                    .controllerRing(ring(.name))                    .id(InspectorControllerItem.name)
                 Text("Renames how this game appears here only. The file on disk is not renamed.")
                     .font(.caption)
                     .foregroundStyle(.secondary)
@@ -1136,6 +1653,8 @@ private struct LibraryGameInspectorView: View {
                         get: { game.ignoresRomanNumeralsInSort == true },
                         set: { game.ignoresRomanNumeralsInSort = $0 ? true : nil }
                     ))
+                    .controllerRing(ring(.ignoreNumerals))
+                    .id(InspectorControllerItem.ignoreNumerals)
                     Text(game.ignoresRomanNumeralsInSort == true
                         ? "Sorted by its title as written."
                         : "Sorted as “\(numeralSortTitle)”. Turn this on if the letters aren't a number here.")
@@ -1145,6 +1664,9 @@ private struct LibraryGameInspectorView: View {
                 if game.emulatorUUID == nil {
                     TextField("Game path", text: pathBinding, axis: .vertical)
                         .textFieldStyle(.roundedBorder)
+                        .focused($focusedField, equals: .path)
+                        .controllerRing(ring(.gamePath))
+                        .id(InspectorControllerItem.gamePath)
                     Text("Edit the app/executable path for this Mac game, or choose a new target.")
                         .font(.caption)
                         .foregroundStyle(.secondary)
@@ -1152,6 +1674,7 @@ private struct LibraryGameInspectorView: View {
                         Button("Choose Game…", systemImage: "folder") {
                             pickGamePath()
                         }
+                        .controllerRing(ring(.chooseGame))
                         Spacer()
                     }
                 } else {
@@ -1175,6 +1698,7 @@ private struct LibraryGameInspectorView: View {
                             }
                             .buttonStyle(.plain)
                             .help("Show in Finder")
+                            .controllerRing(ring(.revealFile))
                         } else {
                             Text("Not present")
                                 .font(.caption.weight(.semibold))
@@ -1193,6 +1717,7 @@ private struct LibraryGameInspectorView: View {
                                 Button("Download From ROMM", systemImage: "arrow.down.circle") {
                                     onDownloadFromROMM()
                                 }
+                                .controllerRing(ring(.downloadROMM))
                             }
                         }
                     }
@@ -1225,6 +1750,8 @@ private struct LibraryGameInspectorView: View {
                             }
                             .buttonStyle(.plain)
                             .help("Open in ROMM")
+                            .controllerRing(ring(.openROMM))
+                            .id(InspectorControllerItem.openROMM)
                         }
                     }
                     if status == RommStatus.missing {
@@ -1247,6 +1774,8 @@ private struct LibraryGameInspectorView: View {
                             Text(emulator.name).tag(UUID?.some(emulator.id))
                         }
                     }
+                    .controllerRing(ring(.launchWith))
+                    .id(InspectorControllerItem.launchWith)
                     Text(
                         linkGroup.map { "Linked \($0.name) emulators open games with the default chosen in Emulators. Pick another here for this game only." }
                             ?? "Only changes which emulator opens this game. It stays in its current library section."
@@ -1265,6 +1794,8 @@ private struct LibraryGameInspectorView: View {
                     Button("Link with other discs…", systemImage: "link") {
                         showDiscGroupLinkSheet = true
                     }
+                    .controllerRing(ring(.linkDiscs))
+                    .id(InspectorControllerItem.linkDiscs)
                     let suggestedCount = DiscGroupService.suggestedLinkCandidates(for: game, among: allGames).count
                     if suggestedCount > 0 {
                         Button("Link \(suggestedCount) suggested disc\(suggestedCount == 1 ? "" : "s")", systemImage: "sparkles") {
@@ -1272,6 +1803,8 @@ private struct LibraryGameInspectorView: View {
                             toLink.append(contentsOf: DiscGroupService.suggestedLinkCandidates(for: game, among: allGames))
                             DiscGroupService.link(toLink, context: modelContext)
                         }
+                        .controllerRing(ring(.linkSuggested))
+                        .id(InspectorControllerItem.linkSuggested)
                     }
                 } else {
                     Text("\(linked.count) discs share cover art and metadata.")
@@ -1317,18 +1850,26 @@ private struct LibraryGameInspectorView: View {
                             }
                         }
                         .padding(.vertical, 2)
+                        .controllerRing(ring(.disc(index)))
+                        .id(InspectorControllerItem.disc(index))
                     }
                     Button("Reset order from filenames", systemImage: "arrow.counterclockwise") {
                         guard game.discGroupIDString != nil else { return }
                         let discs = DiscGroupService.linkedGames(for: game, context: modelContext)
                         DiscGroupService.normalizeDiscOrderFromFilenames(discs, context: modelContext)
                     }
+                    .controllerRing(ring(.resetDiscOrder))
+                    .id(InspectorControllerItem.resetDiscOrder)
                     Button("Add or change linked discs…", systemImage: "link") {
                         showDiscGroupLinkSheet = true
                     }
+                    .controllerRing(ring(.changeDiscs))
+                    .id(InspectorControllerItem.changeDiscs)
                     Button("Unlink this disc", systemImage: "link.slash", role: .destructive) {
                         DiscGroupService.unlink(game, context: modelContext)
                     }
+                    .controllerRing(ring(.unlinkDisc))
+                    .id(InspectorControllerItem.unlinkDisc)
                 }
             }
 
@@ -1350,10 +1891,12 @@ private struct LibraryGameInspectorView: View {
                         Button("Choose Image…", systemImage: "photo") {
                             pickCoverImage()
                         }
+                        .controllerRing(ring(.chooseImage))
                         if !CoverProvider.configured.isEmpty {
                             Button("Search for Covers…", systemImage: "sparkle.magnifyingglass") {
                                 showCoverSearch = true
                             }
+                            .controllerRing(ring(.searchCovers))
                         }
                         if game.screenScraperSelectionSkipped {
                             Text("Automatic ScreenScraper matching skipped for this game.")
@@ -1363,6 +1906,7 @@ private struct LibraryGameInspectorView: View {
                                 game.screenScraperSelectionSkipped = false
                                 try? modelContext.save()
                             }
+                            .controllerRing(ring(.allowAutoMatch))
                         }
                         if game.coverImageURLString != nil {
                             Button("Clear current cover", systemImage: "xmark.circle", role: .destructive) {
@@ -1370,10 +1914,12 @@ private struct LibraryGameInspectorView: View {
                                     game.coverImageURLString = nil
                                 }
                             }
+                            .controllerRing(ring(.clearCover))
                         }
                     }
                     .frame(maxWidth: .infinity, alignment: .leading)
                 }
+                .id(InspectorControllerItem.chooseImage)
 
                 if !game.coverImageOptions.isEmpty {
                     Text("Detected covers")
@@ -1428,6 +1974,8 @@ private struct LibraryGameInspectorView: View {
                                 .help("Remove from lineup")
                             }
                             .padding(.vertical, 2)
+                            .controllerRing(ring(.coverOption(index)))
+                            .id(InspectorControllerItem.coverOption(index))
                         }
                     }
                 }

@@ -8,6 +8,15 @@ For release notes style summaries, see `source control log.md`. For architecture
 
 ## Mac library — scanning & covers
 
+### BJ-125 — Controller didn't navigate the library at all
+| | |
+|---|---|
+| **When** | Oct 1 2026 (**in progress**) |
+| **Symptom** | With a DualSense already connected over Bluetooth, the new controller navigation did nothing in the library, even with GBear frontmost. |
+| **Cause** | `LibraryControllerNavigator` refused input whenever `GBearHostLocalGamepad.isActive` was true. The stream host seats this Mac as local co-op player 1 by default (`syncSessionDevices`), so that flag is on as soon as the host starts, with no stream running. The log showed `active (1 controller(s))` immediately followed by `blocked: local co-op owns the controllers`. |
+| **Fix** | Gate on `GBearStreamHostManager.isVideoStreaming` (a stream is actually running) instead of the local co-op flag. The frontmost-app, key-window, sheet and guest-stream checks are unchanged. Each change in gate state is now logged via `DebugLog`. |
+| **Commit** | *in progress* |
+
 ### BJ-124 — Roman-numeral sequels sorted after numbered ones
 | | |
 |---|---|
