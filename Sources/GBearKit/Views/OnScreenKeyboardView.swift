@@ -18,6 +18,11 @@ final class OnScreenKeyboard {
         case backspace
         case done
 
+        var isCharacter: Bool {
+            if case .character = self { return true }
+            return false
+        }
+
         /// Width in key units; every row adds up to 10.
         var width: Int {
             switch self {
@@ -42,7 +47,65 @@ final class OnScreenKeyboard {
     @ObservationIgnored private var onChange: ((String) -> Void)?
     @ObservationIgnored private var onCommit: ((String) -> Void)?
 
-    private init() {}
+    static let minScale: CGFloat = 1
+    static let maxScale: CGFloat = 2
+    static let scaleStep: CGFloat = 0.1
+    /// Gap between the keyboard's resting spot and the bottom of the window.
+    static let bottomInset: CGFloat = 28
+    private static let edgeMargin: CGFloat = 8
+    private static let scaleKey = "Controller.Keyboard.Scale"
+    private static let offsetXKey = "Controller.Keyboard.OffsetX"
+    private static let offsetYKey = "Controller.Keyboard.OffsetY"
+
+    /// Size multiplier from L3 / R3; 1 is the smallest.
+    private(set) var scale: CGFloat
+    /// Right-stick offset from the resting spot (bottom center), before clamping to the window.
+    private(set) var offset: CGSize
+    /// Reported by the view so moves and growth stay inside the window.
+    var containerSize: CGSize = .zero
+    var panelSize: CGSize = .zero
+
+    private init() {
+        let defaults = UserDefaults.standard
+        let stored = defaults.double(forKey: Self.scaleKey)
+        scale = stored > 0 ? min(max(stored, Self.minScale), Self.maxScale) : Self.minScale
+        offset = CGSize(width: defaults.double(forKey: Self.offsetXKey), height: defaults.double(forKey: Self.offsetYKey))
+    }
+
+    /// `offset` limited so the whole panel stays on screen, even after the window shrinks.
+    var displayedOffset: CGSize {
+        clamped(offset)
+    }
+
+    func move(by delta: CGSize) {
+        offset = clamped(CGSize(width: offset.width + delta.width, height: offset.height + delta.height))
+    }
+
+    func resize(by step: Int) {
+        let natural = CGSize(width: panelSize.width / scale, height: panelSize.height / scale)
+        var largest = Self.maxScale
+        if natural.width > 0, natural.height > 0 {
+            let fits = min(
+                (containerSize.width - Self.edgeMargin * 2) / natural.width,
+                (containerSize.height - Self.edgeMargin * 2) / natural.height
+            )
+            largest = min(largest, max(Self.minScale, fits))
+        }
+        let steps = ((scale + Self.scaleStep * CGFloat(step)) / Self.scaleStep).rounded()
+        scale = min(max(steps * Self.scaleStep, Self.minScale), largest)
+        UserDefaults.standard.set(Double(scale), forKey: Self.scaleKey)
+    }
+
+    private func clamped(_ offset: CGSize) -> CGSize {
+        guard containerSize != .zero, panelSize != .zero else { return offset }
+        let sideSlack = max(0, (containerSize.width - panelSize.width) / 2 - Self.edgeMargin)
+        let topSlack = max(0, containerSize.height - panelSize.height - Self.bottomInset - Self.edgeMargin)
+        let bottomSlack = max(0, Self.bottomInset - Self.edgeMargin)
+        return CGSize(
+            width: min(max(offset.width, -sideSlack), sideSlack),
+            height: min(max(offset.height, -topSlack), bottomSlack)
+        )
+    }
 
     var rows: [[Key]] {
         let characterRows = showsSymbols
@@ -79,6 +142,9 @@ final class OnScreenKeyboard {
     func dismiss() {
         guard isPresented else { return }
         isPresented = false
+        offset = displayedOffset
+        UserDefaults.standard.set(Double(offset.width), forKey: Self.offsetXKey)
+        UserDefaults.standard.set(Double(offset.height), forKey: Self.offsetYKey)
         onCommit?(text)
         onChange = nil
         onCommit = nil
@@ -95,6 +161,7 @@ final class OnScreenKeyboard {
         case .nextGame: press(.cursorRight)
         case .previousArea: press(.shift)
         case .nextArea, .play: dismiss()
+        case .resizeKeyboard(let step): resize(by: step)
         case .toggleInfo: break
         }
     }
@@ -161,19 +228,22 @@ final class OnScreenKeyboard {
 struct OnScreenKeyboardView: View {
     let keyboard: OnScreenKeyboard
 
-    private static let keyWidth: CGFloat = 46
-    private static let keyHeight: CGFloat = 40
-    private static let spacing: CGFloat = 6
     private let navigator = LibraryControllerNavigator.shared
 
+    /// Every size is drawn at the keyboard's scale (rather than `scaleEffect`) so text stays sharp.
+    private var s: CGFloat { keyboard.scale }
+    private var keyWidth: CGFloat { 46 * s }
+    private var keyHeight: CGFloat { 40 * s }
+    private var spacing: CGFloat { 6 * s }
+
     var body: some View {
-        VStack(alignment: .leading, spacing: 12) {
+        VStack(alignment: .leading, spacing: 12 * s) {
             Text(keyboard.title)
-                .font(.headline)
+                .font(.system(size: 13 * s, weight: .semibold))
             textLine
-            VStack(spacing: Self.spacing) {
+            VStack(spacing: spacing) {
                 ForEach(Array(keyboard.rows.enumerated()), id: \.offset) { rowIndex, row in
-                    HStack(spacing: Self.spacing) {
+                    HStack(spacing: spacing) {
                         ForEach(Array(row.enumerated()), id: \.offset) { keyIndex, key in
                             keyButton(key, row: rowIndex, index: keyIndex)
                         }
@@ -182,11 +252,11 @@ struct OnScreenKeyboardView: View {
             }
             hints
         }
-        .frame(width: Self.keyWidth * 10 + Self.spacing * 9)
-        .padding(16)
-        .background(Color(nsColor: .windowBackgroundColor), in: RoundedRectangle(cornerRadius: 14))
+        .frame(width: keyWidth * 10 + spacing * 9)
+        .padding(16 * s)
+        .background(Color(nsColor: .windowBackgroundColor), in: RoundedRectangle(cornerRadius: 14 * s))
         .overlay {
-            RoundedRectangle(cornerRadius: 14).strokeBorder(.separator, lineWidth: 1)
+            RoundedRectangle(cornerRadius: 14 * s).strokeBorder(.separator, lineWidth: 1)
         }
         .shadow(color: .black.opacity(0.35), radius: 18, y: 6)
     }
@@ -198,47 +268,48 @@ struct OnScreenKeyboardView: View {
             Text(String(characters[..<cursor]))
             Rectangle()
                 .fill(Color.accentColor)
-                .frame(width: 2, height: 18)
+                .frame(width: 2 * s, height: 18 * s)
             Text(String(characters[cursor...]))
             Spacer(minLength: 0)
         }
         .lineLimit(1)
         .truncationMode(.head)
-        .font(.title3)
-        .padding(.horizontal, 10)
-        .frame(height: 34)
-        .background(.background.opacity(0.6), in: RoundedRectangle(cornerRadius: 7))
+        .font(.system(size: 15 * s))
+        .padding(.horizontal, 10 * s)
+        .frame(height: 34 * s)
+        .background(.background.opacity(0.6), in: RoundedRectangle(cornerRadius: 7 * s))
         .overlay {
-            RoundedRectangle(cornerRadius: 7).strokeBorder(.separator, lineWidth: 1)
+            RoundedRectangle(cornerRadius: 7 * s).strokeBorder(.separator, lineWidth: 1)
         }
     }
 
     private func keyButton(_ key: OnScreenKeyboard.Key, row: Int, index: Int) -> some View {
         let isFocused = keyboard.focusRow == row && keyboard.focusIndex == index
-        let width = Self.keyWidth * CGFloat(key.width) + Self.spacing * CGFloat(key.width - 1)
+        let width = keyWidth * CGFloat(key.width) + spacing * CGFloat(key.width - 1)
+        let shape = RoundedRectangle(cornerRadius: 6 * s)
         return Button {
             keyboard.focus(row: row, index: index)
             keyboard.press(key)
         } label: {
             ZStack(alignment: .topLeading) {
                 label(for: key)
+                    .font(.system(size: (key.isCharacter ? 15 : 13) * s))
                     .frame(maxWidth: .infinity, maxHeight: .infinity)
                 if let glyph = glyph(for: key) {
                     Image(systemName: glyph)
-                        .font(.system(size: 11))
+                        .font(.system(size: 11 * s))
                         .foregroundStyle(.secondary)
-                        .padding(3)
+                        .padding(3 * s)
                 }
             }
-            .frame(width: width, height: Self.keyHeight)
-            .background(background(for: key), in: RoundedRectangle(cornerRadius: 6))
+            .frame(width: width, height: keyHeight)
+            .background(background(for: key), in: shape)
             .overlay {
                 if isFocused {
-                    RoundedRectangle(cornerRadius: 6)
-                        .strokeBorder(Color.primary, lineWidth: 2.5)
+                    shape.strokeBorder(Color.primary, lineWidth: 2.5 * s)
                 }
             }
-            .contentShape(RoundedRectangle(cornerRadius: 6))
+            .contentShape(shape)
         }
         .buttonStyle(.plain)
     }
@@ -246,7 +317,7 @@ struct OnScreenKeyboardView: View {
     @ViewBuilder
     private func label(for key: OnScreenKeyboard.Key) -> some View {
         switch key {
-        case .character(let character): Text(character).font(.title3)
+        case .character(let character): Text(character)
         case .shift: Image(systemName: keyboard.shifted ? "shift.fill" : "shift")
         case .symbols: Text(keyboard.showsSymbols ? "abc" : "@#:")
         case .cursorLeft: Image(systemName: "arrowtriangle.left.fill")
@@ -279,20 +350,22 @@ struct OnScreenKeyboardView: View {
     }
 
     private var hints: some View {
-        HStack(spacing: 14) {
+        HStack(spacing: 14 * s) {
             hint(.bottom, "Enter")
             hint(.right, "Close")
             hint(.top, "Space")
             hint(.left, "Delete")
             hint(.r2, "Done")
+            Label("Move", systemImage: "r.joystick")
+            Label("Size", systemImage: "l.joystick.press.down")
             Spacer(minLength: 0)
         }
-        .font(.caption)
+        .labelStyle(.titleAndIcon)
+        .font(.system(size: 10 * s))
         .foregroundStyle(.secondary)
     }
 
     private func hint(_ button: LibraryControllerNavigator.ControllerButton, _ title: String) -> some View {
         Label(title, systemImage: navigator.buttonSymbol(button))
-            .labelStyle(.titleAndIcon)
     }
 }

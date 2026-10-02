@@ -215,7 +215,7 @@ public struct RootView: View {
             play(game)
         case .previousGame, .nextGame:
             stepControllerGame(by: command == .nextGame ? 1 : -1)
-        case .coverSize:
+        case .coverSize, .resizeKeyboard:
             break
         case .back:
             switch area {
@@ -796,7 +796,8 @@ public struct RootView: View {
                 cleanupFeedback = "Removed \(removed) orphan game(s) from the library. These entries referenced missing emulators and could appear as ghost games."
             }
             await CoverImageCache.mergeDuplicateCoversOnce(context: modelContext)
-            controllerNavigator.start()        }
+            controllerNavigator.start()
+        }
         .onChange(of: controllerNavigator.commandID) { handleControllerCommand(controllerNavigator.command) }
         .onChange(of: inspectorGameID) { _, id in
             if id == nil, controllerNavigator.area == .info { controllerNavigator.area = .covers }
@@ -811,12 +812,17 @@ public struct RootView: View {
         .overlay {
             if OnScreenKeyboard.shared.isPresented {
                 ZStack(alignment: .bottom) {
-                    Color.black.opacity(0.45)
-                        .ignoresSafeArea()
+                    Rectangle()
+                        .fill(Color.black.opacity(0.45))
+                        .frame(maxWidth: .infinity, maxHeight: .infinity)
+                        .contentShape(Rectangle())
                         .onTapGesture { OnScreenKeyboard.shared.dismiss() }
                     OnScreenKeyboardView(keyboard: .shared)
-                        .padding(.bottom, 28)
+                        .onGeometryChange(for: CGSize.self) { $0.size } action: { OnScreenKeyboard.shared.panelSize = $0 }
+                        .offset(OnScreenKeyboard.shared.displayedOffset)
+                        .padding(.bottom, OnScreenKeyboard.bottomInset)
                 }
+                .onGeometryChange(for: CGSize.self) { $0.size } action: { OnScreenKeyboard.shared.containerSize = $0 }
                 .transition(.opacity)
             }
         }

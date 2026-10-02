@@ -19,6 +19,8 @@ final class LibraryControllerNavigator {
         case play
         /// Square / Circle: one cover-size slider step smaller (-1) or larger (+1).
         case coverSize(step: Int)
+        /// L3 / R3: on-screen keyboard one size step smaller (-1) or larger (+1).
+        case resizeKeyboard(step: Int)
         case previousGame
         case nextGame
         case previousArea
@@ -39,9 +41,9 @@ final class LibraryControllerNavigator {
     var area: Area = .covers
 
     private enum Input: CaseIterable {
-        case up, down, left, right, a, b, x, y, select, start, l1, r1, l2, r2
+        case up, down, left, right, a, b, x, y, select, start, l1, r1, l2, r2, l3, r3
 
-        var repeats: Bool { [.up, .down, .left, .right, .l1, .r1, .x, .b].contains(self) }
+        var repeats: Bool { [.up, .down, .left, .right, .l1, .r1, .x, .b, .l3, .r3].contains(self) }
 
         /// Face buttons by position (Xbox letters): A / Cross bottom, B / Circle right, X / Square left, Y / Triangle top.
         var command: Command {
@@ -60,6 +62,8 @@ final class LibraryControllerNavigator {
             case .r1: return .nextGame
             case .l2: return .previousArea
             case .r2: return .nextArea
+            case .l3: return .resizeKeyboard(step: -1)
+            case .r3: return .resizeKeyboard(step: 1)
             }
         }
     }
@@ -67,6 +71,9 @@ final class LibraryControllerNavigator {
     private static let repeatDelay: CFTimeInterval = 0.4
     private static let repeatInterval: CFTimeInterval = 0.12
     private static let stickThreshold: Float = 0.5
+    private static let rightStickDeadZone: Float = 0.15
+    /// Points per second with the right stick fully tilted.
+    private static let keyboardMoveSpeed: CGFloat = 1100
 
     @ObservationIgnored private var timer: Timer?
     @ObservationIgnored private var heldSince: [Input: CFTimeInterval] = [:]
@@ -75,6 +82,7 @@ final class LibraryControllerNavigator {
     /// (or the one that switched apps) doesn't also act in GBear.
     @ObservationIgnored private var waitingForRelease = true
     @ObservationIgnored private var lastLoggedState: String?
+    @ObservationIgnored private var lastPoll: CFTimeInterval?
 
     private init() {}
 
@@ -118,12 +126,15 @@ final class LibraryControllerNavigator {
             waitingForRelease = true
             return
         }
+        let now = CACurrentMediaTime()
+        let elapsed = min(now - (lastPoll ?? now), 0.05)
+        lastPoll = now
         let pressed = currentlyPressed()
         if waitingForRelease {
             if pressed.isEmpty { waitingForRelease = false }
             return
         }
-        let now = CACurrentMediaTime()
+        if OnScreenKeyboard.shared.isPresented { moveKeyboardWithRightStick(elapsed: elapsed) }
         for input in Input.allCases {
             guard pressed.contains(input) else {
                 heldSince[input] = nil
@@ -171,6 +182,26 @@ final class LibraryControllerNavigator {
         }
     }
 
+    /// Right stick slides the on-screen keyboard; squared response so small tilts allow fine placement.
+    private func moveKeyboardWithRightStick(elapsed: CFTimeInterval) {
+        var x: Float = 0
+        var y: Float = 0
+        for controller in GCController.controllers() {
+            guard let stick = controller.extendedGamepad?.rightThumbstick else { continue }
+            if abs(stick.xAxis.value) > abs(x) { x = stick.xAxis.value }
+            if abs(stick.yAxis.value) > abs(y) { y = stick.yAxis.value }
+        }
+        func curve(_ value: Float) -> CGFloat {
+            guard abs(value) > Self.rightStickDeadZone else { return 0 }
+            let scaled = (abs(value) - Self.rightStickDeadZone) / (1 - Self.rightStickDeadZone)
+            return CGFloat(scaled * scaled) * (value < 0 ? -1 : 1)
+        }
+        let distance = Self.keyboardMoveSpeed * CGFloat(elapsed)
+        let delta = CGSize(width: curve(x) * distance, height: -curve(y) * distance)
+        guard delta != .zero else { return }
+        OnScreenKeyboard.shared.move(by: delta)
+    }
+
     private func fire(_ command: Command) {
         if OnScreenKeyboard.shared.isPresented {
             OnScreenKeyboard.shared.handle(command)
@@ -203,6 +234,8 @@ final class LibraryControllerNavigator {
                 if pad.rightShoulder.isPressed { pressed.insert(.r1) }
                 if pad.leftTrigger.isPressed { pressed.insert(.l2) }
                 if pad.rightTrigger.isPressed { pressed.insert(.r2) }
+                if pad.leftThumbstickButton?.isPressed == true { pressed.insert(.l3) }
+                if pad.rightThumbstickButton?.isPressed == true { pressed.insert(.r3) }
             } else if let pad = controller.microGamepad {
                 if pad.dpad.up.isPressed { pressed.insert(.up) }
                 if pad.dpad.down.isPressed { pressed.insert(.down) }
