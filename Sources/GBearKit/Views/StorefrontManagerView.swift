@@ -66,9 +66,18 @@ struct StorefrontManagerView: View {
                 ForEach(Storefront.allCases) { store in
                     let storeGames = games.filter { $0.storefront == store }
                     let installed = storeGames.filter(\.isInstalledStorefrontGame).count
-                    Text("\(store.displayName): \(storeGames.count) in the library, \(installed) installed")
+                    let mac = storeGames.filter { $0.isInstalledStorefrontGame || $0.platforms?.contains(.mac) == true }.count
+                    Text("\(store.displayName): \(storeGames.count) in the library, \(installed) installed, \(mac) work on Mac")
                         .font(.subheadline)
                         .foregroundStyle(settings.isEnabled(store) ? .primary : .tertiary)
+                }
+                if importer.platformChecksRemaining > 0 {
+                    HStack(spacing: 6) {
+                        ProgressView().controlSize(.small)
+                        Text("Checking which systems \(importer.platformChecksRemaining) game(s) support…")
+                            .font(.caption)
+                            .foregroundStyle(.secondary)
+                    }
                 }
                 HStack(spacing: 10) {
                     Button("Import Storefront Installed Games", systemImage: "square.and.arrow.down") { onImport() }
@@ -112,6 +121,7 @@ struct StorefrontManagerView: View {
 
 /// Login card for one storefront, with its installed-only filter.
 private struct StorefrontLoginCard: View {
+    @Environment(\.modelContext) private var modelContext
     let store: Storefront
     @Bindable var settings: StorefrontSettings
 
@@ -150,10 +160,26 @@ private struct StorefrontLoginCard: View {
                         }
                     }
                     Spacer(minLength: 12)
-                    Toggle(
-                        "Only show installed games in library",
-                        isOn: Binding(get: { settings.showsOnlyInstalled(store) }, set: { settings.setOnlyInstalled(store, $0) })
-                    )
+                    VStack(alignment: .leading, spacing: 6) {
+                        Toggle(
+                            "Only show installed games in library",
+                            isOn: Binding(get: { settings.showsOnlyInstalled(store) }, set: { settings.setOnlyInstalled(store, $0) })
+                        )
+                        Toggle(
+                            "Only show games that work on Mac",
+                            isOn: Binding(
+                                get: { settings.showsOnlyMac(store) },
+                                set: { on in
+                                    settings.setOnlyMac(store, on)
+                                    if on {
+                                        let container = modelContext.container
+                                        Task { await StorefrontImporter.shared.fillMissingPlatforms(container: container) }
+                                    }
+                                }
+                            )
+                        )
+                        .help("Hides games with no macOS version. Installed games always show; games not checked yet stay until their systems are known.")
+                    }
                     .toggleStyle(.checkbox)
                 }
 

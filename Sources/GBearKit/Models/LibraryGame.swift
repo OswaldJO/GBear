@@ -41,6 +41,8 @@ public final class LibraryGame {
     public var storefrontGameID: String?
     /// False for owned storefront games that are not installed on this Mac. Nil for non-storefront games.
     public var storefrontInstalled: Bool?
+    /// Comma-separated `GamePlatform` raw values the store lists for this game. Nil until known.
+    public var storefrontPlatforms: String?
     /// ROMM status for games on an emulator linked to a ROMM platform: `in_romm` or `missing`. Nil when not linked.
     public var rommStatus: String?
     /// Matching ROMM rom id and its server path (`full_path`).
@@ -138,6 +140,17 @@ public final class LibraryGame {
 
     public var storefront: Storefront? {
         librarySourceID.flatMap(Storefront.init(rawValue:))
+    }
+
+    public var platforms: Set<GamePlatform>? {
+        get {
+            storefrontPlatforms.map { Set($0.split(separator: ",").compactMap { GamePlatform(rawValue: String($0)) }) }
+        }
+        set {
+            storefrontPlatforms = newValue.map { set in
+                GamePlatform.allCases.filter(set.contains).map(\.rawValue).joined(separator: ",")
+            }
+        }
     }
 
     /// Installed storefront games get the green check on their cover.

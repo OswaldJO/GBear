@@ -78,8 +78,9 @@ enum EpicClient {
         set { UserDefaults.standard.set(Array(newValue).sorted(), forKey: "Storefronts.Epic.NonGameAppNames") }
     }
 
-    /// Bumped when the game filter changes so rows already in the library get re-checked once.
-    private static let gameFilterVersion = 2
+    /// Bumped when the game filter or the catalog fields read change, so rows already in the library get re-checked once.
+    /// 3: supported operating systems from `releaseInfo`.
+    private static let gameFilterVersion = 3
     private static let gameFilterVersionKey = "Storefronts.Epic.GameFilterVersion"
 
     /// Owned games. `knownAppNames` are already in the library and skip the per-item catalog lookup
@@ -172,7 +173,23 @@ enum EpicClient {
             .compactMap { type in images.first { $0["type"] as? String == type }?["url"] as? String }
             .first
             .flatMap(URL.init(string:))
-        return .game(StorefrontGame(store: .epic, gameID: record.appName, title: title, installed: false, coverURL: cover))
+        let platformNames = (item["releaseInfo"] as? [[String: Any]] ?? []).flatMap { $0["platform"] as? [String] ?? [] }
+        let platforms = Set(platformNames.compactMap { name -> GamePlatform? in
+            switch name.lowercased() {
+            case "mac": return .mac
+            case "windows", "win32": return .windows
+            case "linux": return .linux
+            default: return nil
+            }
+        })
+        return .game(StorefrontGame(
+            store: .epic,
+            gameID: record.appName,
+            title: title,
+            installed: false,
+            coverURL: cover,
+            platforms: platforms.isEmpty ? nil : platforms
+        ))
     }
 
     // MARK: Installed

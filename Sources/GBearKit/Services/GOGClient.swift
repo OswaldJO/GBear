@@ -94,7 +94,10 @@ enum GOGClient {
                 guard let id = (product["id"] as? NSNumber)?.stringValue,
                       let title = product["title"] as? String, !title.isEmpty else { continue }
                 let image = (product["image"] as? String).flatMap { URL(string: "https:\($0).jpg") }
-                games.append(StorefrontGame(store: .gog, gameID: id, title: title, installed: false, coverURL: image))
+                let platforms = (product["worksOn"] as? [String: Any]).map {
+                    StorefrontPlatformLookup.parse($0, keys: [.mac: "Mac", .windows: "Windows", .linux: "Linux"])
+                }
+                games.append(StorefrontGame(store: .gog, gameID: id, title: title, installed: false, coverURL: image, platforms: platforms))
             }
             page += 1
         } while page <= totalPages

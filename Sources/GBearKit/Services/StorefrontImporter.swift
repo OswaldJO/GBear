@@ -61,11 +61,43 @@ final class StorefrontImporter {
         try? modelContext.save()
         lastSummary = summary
         lastImportAt = Date()
+        let container = modelContext.container
         if !coverJobs.isEmpty {
-            let container = modelContext.container
             Task { await Self.resolveCovers(coverJobs, container: container) }
         }
+        Task { await fillMissingPlatforms(container: container) }
         return summary
+    }
+
+    /// Steam / GOG games still waiting for a supported-systems lookup; 0 when idle.
+    private(set) var platformChecksRemaining = 0
+
+    /// Looks up supported systems for Steam and GOG games that don't have them yet, so the "works on Mac" filter
+    /// can act on the whole library. Steam's store API allows roughly 200 requests per 5 minutes, so Steam lookups are spaced out.
+    func fillMissingPlatforms(container: ModelContainer) async {
+        guard platformChecksRemaining == 0 else { return }
+        let context = container.mainContext
+        let pending: [(UUID, Storefront, String)] = ((try? context.fetch(FetchDescriptor<LibraryGame>())) ?? [])
+            .compactMap { game in
+                guard game.storefrontPlatforms == nil,
+                      let store = game.storefront, store != .epic,
+                      let gameID = game.storefrontGameID else { return nil }
+                return (game.id, store, gameID)
+            }
+        platformChecksRemaining = pending.count
+        defer { platformChecksRemaining = 0 }
+        for (index, job) in pending.enumerated() {
+            if index > 0 { try? await Task.sleep(for: .seconds(job.1 == .steam ? 1.5 : 0.3)) }
+            defer { platformChecksRemaining = pending.count - index - 1 }
+            guard let platforms = await StorefrontPlatformLookup.platforms(store: job.1, gameID: job.2) else { continue }
+            let id = job.0
+            var descriptor = FetchDescriptor<LibraryGame>(predicate: #Predicate { $0.id == id })
+            descriptor.fetchLimit = 1
+            guard let game = try? context.fetch(descriptor).first else { continue }
+            game.platforms = platforms
+            if index % 10 == 9 { try? context.save() }
+        }
+        try? context.save()
     }
 
     private func importStore(
@@ -117,6 +149,7 @@ final class StorefrontImporter {
         for game in installed {
             var entry = game
             if entry.coverURL == nil { entry.coverURL = merged[game.gameID]?.coverURL }
+            if entry.platforms == nil { entry.platforms = merged[game.gameID]?.platforms }
             if let ownedTitle = merged[game.gameID]?.title, store == .epic { entry.title = ownedTitle }
             merged[game.gameID] = entry
         }
@@ -150,6 +183,7 @@ final class StorefrontImporter {
             )
             row.storefrontGameID = game.gameID
             row.storefrontInstalled = game.installed
+            row.platforms = game.platforms
             modelContext.insert(row)
             byID[game.gameID] = row
             summary.added += 1
@@ -193,6 +227,10 @@ final class StorefrontImporter {
         set(\.storefrontInstalled, Optional(game.installed))
         set(\.librarySourceID, Optional(game.store.rawValue))
         if game.store == .epic { set(\.epicAppName, Optional(game.gameID)) }
+        if let platforms = game.platforms, row.platforms != platforms {
+            row.platforms = platforms
+            changed = true
+        }
         if row.emulatorIDString != nil || row.emulator != nil {
             row.emulatorIDString = nil
             row.emulator = nil

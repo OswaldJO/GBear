@@ -1105,6 +1105,8 @@ private struct LibraryGameInspectorView: View {
 
     @State private var showCoverSearch = false
     @State private var showDiscGroupLinkSheet = false
+    @State private var platformLookupInProgress = false
+    @State private var platformLookupFailed = false
 
     var body: some View {
         Form {
@@ -1169,6 +1171,10 @@ private struct LibraryGameInspectorView: View {
                         }
                     }
                 }
+            }
+
+            if let store = game.storefront {
+                storefrontSection(store)
             }
 
             if let status = game.rommStatus {
@@ -1438,6 +1444,63 @@ private struct LibraryGameInspectorView: View {
     private func moveLinkedDisc(at index: Int, direction: Int, in linked: [LibraryGame]) {
         guard let groupID = game.discGroupIDString else { return }
         DiscGroupService.moveDisc(in: groupID, from: index, direction: direction, context: modelContext)
+    }
+
+    private func storefrontSection(_ store: Storefront) -> some View {
+        let installed = game.storefrontInstalled != false
+        // A game installed from a Mac launcher runs on the Mac even if the listing didn't say so.
+        let platforms = game.platforms.map { installed ? $0.union([.mac]) : $0 } ?? (installed ? [.mac] : nil)
+        return Section(store.displayName) {
+            LabeledContent("On this Mac") {
+                Text(installed ? "Installed" : "Not installed")
+                    .font(.caption.weight(.semibold))
+                    .foregroundStyle(installed ? .green : .secondary)
+            }
+            LabeledContent("Works on") {
+                if let platforms {
+                    VStack(alignment: .trailing, spacing: 4) {
+                        ForEach(GamePlatform.allCases, id: \.self) { platform in
+                            let supported = platforms.contains(platform)
+                            Label(platform.displayName, systemImage: supported ? "checkmark.circle.fill" : "xmark.circle")
+                                .font(.caption)
+                                .foregroundStyle(supported ? (platform == .mac ? Color.green : Color.primary) : Color.secondary)
+                        }
+                    }
+                } else if platformLookupInProgress {
+                    ProgressView().controlSize(.small)
+                } else {
+                    Text(store == .epic || platformLookupFailed ? "Unknown" : "Checking…")
+                        .font(.caption)
+                        .foregroundStyle(.secondary)
+                }
+            }
+            .task(id: game.id) { await lookUpPlatformsIfNeeded(store) }
+            if let platforms, !platforms.contains(.mac) {
+                Text("No Mac version. It would need CrossOver or another Windows compatibility layer to run on this Mac.")
+                    .font(.caption)
+                    .foregroundStyle(.orange)
+            } else if platforms == nil, store == .epic {
+                Text("Import storefront games again to check which systems this game supports.")
+                    .font(.caption)
+                    .foregroundStyle(.secondary)
+            } else if platforms == nil, platformLookupFailed {
+                Text("Couldn't reach \(store.displayName) to check supported systems.")
+                    .font(.caption)
+                    .foregroundStyle(.secondary)
+            }
+        }
+    }
+
+    private func lookUpPlatformsIfNeeded(_ store: Storefront) async {
+        platformLookupFailed = false
+        guard game.storefrontPlatforms == nil, store != .epic, let gameID = game.storefrontGameID else { return }
+        platformLookupInProgress = true
+        defer { platformLookupInProgress = false }
+        if let platforms = await StorefrontPlatformLookup.platforms(store: store, gameID: gameID) {
+            game.platforms = platforms
+        } else {
+            platformLookupFailed = true
+        }
     }
 
     private func revealROMInFinder() {

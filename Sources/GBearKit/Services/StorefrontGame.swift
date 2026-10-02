@@ -10,6 +10,34 @@ struct StorefrontGame: Sendable {
     /// App bundle, executable, or install folder when installed.
     var installPath: String?
     var coverURL: URL?
+    /// Operating systems the store lists; nil when the listing did not say.
+    var platforms: Set<GamePlatform>? = nil
+}
+
+/// Store pages that report supported operating systems without signing in (Steam app details, GOG product API).
+/// Epic platforms come from the catalog during import instead.
+enum StorefrontPlatformLookup {
+    static func platforms(store: Storefront, gameID: String) async -> Set<GamePlatform>? {
+        switch store {
+        case .steam:
+            guard let url = URL(string: "https://store.steampowered.com/api/appdetails?appids=\(gameID)&filters=platforms"),
+                  let root = try? await StorefrontHTTP.json(URLRequest(url: url), store: "Steam"),
+                  let entry = root[gameID] as? [String: Any],
+                  let flags = (entry["data"] as? [String: Any])?["platforms"] as? [String: Any] else { return nil }
+            return parse(flags, keys: [.mac: "mac", .windows: "windows", .linux: "linux"])
+        case .gog:
+            guard let url = URL(string: "https://api.gog.com/products/\(gameID)"),
+                  let root = try? await StorefrontHTTP.json(URLRequest(url: url), store: "GOG"),
+                  let flags = root["content_system_compatibility"] as? [String: Any] else { return nil }
+            return parse(flags, keys: [.mac: "osx", .windows: "windows", .linux: "linux"])
+        case .epic:
+            return nil
+        }
+    }
+
+    static func parse(_ flags: [String: Any], keys: [GamePlatform: String]) -> Set<GamePlatform> {
+        Set(keys.compactMap { platform, key in (flags[key] as? Bool) == true ? platform : nil })
+    }
 }
 
 enum StorefrontError: Error, LocalizedError {
