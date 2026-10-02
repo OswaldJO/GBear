@@ -112,6 +112,9 @@ public struct RootView: View {
     @State private var screenScraperCredentialsRevision = 0
     @Bindable private var screenScraperDisambiguationCoordinator = ScreenScraperDisambiguationCoordinator.shared
     @State private var clearEmulatorGamesID: UUID?
+    /// Linked group whose library section is being renamed.
+    @State private var renamingGroupID: UUID?
+    @State private var renameGroupText = ""
     @State private var pendingROMMDownload: PendingROMMDownload?
     @AppStorage(LibraryGridMetrics.showsTitlesKey) private var libraryShowsTitles = true
     /// Game card showing play / info overlay.
@@ -642,6 +645,11 @@ public struct RootView: View {
                             .tag(LibrarySidebarSelection.emulatorGroup(group.id))
                                 .help("Linked: \(group.members.map(\.name).joined(separator: ", ")). Opens with \(group.defaultEmulator.name) by default.")
                                 .contextMenu {
+                                    Button("Rename…", systemImage: "pencil") {
+                                        renameGroupText = group.name
+                                        renamingGroupID = group.id
+                                    }
+                                    Divider()
                                     ForEach(group.members, id: \.id) { member in
                                         Button("Clear Games for “\(member.name)”…", systemImage: "trash", role: .destructive) {
                                             clearEmulatorGamesID = member.id
@@ -785,6 +793,29 @@ public struct RootView: View {
                 if let id = clearEmulatorGamesID,
                    let emu = emulators.first(where: { $0.id == id }) {
                     Text("Removes all library entries for “\(emu.name)”. Scan Paths can add them again.")
+                }
+            }
+            .alert(
+                "Rename Linked Emulators",
+                isPresented: Binding(
+                    get: { renamingGroupID != nil },
+                    set: { if !$0 { renamingGroupID = nil } }
+                )
+            ) {
+                TextField("Name", text: $renameGroupText)
+                Button("Rename") {
+                    if let group = EmulatorLinkService.groups(in: emulators).first(where: { $0.id == renamingGroupID }) {
+                        EmulatorLinkService.rename(group, to: renameGroupText)
+                        try? modelContext.save()
+                    }
+                    renamingGroupID = nil
+                }
+                Button("Cancel", role: .cancel) {
+                    renamingGroupID = nil
+                }
+            } message: {
+                if let group = EmulatorLinkService.groups(in: emulators).first(where: { $0.id == renamingGroupID }) {
+                    Text("Leave it empty to use the platform name (\(group.platformName)).")
                 }
             }
         } detail: {

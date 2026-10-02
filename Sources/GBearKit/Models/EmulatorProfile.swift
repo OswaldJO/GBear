@@ -23,6 +23,8 @@ public final class EmulatorProfile {
     public var screenScraperSystemId: Int? = nil
     /// Shared by linked profiles (same platform); they appear as one library section named after the platform.
     public var linkGroupIDString: String? = nil
+    /// The user's name for the linked group's library section, stored on every member; nil = the platform name.
+    public var linkGroupName: String? = nil
     /// The linked profile that opens the group's games unless a game picks another in **Launch with**.
     public var isLinkGroupDefault: Bool = false
     public var sortOrder: Int

@@ -300,6 +300,15 @@ For release notes style summaries, see `source control log.md`. For architecture
 
 ## Mac library — launch / ARMSX2
 
+### BJ-128 — Astris (Switch) opened without the game
+| | |
+|---|---|
+| **When** | Oct 1 2026 (**in progress**) |
+| **Symptom** | After pointing the Switch profile at `/Applications/Astris.app` (template still Ryujinx's `"{ImagePath}"`), Play opened Astris but the game never started. |
+| **Cause** | Astris is an **App Sandbox** app. GBear launched it with the ROM path in argv (`ps` showed `Astris /Volumes/PNY 512/Switch/….nsp`), but a sandboxed app may only read files Launch Services hands it, so it couldn't open the path. Its `Info.plist` declares `nsp` / `xci` / `nsz` / `xcz` / `nca` / `nro` / `nso` document types; `open -a Astris <rom>` booted the game (`lsof` showed the `.nsp` and its update opened). |
+| **Fix** | `GameLauncher` checks the emulator's entitlements (`isSandboxedApp`); sandboxed `.app`s get the game through `NSWorkspace.open([rom], withApplicationAt:)` after quitting running copies (`launchSandboxedApp`), instead of argv. Extra template arguments can't be passed that way and are logged as dropped. |
+| **Commit** | *in progress* |
+
 ### BJ-080 — ARMSX2 opens but stays on the game list (no ISO)
 | | |
 |---|---|

@@ -1,5 +1,6 @@
 import AppKit
 import Foundation
+import Security
 
 enum GameLaunchError: LocalizedError {
     case missingEmulator
@@ -77,6 +78,11 @@ enum GameLauncher {
         DebugLog.log("Launch template=\(emulator.launchArgumentTemplate)")
         DebugLog.log("Launch substituted=\(substituted)")
         DebugLog.log("Launch args=\(parts.joined(separator: " | "))")
+
+        if appOrBinary.pathExtension.lowercased() == "app", isSandboxedApp(appOrBinary) {
+            launchSandboxedApp(appOrBinary, gameFilePath: standardizedPath, ignoredArguments: parts)
+            return
+        }
 
         // When we have CLI args (game path + flags), always launch via argv.
         // Do NOT use Launch Services "open documents" for that case — ARMSX2/PCSX2-family
@@ -186,6 +192,56 @@ enum GameLauncher {
         } else {
             DebugLog.log("Process started pid=\(process.processIdentifier) but NSRunningApplication lookup missed")
         }
+    }
+
+    /// App Sandbox emulators (e.g. Astris) can't read a game path passed in argv: the sandbox only lets them
+    /// open files handed over by Launch Services. So the game goes in an open-document event instead, which
+    /// grants that access; any other template arguments can't be passed this way.
+    private static func launchSandboxedApp(_ appURL: URL, gameFilePath: String, ignoredArguments: [String]) {
+        let extra = ignoredArguments.filter { $0 != gameFilePath }
+        DebugLog.log(
+            "Emulator is sandboxed; opening the game as a document" + (extra.isEmpty ? "" : " (dropping args: \(extra.joined(separator: " | ")))")
+        )
+        // A copy that's already in a game may ignore the new document, so start fresh like the argv path does.
+        terminateRunningInstances(ofAppAt: appURL)
+        let configuration = NSWorkspace.OpenConfiguration()
+        configuration.activates = true
+        NSWorkspace.shared.open(
+            [URL(fileURLWithPath: gameFilePath)],
+            withApplicationAt: appURL,
+            configuration: configuration
+        ) { runningApp, error in
+            Task { @MainActor in
+                if let error {
+                    NSLog("Launch error: \(error.localizedDescription)")
+                    DebugLog.log("Open document launch error: \(error.localizedDescription)")
+                    return
+                }
+                guard let runningApp else {
+                    scheduleRegisterRunningApp(bundlePath: appURL.path, attemptsRemaining: 20)
+                    return
+                }
+                DebugLog.log("Open document launch success pid=\(runningApp.processIdentifier)")
+                registerLaunchedApplication(runningApp)
+            }
+        }
+    }
+
+    private static var sandboxedAppCache: [String: Bool] = [:]
+
+    /// Whether the app's code signature carries the App Sandbox entitlement.
+    private static func isSandboxedApp(_ appURL: URL) -> Bool {
+        if let cached = sandboxedAppCache[appURL.path] { return cached }
+        var sandboxed = false
+        var staticCode: SecStaticCode?
+        var info: CFDictionary?
+        if SecStaticCodeCreateWithPath(appURL as CFURL, [], &staticCode) == errSecSuccess, let staticCode,
+           SecCodeCopySigningInformation(staticCode, SecCSFlags(rawValue: kSecCSSigningInformation), &info) == errSecSuccess,
+           let entitlements = (info as? [String: Any])?[kSecCodeInfoEntitlementsDict as String] as? [String: Any] {
+            sandboxed = entitlements["com.apple.security.app-sandbox"] as? Bool == true
+        }
+        sandboxedAppCache[appURL.path] = sandboxed
+        return sandboxed
     }
 
     /// Politely quits every running copy of this `.app` so the next `open --args` is not discarded.

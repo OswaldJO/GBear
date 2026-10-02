@@ -1,8 +1,9 @@
 import Foundation
 import SwiftData
 
-/// Linked emulator profiles share one library section named after their platform (for example Flycast + Redream → Dreamcast).
-/// Only profiles with the same platform can be linked, and one of them is the default that opens the group's games.
+/// Linked emulator profiles share one library section named after their platform (for example Flycast + Redream → Dreamcast),
+/// unless the user renamed it. Only profiles with the same platform can be linked, and one of them is the default that opens
+/// the group's games.
 enum EmulatorLinkService {
     struct Group: Identifiable {
         let id: UUID
@@ -10,7 +11,9 @@ enum EmulatorLinkService {
         let members: [EmulatorProfile]
         let defaultEmulator: EmulatorProfile
         let systemId: Int
+        /// The custom name when set, else `platformName`.
         let name: String
+        let platformName: String
 
         var memberIDs: Set<UUID> { Set(members.map(\.id)) }
 
@@ -59,12 +62,15 @@ enum EmulatorLinkService {
                 guard members.count >= 2 else { return nil }
                 let defaultEmulator = members.first(where: \.isLinkGroupDefault) ?? members[0]
                 guard let systemId = platformSystemId(for: defaultEmulator) else { return nil }
+                let platformName = ScreenScraperPlatformMap.displayName(forSystemId: systemId)
+                let customName = members.lazy.compactMap(\.linkGroupName).first { !$0.isEmpty }
                 return Group(
                     id: id,
                     members: members,
                     defaultEmulator: defaultEmulator,
                     systemId: systemId,
-                    name: ScreenScraperPlatformMap.displayName(forSystemId: systemId)
+                    name: customName ?? platformName,
+                    platformName: platformName
                 )
             }
             .sorted { $0.name.localizedStandardCompare($1.name) == .orderedAscending }
@@ -103,14 +109,25 @@ enum EmulatorLinkService {
 
         let groupID = (existingGroupID ?? UUID()).uuidString
         let memberIDs = Set(members.map(\.id))
+        let groupName = all.lazy.filter { $0.linkGroupIDString == groupID }.compactMap(\.linkGroupName).first
         for emulator in all where emulator.linkGroupIDString == groupID && !memberIDs.contains(emulator.id) {
             clear(emulator)
         }
         for emulator in members {
             emulator.linkGroupIDString = groupID
             emulator.isLinkGroupDefault = emulator.id == defaultEmulator.id
+            emulator.linkGroupName = groupName
         }
         normalize(all)
+    }
+
+    /// Names the group's library section; empty or the platform name goes back to the platform name.
+    static func rename(_ group: Group, to newName: String) {
+        let trimmed = newName.trimmingCharacters(in: .whitespacesAndNewlines)
+        let name: String? = trimmed.isEmpty || trimmed == group.platformName ? nil : trimmed
+        for emulator in group.members {
+            emulator.linkGroupName = name
+        }
     }
 
     static func unlink(_ emulator: EmulatorProfile, all: [EmulatorProfile]) {
@@ -161,5 +178,6 @@ enum EmulatorLinkService {
     private static func clear(_ emulator: EmulatorProfile) {
         emulator.linkGroupIDString = nil
         emulator.isLinkGroupDefault = false
+        emulator.linkGroupName = nil
     }
 }
