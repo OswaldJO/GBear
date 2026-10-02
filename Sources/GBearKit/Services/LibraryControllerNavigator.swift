@@ -404,6 +404,8 @@ final class LibraryControllerNavigator {
     }
 
 
+
+
     private func fire(_ command: Command) {
         if OnScreenKeyboard.shared.isPresented {
             OnScreenKeyboard.shared.handle(command)

@@ -217,6 +217,23 @@ enum CoverImageCache {
         guard let urlString, let fileURL = cachedFileURL(for: urlString), fileURL.isFileURL else { return nil }
         return NSImage(contentsOf: fileURL)
     }
+
+    private nonisolated(unsafe) static let memory: NSCache<NSString, NSImage> = {
+        let cache = NSCache<NSString, NSImage>()
+        cache.countLimit = 600
+        return cache
+    }()
+
+    /// Covers already on disk, kept in memory once loaded. The library grid is lazy and discards tiles that
+    /// scroll far away; a recreated tile reads its image (and so its size) from here on its first frame instead
+    /// of drawing a placeholder at the default height and then jumping to the cover's shape (BJ-126).
+    static func image(for urlString: String?) -> NSImage? {
+        guard let urlString else { return nil }
+        if let cached = memory.object(forKey: urlString as NSString) { return cached }
+        guard let image = loadNSImage(urlString: urlString) else { return nil }
+        memory.setObject(image, forKey: urlString as NSString)
+        return image
+    }
 }
 
 /// Cover tile that reads from disk cache (no network reload on every library visit).
@@ -226,6 +243,13 @@ struct CachedCoverThumbnail: View {
     var onImageSize: ((CGSize?) -> Void)?
 
     @State private var image: NSImage?
+
+    init(urlString: String?, contentMode: ContentMode = .fill, onImageSize: ((CGSize?) -> Void)? = nil) {
+        self.urlString = urlString
+        self.contentMode = contentMode
+        self.onImageSize = onImageSize
+        _image = State(initialValue: CoverImageCache.image(for: urlString))
+    }
 
     var body: some View {
         Group {
@@ -248,12 +272,12 @@ struct CachedCoverThumbnail: View {
             image = nil
             return
         }
-        if let cached = CoverImageCache.loadNSImage(urlString: urlString) {
-            image = cached
+        if let cached = CoverImageCache.image(for: urlString) {
+            if image !== cached { image = cached }
             return
         }
         let persisted = await CoverImageCache.persistCoverReference(urlString)
-        image = CoverImageCache.loadNSImage(urlString: persisted)
+        image = CoverImageCache.image(for: persisted)
     }
 
     private var placeholder: some View {

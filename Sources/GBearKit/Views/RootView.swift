@@ -1293,8 +1293,10 @@ private struct LibraryGamesGridView: View {
                         inspectorGameID = game.id
                     }
                 )
-                // Covers the lazy grid creates mid-scroll would otherwise animate in from the wrong spot.
-                .transaction { if $0.isControllerScroll { $0.animation = nil } }
+                // Covers the lazy grid creates during any animation (controller scroll, sidebar collapse, Info
+                // column opening) would otherwise slide in from the wrong spot. The tile's own animations are
+                // declared inside it and still run; the scroll animation belongs to the ScrollView.
+                .transaction { $0.animation = nil }
                 .contextMenu {
                     Button("Play", systemImage: "play.fill") { onPlay(game) }
                     Button("Details…", systemImage: "info.circle") {
@@ -1352,9 +1354,7 @@ private struct LibraryGamesGridView: View {
                         }
                         .onChange(of: controllerSelectedGameID) { _, id in
                             guard let id else { return }
-                            var transaction = Transaction(animation: .easeInOut(duration: 0.15))
-                            transaction.isControllerScroll = true
-                            withTransaction(transaction) { scroller.scrollTo(id) }
+                            withAnimation(.easeInOut(duration: 0.15)) { scroller.scrollTo(id) }
                         }
                     }
                     .onAppear { columnCount = columns.count }
@@ -1394,18 +1394,6 @@ private struct LibraryGamesGridView: View {
     }
 }
 
-private struct ControllerScrollKey: TransactionKey {
-    static let defaultValue = false
-}
-
-private extension Transaction {
-    /// Set on the grid's animated scroll to the controller's selection.
-    var isControllerScroll: Bool {
-        get { self[ControllerScrollKey.self] }
-        set { self[ControllerScrollKey.self] = newValue }
-    }
-}
-
 private enum LibraryGridMetrics {
     static let showsTitlesKey = "Library.ShowsTitles"
     static let defaultCardWidth: CGFloat = 160
@@ -1438,6 +1426,7 @@ private struct GameLibraryTile: View {
 
     /// The cover's own shape fitted into card width × the emulator's cover height, so rows only grow as tall as their covers.
     private var coverSize: CGSize {
+        let imageSize = imageSize ?? CoverImageCache.image(for: game.coverImageURLString)?.size
         guard let imageSize, imageSize.width > 0, imageSize.height > 0 else {
             return CGSize(width: cardWidth, height: coverHeight)
         }
@@ -1487,8 +1476,11 @@ private struct GameLibraryTile: View {
                 }
                 .overlay { coverOverlays }
                 .controllerRing(controllerRing, cornerRadius: 10, outset: 4)
-                .scaleEffect(controllerRing == .active ? 1.03 : 1)
-                .animation(.easeOut(duration: 0.12), value: controllerRing)
+                // Scoped so only the pop animates: a value-based animation here also animated the cover's
+                // position when the lazy grid re-placed a just-created row, so it fell in from the wrong row.
+                .animation(.easeOut(duration: 0.12)) { cover in
+                    cover.scaleEffect(controllerRing == .active ? 1.03 : 1)
+                }
                 .frame(width: cardWidth)
 
             if showsTitle {
