@@ -11,11 +11,11 @@ For release notes style summaries, see `source control log.md`. For architecture
 ### BJ-130 — New GBA / GB covers "scraped" but never shown, and RomM games skipped
 | | |
 |---|---|
-| **When** | Oct 2 2026 (**in progress**) |
+| **When** | Oct 2 2026 |
 | **Symptom** | After adding GBA, GB and GBC games (and a RomM sync), the automatic scrape covered only 44 of them, reported 42 covers, and none appeared. A second scrape skipped them all as already having covers. |
 | **Cause** | Two separate problems. (1) When `CoverImageCache.persistCoverReference` failed to download a cover, it returned the web address, and `fetchAndSave` saved that as the cover. `hasScreenScraperCover` then counted it, so Only Scan Missing skipped the game, while tiles kept retrying a download that wasn't saved. Why the 42 ScreenScraper downloads failed during that scrape wasn't logged; the same addresses downloaded fine afterwards. (2) RomM's `url_cover` is a ScreenScraper media address carrying RomM's developer login (`devid=zurdi15`), which ScreenScraper refuses from GBear ("Erreur de login : Vérifier vos identifiants développeur !"). The 54 RomM-linked games kept that address as their cover, so the new-games scrape (which only takes games with no cover) passed over them, and their covers could never load. |
 | **Fix** | `ScreenScraperClient.withOwnCredentials` swaps GBear's developer / user login into any ScreenScraper address before downloading. A failed download no longer becomes the cover: the scrape logs `cover_download_failed … status= type= reply=` (from `CoverImageCache.persistCover`) and the game stays uncovered for the next scrape. `CoverImageCache.localizeRemoteCovers` runs at launch and after every scrape, downloading any cover still saved as a web address (one at a time) and pointing the game at the file; the first run saved all 194. Scrape logs now redact `devpassword` / `sspassword`. |
-| **Commit** | *in progress* |
+| **Commit** | release **v1.4.1** |
 
 ### BJ-129 — Keyboard Search still opened the on-screen keyboard
 | | |
