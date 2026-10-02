@@ -1,40 +1,30 @@
 import Foundation
 
-/// Steam: installed games from local app manifests, owned games from the Steam Web API (user's own key + SteamID from Steam sign-in).
+/// Steam: installed games from local app manifests, owned games from the Steam Web API
+/// (access token from `SteamAuth` sign-in, or the user's own Web API key as a fallback).
 enum SteamClient {
-    static let openIDReturnURL = "https://gbear.invalid/steam/openid"
-
-    /// Steam OpenID sign-in page. Returns to `openIDReturnURL` with `openid.claimed_id` holding the SteamID64.
-    static var openIDLoginURL: URL {
-        var components = URLComponents(string: "https://steamcommunity.com/openid/login")!
-        components.queryItems = [
-            URLQueryItem(name: "openid.ns", value: "http://specs.openid.net/auth/2.0"),
-            URLQueryItem(name: "openid.mode", value: "checkid_setup"),
-            URLQueryItem(name: "openid.return_to", value: openIDReturnURL),
-            URLQueryItem(name: "openid.realm", value: "https://gbear.invalid"),
-            URLQueryItem(name: "openid.identity", value: "http://specs.openid.net/auth/2.0/identifier_select"),
-            URLQueryItem(name: "openid.claimed_id", value: "http://specs.openid.net/auth/2.0/identifier_select"),
-        ]
-        return components.url!
-    }
-
-    static func steamID(fromOpenIDReturn url: URL) -> String? {
-        guard url.absoluteString.hasPrefix(openIDReturnURL) else { return nil }
-        let items = URLComponents(url: url, resolvingAgainstBaseURL: false)?.queryItems ?? []
-        guard let claimed = items.first(where: { $0.name == "openid.claimed_id" })?.value else { return nil }
-        let id = claimed.split(separator: "/").last.map(String.init) ?? ""
-        return id.allSatisfy(\.isNumber) && !id.isEmpty ? id : nil
-    }
-
     // MARK: Owned
 
     static func ownedGames() async throws -> [StorefrontGame] {
-        guard let key = StorefrontCredentials.steamAPIKey, let steamID = StorefrontCredentials.steamID else {
-            throw StorefrontError.notSignedIn
+        guard let steamID = StorefrontCredentials.steamID else { throw StorefrontError.notSignedIn }
+        let key = StorefrontCredentials.steamAPIKey.flatMap { $0.isEmpty ? nil : $0 }
+        if StorefrontCredentials.refreshToken(for: .steam) != nil {
+            do {
+                let token = try await SteamAuth.accessToken()
+                return try await ownedGames(steamID: steamID, credential: URLQueryItem(name: "access_token", value: token))
+            } catch {
+                guard let key else { throw error }
+                return try await ownedGames(steamID: steamID, credential: URLQueryItem(name: "key", value: key))
+            }
         }
+        guard let key else { throw StorefrontError.notSignedIn }
+        return try await ownedGames(steamID: steamID, credential: URLQueryItem(name: "key", value: key))
+    }
+
+    private static func ownedGames(steamID: String, credential: URLQueryItem) async throws -> [StorefrontGame] {
         var components = URLComponents(string: "https://api.steampowered.com/IPlayerService/GetOwnedGames/v1/")!
         components.queryItems = [
-            URLQueryItem(name: "key", value: key),
+            credential,
             URLQueryItem(name: "steamid", value: steamID),
             URLQueryItem(name: "include_appinfo", value: "1"),
             URLQueryItem(name: "include_played_free_games", value: "1"),
@@ -50,9 +40,18 @@ enum SteamClient {
     }
 
     static func personaName() async -> String? {
-        guard let key = StorefrontCredentials.steamAPIKey, let steamID = StorefrontCredentials.steamID else { return nil }
+        guard let key = StorefrontCredentials.steamAPIKey else { return nil }
+        return await personaName(credential: URLQueryItem(name: "key", value: key))
+    }
+
+    static func personaName(accessToken: String) async -> String? {
+        await personaName(credential: URLQueryItem(name: "access_token", value: accessToken))
+    }
+
+    private static func personaName(credential: URLQueryItem) async -> String? {
+        guard let steamID = StorefrontCredentials.steamID else { return nil }
         var components = URLComponents(string: "https://api.steampowered.com/ISteamUser/GetPlayerSummaries/v2/")!
-        components.queryItems = [URLQueryItem(name: "key", value: key), URLQueryItem(name: "steamids", value: steamID)]
+        components.queryItems = [credential, URLQueryItem(name: "steamids", value: steamID)]
         guard let root = try? await StorefrontHTTP.json(URLRequest(url: components.url!), store: "Steam") else { return nil }
         let players = (root["response"] as? [String: Any])?["players"] as? [[String: Any]]
         return players?.first?["personaname"] as? String

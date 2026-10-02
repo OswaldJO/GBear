@@ -24,6 +24,18 @@ enum GOGClient {
         return URLComponents(url: url, resolvingAgainstBaseURL: false)?.queryItems?.first { $0.name == "code" }?.value
     }
 
+    /// Code from a pasted `on_login_success` address (signed in through the browser), or a bare pasted code.
+    static func authorizationCode(fromPastedText text: String) -> String? {
+        let trimmed = text.trimmingCharacters(in: .whitespacesAndNewlines)
+        if let url = URL(string: trimmed), url.host != nil {
+            return authorizationCode(fromRedirect: url)
+        }
+        if !trimmed.isEmpty, trimmed.allSatisfy({ $0.isLetter || $0.isNumber || $0 == "-" || $0 == "_" }) {
+            return trimmed
+        }
+        return nil
+    }
+
     static func signIn(code: String) async throws {
         let token = try await requestToken([
             "grant_type": "authorization_code",

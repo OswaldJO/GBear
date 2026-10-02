@@ -66,8 +66,26 @@ enum EpicClient {
         var appName: String
     }
 
-    /// Owned games. `knownAppNames` are already in the library and skip the per-item catalog lookup.
+    private enum CatalogResult: Sendable {
+        case game(StorefrontGame)
+        case notGame(appName: String)
+        case unavailable
+    }
+
+    /// App names the catalog showed are not games (DLC, add-ons, Unreal / Fab marketplace content); skipped without a lookup.
+    private static var nonGameAppNames: Set<String> {
+        get { Set(UserDefaults.standard.stringArray(forKey: "Storefronts.Epic.NonGameAppNames") ?? []) }
+        set { UserDefaults.standard.set(Array(newValue).sorted(), forKey: "Storefronts.Epic.NonGameAppNames") }
+    }
+
+    /// Bumped when the game filter changes so rows already in the library get re-checked once.
+    private static let gameFilterVersion = 2
+    private static let gameFilterVersionKey = "Storefronts.Epic.GameFilterVersion"
+
+    /// Owned games. `knownAppNames` are already in the library and skip the per-item catalog lookup
+    /// (except once after the game filter changes). `ownedAppNames` leaves out non-games, so their rows are removed.
     static func ownedGames(knownAppNames: Set<String>) async throws -> (games: [StorefrontGame], ownedAppNames: Set<String>) {
+        let recheckKnown = UserDefaults.standard.integer(forKey: gameFilterVersionKey) < gameFilterVersion
         let token = try await accessToken()
         var records: [LibraryRecord] = []
         var cursor: String?
@@ -80,6 +98,7 @@ enum EpicClient {
             let root = try await StorefrontHTTP.json(request, store: "Epic")
             for record in root["records"] as? [[String: Any]] ?? [] {
                 guard let namespace = record["namespace"] as? String, namespace != "ue",
+                      (record["sandboxType"] as? String)?.lowercased() != "private",
                       let catalogItemID = record["catalogItemId"] as? String,
                       let appName = record["appName"] as? String, !appName.isEmpty else { continue }
                 records.append(LibraryRecord(namespace: namespace, catalogItemID: catalogItemID, appName: appName))
@@ -87,28 +106,47 @@ enum EpicClient {
             cursor = (root["responseMetadata"] as? [String: Any])?["nextCursor"] as? String
         } while cursor != nil
 
-        let ownedAppNames = Set(records.map(\.appName))
-        let unknown = records.filter { !knownAppNames.contains($0.appName) }
-        let games = await withTaskGroup(of: StorefrontGame?.self) { group in
-            var results: [StorefrontGame] = []
-            var iterator = unknown.makeIterator()
+        var nonGames = recheckKnown ? [] : nonGameAppNames
+        records.removeAll { nonGames.contains($0.appName) }
+        let toLookUp = records.filter { recheckKnown || !knownAppNames.contains($0.appName) }
+        let results = await withTaskGroup(of: CatalogResult.self) { group in
+            var results: [CatalogResult] = []
+            var iterator = toLookUp.makeIterator()
             for _ in 0 ..< 8 {
                 guard let record = iterator.next() else { break }
                 group.addTask { await catalogGame(record, token: token) }
             }
             while let result = await group.next() {
-                if let result { results.append(result) }
+                results.append(result)
                 if let record = iterator.next() {
                     group.addTask { await catalogGame(record, token: token) }
                 }
             }
             return results
         }
+
+        var games: [StorefrontGame] = []
+        for result in results {
+            switch result {
+            case .game(let game): games.append(game)
+            case .notGame(let appName): nonGames.insert(appName)
+            case .unavailable: break
+            }
+        }
+        nonGameAppNames = nonGames
+        UserDefaults.standard.set(gameFilterVersion, forKey: gameFilterVersionKey)
+        let ownedAppNames = Set(records.map(\.appName)).subtracting(nonGames)
         return (games, ownedAppNames)
     }
 
-    /// Title and tall box art; nil for DLC, add-ons, and engine content.
-    private static func catalogGame(_ record: LibraryRecord, token: String) async -> StorefrontGame? {
+    /// Catalog paths on items that are not playable games: DLC / add-ons, engines, and Unreal / Fab marketplace
+    /// content (assets, plugins, projects, "asset-format/…", "type/format-item").
+    private static let nonGameCategoryPrefixes = [
+        "addons", "digitalextras", "engines", "assets", "asset-format", "plugins", "projects", "type/format-item",
+    ]
+
+    /// Title and tall box art, `.notGame` for DLC, add-ons, engine and marketplace content.
+    private static func catalogGame(_ record: LibraryRecord, token: String) async -> CatalogResult {
         var components = URLComponents(
             string: "https://catalog-public-service-prod06.ol.epicgames.com/catalog/api/shared/namespace/\(record.namespace)/bulk/items"
         )!
@@ -123,18 +161,18 @@ enum EpicClient {
         request.setValue("bearer \(token)", forHTTPHeaderField: "Authorization")
         guard let root = try? await StorefrontHTTP.json(request, store: "Epic"),
               let item = root[record.catalogItemID] as? [String: Any],
-              let title = item["title"] as? String else { return nil }
-        if item["mainGameItem"] != nil { return nil }
+              let title = item["title"] as? String else { return .unavailable }
+        if item["mainGameItem"] != nil { return .notGame(appName: record.appName) }
         let categories = (item["categories"] as? [[String: Any]] ?? []).compactMap { $0["path"] as? String }
-        if categories.contains(where: { $0.hasPrefix("addons") || $0 == "engines" || $0.hasPrefix("digitalextras") }) {
-            return nil
+        if categories.contains(where: { path in nonGameCategoryPrefixes.contains { path.hasPrefix($0) } }) {
+            return .notGame(appName: record.appName)
         }
         let images = item["keyImages"] as? [[String: Any]] ?? []
         let cover = ["DieselGameBoxTall", "OfferImageTall", "DieselGameBox", "Thumbnail"].lazy
             .compactMap { type in images.first { $0["type"] as? String == type }?["url"] as? String }
             .first
             .flatMap(URL.init(string:))
-        return StorefrontGame(store: .epic, gameID: record.appName, title: title, installed: false, coverURL: cover)
+        return .game(StorefrontGame(store: .epic, gameID: record.appName, title: title, installed: false, coverURL: cover))
     }
 
     // MARK: Installed

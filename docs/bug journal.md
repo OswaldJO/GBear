@@ -8,6 +8,33 @@ For release notes style summaries, see `source control log.md`. For architecture
 
 ## Mac library — scanning & covers
 
+### BJ-123 — Unreal Engine / Fab assets imported as Epic games
+| | |
+|---|---|
+| **When** | Oct 1 2026 (**in progress**) |
+| **Symptom** | After signing in to Epic, the library filled with non-games such as **4K Materials: Wood Flooring Vol.01**, **Advanced Cel Shader Lite** and **Advanced Glass Material Pack**, all without covers. |
+| **Cause** | Epic's library service also lists Unreal Engine marketplace / Fab purchases. `EpicClient` skipped only the `ue` namespace and the `addons` / `engines` / `digitalextras` categories, but Fab items live in their own namespaces and are tagged `plugins`, `asset-format/…`, `type/format-item` and similar. Rows already in the library also skipped the catalog check entirely. |
+| **Fix** | Skip private-sandbox records (as Legendary does) and treat catalog categories starting with `assets`, `asset-format`, `plugins`, `projects` or `type/format-item` as non-games too. Rejected app names are remembered and excluded from the owned set, so the importer deletes their rows. `gameFilterVersion` 2 re-checks every Epic item once, which cleans up rows imported before the fix. |
+| **Commit** | *in progress* |
+
+### BJ-122 — Steam sign-in "expired" minutes after signing in
+| | |
+|---|---|
+| **When** | Oct 1 2026 (**in progress**) |
+| **Symptom** | Right after signing in to Steam with the new native sign-in, **Import** failed with "Steam: Steam sign-in expired. Sign in again." |
+| **Cause** | `SteamAuth` asked for **WebBrowser** tokens. The refresh token was valid for 211 more days, but Steam answers `GenerateAccessTokenForApp` for WebBrowser tokens with `AccessDenied` (EResult 15); only MobileApp tokens can be renewed that way over the Web API. The access token from sign-in was not saved, so the first import already needed a renewal, and every renewal failure was reported as "expired". |
+| **Fix** | Sign in as **MobileApp** (`platform_type` 3, `website_id` Mobile, device details), save the access token and reuse it until 5 minutes before it expires, renew with `renewal_type` 1, and report AccessDenied as "sign in again (older sign-ins can't be renewed)" instead of "expired". Existing sign-ins need one more sign-in. |
+| **Commit** | *in progress* |
+
+### BJ-121 — GOG "Continue with Google" button did nothing
+| | |
+|---|---|
+| **When** | Oct 1 2026 (**in progress**) |
+| **Symptom** | In **Sign in to GOG**, tapping **Google** (or Steam / Discord / Xbox) under the email and password fields did nothing. |
+| **Cause** | Those buttons open a pop-up window (`window.open`). `StorefrontLoginWebView` had no `WKUIDelegate`, and WebKit silently drops pop-ups without one. |
+| **Fix** | The web view is now hosted in a container and its coordinator is the `WKUIDelegate`: `createWebViewWith` builds the pop-up with WebKit's configuration (keeps `window.opener`), stacks it over the sign-in page, and removes it on `webViewDidClose`. The pop-up shares the navigation delegate, so the GOG code is caught in either window. Google may still refuse embedded sign-in, so GOG now also has the **Trouble signing in?** fallback: sign in in the browser and paste the `on_login_success` address (`GOGClient.authorizationCode(fromPastedText:)`). |
+| **Commit** | *in progress* |
+
 ### BJ-120 — Library covers looked zoomed in and cropped
 | | |
 |---|---|

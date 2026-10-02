@@ -118,7 +118,6 @@ private struct StorefrontLoginCard: View {
     @State private var showLogin = false
     @State private var revision = 0
     @State private var steamAPIKey = StorefrontCredentials.steamAPIKey ?? ""
-    @State private var epicPastedCode = ""
     @State private var statusMessage: String?
     @State private var statusIsError = false
 
@@ -158,10 +157,6 @@ private struct StorefrontLoginCard: View {
                     .toggleStyle(.checkbox)
                 }
 
-                if store == .steam {
-                    steamKeyFields
-                }
-
                 HStack(spacing: 8) {
                     if hasAnySignIn {
                         Button("Sign Out", role: .destructive) {
@@ -171,14 +166,14 @@ private struct StorefrontLoginCard: View {
                         .buttonStyle(.bordered)
                     }
                     Spacer(minLength: 8)
-                    Button(hasAnySignIn ? "Sign In Again…" : (store == .steam ? "Sign in through Steam…" : "Sign In…")) {
+                    Button(hasAnySignIn ? "Sign In Again…" : "Sign In…") {
                         showLogin = true
                     }
                     .buttonStyle(.borderedProminent)
                 }
 
-                if store == .epic, !signedIn {
-                    epicManualCodeFields
+                if store == .steam {
+                    steamKeyFields
                 }
 
                 if let statusMessage {
@@ -205,10 +200,18 @@ private struct StorefrontLoginCard: View {
     }
 
     private var steamKeyFields: some View {
+        DisclosureGroup("Steam Web API key (optional)") {
+            steamKeyForm
+                .padding(.top, 6)
+        }
+        .font(.caption)
+    }
+
+    private var steamKeyForm: some View {
         VStack(alignment: .leading, spacing: 8) {
             Text(
-                "Steam lists owned games only through the Steam Web API, so it also needs your own Web API key. " +
-                    "Sign in through Steam to link your account, then paste the key."
+                "Not needed after signing in. If Steam ever refuses the sign-in token for your game list, " +
+                    "GBear falls back to your own Web API key."
             )
             .font(.caption)
             .foregroundStyle(.secondary)
@@ -235,40 +238,6 @@ private struct StorefrontLoginCard: View {
                     .font(.caption2)
                     .foregroundStyle(.tertiary)
                     .textSelection(.enabled)
-            }
-        }
-    }
-
-    private var epicManualCodeFields: some View {
-        VStack(alignment: .leading, spacing: 6) {
-            Text(
-                "If the sign-in window gets stuck, open Epic sign-in in your browser, sign in, " +
-                    "and paste the authorizationCode value from the page that appears."
-            )
-            .font(.caption)
-            .foregroundStyle(.secondary)
-            HStack(spacing: 8) {
-                Button("Open in Browser") { NSWorkspace.shared.open(EpicClient.loginURL) }
-                    .buttonStyle(.bordered)
-                TextField("authorizationCode", text: $epicPastedCode)
-                    .textFieldStyle(.roundedBorder)
-                Button("Use Code") {
-                    guard let code = EpicClient.authorizationCode(fromPageText: epicPastedCode) else {
-                        setStatus("That does not look like an Epic authorization code.", isError: true)
-                        return
-                    }
-                    Task {
-                        do {
-                            try await EpicClient.signIn(code: code)
-                            epicPastedCode = ""
-                            signInChanged("Signed in to Epic Games. Import to add your whole library.")
-                        } catch {
-                            setStatus(error.localizedDescription, isError: true)
-                        }
-                    }
-                }
-                .buttonStyle(.bordered)
-                .disabled(epicPastedCode.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty)
             }
         }
     }

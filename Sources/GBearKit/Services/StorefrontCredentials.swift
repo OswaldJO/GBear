@@ -16,7 +16,13 @@ enum StorefrontCredentials {
         set { setKeychainString(newValue, for: "steam.apiKey") }
     }
 
-    // MARK: Epic / GOG
+    /// Short-lived (about a day) Web API token from Steam sign-in, reused until it nears expiry.
+    static var steamAccessToken: String? {
+        get { keychainString("steam.accessToken") }
+        set { setKeychainString(newValue, for: "steam.accessToken") }
+    }
+
+    // MARK: Refresh tokens (Steam sign-in, Epic, GOG)
 
     static func refreshToken(for store: Storefront) -> String? {
         keychainString("\(store.rawValue).refreshToken")
@@ -40,19 +46,20 @@ enum StorefrontCredentials {
     static func isSignedIn(_ store: Storefront) -> Bool {
         switch store {
         case .steam:
-            return !(steamID ?? "").isEmpty && !(steamAPIKey ?? "").isEmpty
+            return !(steamID ?? "").isEmpty
+                && (!(refreshToken(for: .steam) ?? "").isEmpty || !(steamAPIKey ?? "").isEmpty)
         case .epic, .gog:
             return !(refreshToken(for: store) ?? "").isEmpty
         }
     }
 
+    /// Keeps the Steam Web API key; it is a separate optional setting.
     static func signOut(_ store: Storefront) {
-        switch store {
-        case .steam:
+        if store == .steam {
             steamID = nil
-        case .epic, .gog:
-            setRefreshToken(nil, for: store)
+            steamAccessToken = nil
         }
+        setRefreshToken(nil, for: store)
         setAccountName(nil, for: store)
     }
 
