@@ -13,7 +13,7 @@ public struct ControllerHelpView: View {
     private static let sections: [Section] = [
         Section(
             title: "Getting started",
-            note: "Connect any Bluetooth or USB controller. Buttons use PlayStation names with Xbox in brackets: Cross (A), Circle (B), Square (X), Triangle (Y), Select (Share / Create / View), Start (Options / Menu). GBear only responds while it's the app in front with no dialog or folder picker open, and not while this Mac is streaming a game. After switching back to GBear, let go of every button first."
+            note: "Connect any Bluetooth or USB controller. Buttons use PlayStation names with Xbox in brackets: Cross (A), Circle (B), Square (X), Triangle (Y), Select (Share / Create / View), Start (Options / Menu). GBear only responds while it's the app in front with no dialog open (folder and file pickers have their own controls, below), and not while this Mac is streaming a game. After switching back to GBear, let go of every button first."
         ),
         Section(title: "Anywhere in GBear", rows: [
             ("L2 / R2", "Move between areas in a loop: sidebar, covers, Info column (while open), toolbar. On Emulators, Paths and Streaming: the page and the toolbar."),
@@ -50,6 +50,16 @@ public struct ControllerHelpView: View {
             ("Left / right on a menu", "Change its choice"),
             ("Triangle", "Back to the toolbar"),
         ], note: "Rows that are only clickable (like Emulators library search results) need the mouse."),
+        Section(title: "Folder and file pickers", rows: [
+            ("D-pad / left stick", "Move through the files and folders (in column view, left / right go back / into a folder)"),
+            ("Cross", "Open the selected folder"),
+            ("Triangle", "Go up to the enclosing folder"),
+            ("Start", "Choose (the picker's Choose / Open button)"),
+            ("Circle", "Cancel"),
+            ("L1 / R1", "Back / forward"),
+            ("L2 / R2", "Move between the sidebar and the file list"),
+            ("L3", "Jump to your home folder"),
+        ], note: "Shown when you Add Folder on Paths, Add Game, or choose a cover image. The controller presses the picker's keyboard shortcuts for you."),
         Section(title: "On-screen keyboard", rows: [
             ("D-pad", "Pick a key"),
             ("Cross", "Type the key"),

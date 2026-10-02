@@ -100,6 +100,7 @@ final class LibraryControllerNavigator {
     @ObservationIgnored private var selectUsedAsModifier = false
     /// Shoulder buttons pressed with Select; ignored until let go, so they don't also switch games or areas.
     @ObservationIgnored private var suppressedUntilRelease: Set<Input> = []
+    @ObservationIgnored private var drivingFilePanel = false
 
     private init() {}
 
@@ -120,7 +121,7 @@ final class LibraryControllerNavigator {
     /// is what keeps a game in another app from also moving around GBear. The host seats this Mac as local
     /// co-op player 1 even when idle, so `GBearHostLocalGamepad.isActive` alone doesn't mean a game is running.
     private var blockedReason: String? {
-        if !NSApp.isActive { return "GBear is not the active app" }
+        if let reason = appBlockedReason { return reason }
         if NSApp.modalWindow != nil { return "a modal window is open" }
         guard let main = NSApp.mainWindow else { return "no main window" }
         if NSApp.keyWindow !== main { return "the main window is not key" }
@@ -129,6 +130,12 @@ final class LibraryControllerNavigator {
             return "a panel is open"
         }
         if main.attachedSheet != nil { return "a sheet is open" }
+        return nil
+    }
+
+    /// Reasons to leave GBear alone entirely, including its open / save panels.
+    private var appBlockedReason: String? {
+        if !NSApp.isActive { return "GBear is not the active app" }
         if GBearStreamHostManager.shared.isVideoStreaming { return "this Mac is streaming a game" }
         switch GBearStreamGuestManager.shared.phase {
         case .connected, .streaming: return "a guest stream owns the controllers"
@@ -136,14 +143,26 @@ final class LibraryControllerNavigator {
         }
     }
 
+    /// An open / save panel (from `begin`, `runModal` or as a sheet) is key: the controller types its
+    /// keyboard shortcuts instead of driving the main window (`pressPanelKey`).
+    private var drivesFilePanel: Bool {
+        appBlockedReason == nil && NSApp.keyWindow is NSSavePanel
+    }
+
     private func poll() {
         checkGameCombos(now: CACurrentMediaTime())
         checkSystemCombos(now: CACurrentMediaTime())
-        let reason = blockedReason
-        let state = reason.map { "blocked: \($0)" } ?? "active (\(GCController.controllers().count) controller(s))"
+        let filePanel = drivesFilePanel
+        let reason = filePanel ? nil : blockedReason
+        let state = filePanel ? "active (file panel)"
+            : reason.map { "blocked: \($0)" } ?? "active (\(GCController.controllers().count) controller(s))"
         if state != lastLoggedState {
             lastLoggedState = state
             DebugLog.log("Controller navigation \(state)")
+        }
+        if filePanel != drivingFilePanel {
+            drivingFilePanel = filePanel
+            waitingForRelease = true
         }
         guard reason == nil else {
             heldSince.removeAll()
@@ -161,7 +180,7 @@ final class LibraryControllerNavigator {
             if pressed.isEmpty { waitingForRelease = false }
             return
         }
-        if OnScreenKeyboard.shared.isPresented { moveKeyboardWithRightStick(elapsed: elapsed) }
+        if OnScreenKeyboard.shared.isPresented, !filePanel { moveKeyboardWithRightStick(elapsed: elapsed) }
         let selectHeld = pressed.contains(.select)
         if selectHeld {
             if !selectDown { selectUsedAsModifier = false }
@@ -406,7 +425,53 @@ final class LibraryControllerNavigator {
 
 
 
+    /// Key codes (`kVK_*`) the file panel understands.
+    private enum PanelKey {
+        static let left: CGKeyCode = 0x7B, right: CGKeyCode = 0x7C, down: CGKeyCode = 0x7D, up: CGKeyCode = 0x7E
+        static let returnKey: CGKeyCode = 0x24, escape: CGKeyCode = 0x35, tab: CGKeyCode = 0x30
+        static let leftBracket: CGKeyCode = 0x21, rightBracket: CGKeyCode = 0x1E, h: CGKeyCode = 0x04
+    }
+
+    /// Open / save panels: D-pad = arrow keys, A = open the selected folder (⌘↓), Back = enclosing folder
+    /// (⌘↑), Start = the panel's Open / Choose button (Return), Circle / B = Cancel (Esc), L1 / R1 = back /
+    /// forward (⌘[ / ⌘]), L2 / R2 = move between the sidebar and the file list (⇧Tab / Tab), L3 = home folder.
+    private func handleFilePanel(_ command: Command) {
+        switch command {
+        case .move(let dx, let dy):
+            pressPanelKey(dy < 0 ? PanelKey.up : dy > 0 ? PanelKey.down : dx < 0 ? PanelKey.left : PanelKey.right)
+        case .confirm: pressPanelKey(PanelKey.down, flags: .maskCommand)
+        case .back: pressPanelKey(PanelKey.up, flags: .maskCommand)
+        case .play: pressPanelKey(PanelKey.returnKey)
+        case .coverSize(let step) where step > 0: pressPanelKey(PanelKey.escape)
+        case .previousGame: pressPanelKey(PanelKey.leftBracket, flags: .maskCommand)
+        case .nextGame: pressPanelKey(PanelKey.rightBracket, flags: .maskCommand)
+        case .previousArea: pressPanelKey(PanelKey.tab, flags: .maskShift)
+        case .nextArea: pressPanelKey(PanelKey.tab)
+        case .leftStickClick: pressPanelKey(PanelKey.h, flags: [.maskCommand, .maskShift])
+        default: break
+        }
+    }
+
+    /// Sends a key press to the key panel. With Accessibility it goes through the HID tap like a real
+    /// keyboard; without it the event is queued in GBear itself, which works because the panel is in-process.
+    private func pressPanelKey(_ key: CGKeyCode, flags: CGEventFlags = []) {
+        let source = CGEventSource(stateID: .hidSystemState)
+        for down in [true, false] {
+            guard let event = CGEvent(keyboardEventSource: source, virtualKey: key, keyDown: down) else { continue }
+            event.flags = (0x7B...0x7E).contains(key) ? flags.union([.maskNumericPad, .maskSecondaryFn]) : flags
+            if AccessibilityPermission.isGranted {
+                event.post(tap: .cghidEventTap)
+            } else if let nsEvent = NSEvent(cgEvent: event) {
+                NSApp.postEvent(nsEvent, atStart: false)
+            }
+        }
+    }
+
     private func fire(_ command: Command) {
+        if drivingFilePanel {
+            handleFilePanel(command)
+            return
+        }
         if OnScreenKeyboard.shared.isPresented {
             OnScreenKeyboard.shared.handle(command)
             return

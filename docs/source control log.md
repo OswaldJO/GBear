@@ -9,6 +9,7 @@ For the **living product and architecture handbook**, see `Features and Inner Wo
 current release: 1  
 
 ## Updates
+- **Controller in folder pickers (Oct 1 2026, in progress):** The Choose Folder / file pickers (Add Folder on Paths, Add Game, cover image) now work with the controller: D-pad moves, Cross opens a folder, Triangle goes up, Start chooses, Circle cancels, L1 / R1 back / forward, L2 / R2 sidebar ↔ files, L3 home folder. Listed under Help → Controller Navigation.
 - **Library grid margins even (Oct 1 2026, in progress):** Cover tiles were packed against the left edge, so all the spare width piled up on the right. The grid keeps the 20-pt left margin and now uses the same 20-pt margin on the right; covers stay 160 pt wide and the spare width widens the gaps between columns instead.
 - **Cover size slider (Oct 1 2026, in progress):** A small slider at the bottom right of the library grid sets the cover width (110–320 pt, default 160). It's saved as `Library.CoverWidth` and survives relaunch; the Play/Info buttons on a tile scale down with small covers.
 - **Full covers in the library (Oct 1 2026, in progress):** Library tiles no longer zoom and crop box art to fit the emulator's cover shape; the whole cover is shown. Tiles size to each cover's own shape and top-align in their row, and each row is only as tall as its tallest cover and title, so rows mixing emulators no longer leave big gaps (BJ-120).
