@@ -1293,6 +1293,8 @@ private struct LibraryGamesGridView: View {
                         inspectorGameID = game.id
                     }
                 )
+                // Covers the lazy grid creates mid-scroll would otherwise animate in from the wrong spot.
+                .transaction { if $0.isControllerScroll { $0.animation = nil } }
                 .contextMenu {
                     Button("Play", systemImage: "play.fill") { onPlay(game) }
                     Button("Details…", systemImage: "info.circle") {
@@ -1350,7 +1352,9 @@ private struct LibraryGamesGridView: View {
                         }
                         .onChange(of: controllerSelectedGameID) { _, id in
                             guard let id else { return }
-                            withAnimation(.easeInOut(duration: 0.15)) { scroller.scrollTo(id) }
+                            var transaction = Transaction(animation: .easeInOut(duration: 0.15))
+                            transaction.isControllerScroll = true
+                            withTransaction(transaction) { scroller.scrollTo(id) }
                         }
                     }
                     .onAppear { columnCount = columns.count }
@@ -1387,6 +1391,18 @@ private struct LibraryGamesGridView: View {
         .overlay(Capsule().strokeBorder(.quaternary, lineWidth: 1))
         .help("Cover size")
         .accessibilityLabel("Cover size")
+    }
+}
+
+private struct ControllerScrollKey: TransactionKey {
+    static let defaultValue = false
+}
+
+private extension Transaction {
+    /// Set on the grid's animated scroll to the controller's selection.
+    var isControllerScroll: Bool {
+        get { self[ControllerScrollKey.self] }
+        set { self[ControllerScrollKey.self] = newValue }
     }
 }
 

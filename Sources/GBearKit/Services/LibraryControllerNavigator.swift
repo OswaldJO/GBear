@@ -403,6 +403,7 @@ final class LibraryControllerNavigator {
         OnScreenKeyboard.shared.move(by: delta)
     }
 
+
     private func fire(_ command: Command) {
         if OnScreenKeyboard.shared.isPresented {
             OnScreenKeyboard.shared.handle(command)

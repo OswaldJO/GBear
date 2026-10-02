@@ -8,6 +8,15 @@ For release notes style summaries, see `source control log.md`. For architecture
 
 ## Mac library — scanning & covers
 
+### BJ-126 — Covers "fell" into view when the controller scrolled the grid
+| | |
+|---|---|
+| **When** | Oct 1 2026 (**in progress**) |
+| **Symptom** | Moving down the covers with the D-pad into a row that was just below the visible area, some covers in the new row slid up from below for a few frames instead of scrolling in with the rest, unlike trackpad scrolling. |
+| **Cause** | `LibraryGamesGridView` scrolled with `withAnimation { scrollTo(id) }`. `LazyVGrid` creates the incoming row's tiles during that animated transaction, so their first placement was animated too, starting from the wrong spot. A 120 fps screen recording showed covers that already existed moving with the scroll while newly created ones trailed below. |
+| **Fix** | The scroll now runs in a transaction marked `isControllerScroll` (custom `TransactionKey`), and each `GameLibraryTile` clears the animation for that transaction only, so new tiles appear already in place while the scroll itself stays animated. Other animations (controller ring, Info column reflow) are unaffected. |
+| **Commit** | *in progress* |
+
 ### BJ-125 — Controller didn't navigate the library at all
 | | |
 |---|---|
