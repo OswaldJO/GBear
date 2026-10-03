@@ -152,6 +152,26 @@ enum DiscGroupService {
         }
     }
 
+    /// Every disc set the Info column would suggest linking, matched within one emulator, that isn't already one
+    /// group. Sets whose discs already sit in two different groups are left alone, like `autoLinkMultiDiscGames`.
+    static func suggestedDiscSets(in games: [LibraryGame]) -> [[LibraryGame]] {
+        var clusters: [String: [LibraryGame]] = [:]
+        for game in games {
+            let base = discBaseTitle(for: game)
+            guard !base.isEmpty else { continue }
+            clusters["\(game.emulatorUUID?.uuidString ?? "mac")|\(base)", default: []].append(game)
+        }
+        return clusters.values.filter { cluster in
+            guard cluster.count >= 2 else { return false }
+            let groupIDs = Set(cluster.compactMap { normalizedGroupID($0.discGroupIDString) })
+            guard groupIDs.count <= 1 else { return false }
+            if let only = groupIDs.first, cluster.allSatisfy({ normalizedGroupID($0.discGroupIDString) == only }) {
+                return false
+            }
+            return true
+        }
+    }
+
     /// Short label for UI badges, e.g. "Disc 2".
     static func discLabel(for game: LibraryGame) -> String? {
         if let number = discNumber(in: game.romPath) ?? discNumber(in: game.title) ?? discNumber(in: game.libraryDisplayName ?? "") {

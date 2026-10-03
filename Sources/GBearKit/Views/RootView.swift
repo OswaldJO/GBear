@@ -104,6 +104,7 @@ public struct RootView: View {
     @State private var section: MainSection = .library
     @State private var scanFeedback: String?
     @State private var cleanupFeedback: String?
+    @State private var discLinkFeedback: String?
     @State private var confirmClearAllGames = false
     @State private var confirmClearMacGames = false
     @State private var showScreenScraperSettings = false
@@ -705,6 +706,10 @@ public struct RootView: View {
                                 .controllerRing(sidebarRing(.emulator(emu.id)), color: .white)
                                 .tag(LibrarySidebarSelection.emulator(emu.id))
                                 .contextMenu {
+                                    Button("Link All Suggested Discs", systemImage: "sparkles") {
+                                        linkSuggestedDiscs(emulatorIDs: [emu.id], sectionName: emu.name)
+                                    }
+                                    Divider()
                                     Button("Clear Games for “\(emu.name)”…", systemImage: "trash", role: .destructive) {
                                         clearEmulatorGamesID = emu.id
                                     }
@@ -724,6 +729,9 @@ public struct RootView: View {
                                     Button("Rename…", systemImage: "pencil") {
                                         renameGroupText = group.name
                                         renamingGroupID = group.id
+                                    }
+                                    Button("Link All Suggested Discs", systemImage: "sparkles") {
+                                        linkSuggestedDiscs(emulatorIDs: Set(group.members.map(\.id)), sectionName: group.name)
                                     }
                                     Divider()
                                     ForEach(group.members, id: \.id) { member in
@@ -757,6 +765,14 @@ public struct RootView: View {
             .navigationTitle("Games")
             .safeAreaInset(edge: .bottom, spacing: 0) {
                 selectedLibraryCountFooter
+            }
+            .alert("Link Suggested Discs", isPresented: Binding(
+                get: { discLinkFeedback != nil },
+                set: { if !$0 { discLinkFeedback = nil } }
+            )) {
+                Button("OK", role: .cancel) {}
+            } message: {
+                Text(discLinkFeedback ?? "")
             }
             .toolbar {
                 ToolbarItemGroup(placement: .primaryAction) {
@@ -1302,6 +1318,20 @@ public struct RootView: View {
     }
 
     @discardableResult
+    /// Sidebar → Link All Suggested Discs: links every suggested multi-disc set among these emulators' games,
+    /// including copies a linked group hides behind its default emulator.
+    private func linkSuggestedDiscs(emulatorIDs: Set<UUID>, sectionName: String) {
+        let sets = DiscGroupService.suggestedDiscSets(in: games.filter { $0.emulatorUUID.map(emulatorIDs.contains) ?? false })
+        for discs in sets {
+            DiscGroupService.link(discs, context: modelContext)
+        }
+        let titles = Set(sets.compactMap { $0.first.map(DiscGroupService.discBaseTitle) }).count
+        let discCount = sets.reduce(0) { $0 + $1.count }
+        discLinkFeedback = sets.isEmpty
+            ? "Nothing to link in \(sectionName): every multi-disc game is already linked, or none were found."
+            : "Linked \(titles) multi-disc game\(titles == 1 ? "" : "s") in \(sectionName) (\(discCount) discs)."
+    }
+
     private func removeOrphanedGamesFromLibrary() -> Int {
         let validIDs = activeEmulatorIDs
         var removed = 0

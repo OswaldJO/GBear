@@ -50,5 +50,7 @@
 	<string>public.app-category.games</string>
 	<key>LSMinimumSystemVersion</key>
 	<string>14.0</string>
+	<key>NSLocalNetworkUsageDescription</key>
+	<string>GBear finds and controls your Roku TV's volume, and streams games to phones and computers on your network.</string>
 </dict>
 </plist>
