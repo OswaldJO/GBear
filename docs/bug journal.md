@@ -8,6 +8,15 @@ For release notes style summaries, see `source control log.md`. For architecture
 
 ## Mac library — scanning & covers
 
+### BJ-132 — Erasing a game's name brought the old name straight back
+| | |
+|---|---|
+| **When** | Oct 2 2026 (**in progress**) |
+| **Symptom** | In the Info column, selecting all of **Name in library** and deleting it put the original name back in the field at once, so you couldn't start typing a new name on a blank field. |
+| **Cause** | `LibraryGameInspectorView.nameBinding` read and wrote the game directly. An empty value set `libraryDisplayName = nil`, and the getter then returned `game.title`, which refilled the field. |
+| **Fix** | The field edits a local `nameDraft`. Non-empty text still saves on every keystroke (`trimmed == title` clears the custom name). Empty text saves nothing, so the field stays blank, with the original title as gray placeholder text. `finishNameEdit` resets the name to the original title only if the draft is still blank when the inspector switches games (`onChange(of: game)`) or closes (`onDisappear`). The label now sits above the field, so the empty field keeps its full width. |
+| **Commit** | *in progress* |
+
 ### BJ-131 — Opening Info scrolled the game's cover out of view
 | | |
 |---|---|

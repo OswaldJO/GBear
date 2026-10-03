@@ -1768,6 +1768,9 @@ private struct LibraryGameInspectorView: View {
     @State private var showDiscGroupLinkSheet = false
     @State private var platformLookupInProgress = false
     @State private var platformLookupFailed = false
+    /// What the name field shows. Clearing it leaves the saved name alone, so the field stays blank to type into;
+    /// it only falls back to the original title if it's still blank when you switch games or close Info.
+    @State private var nameDraft = ""
     /// Control the game controller is on while the Info column has controller focus; nil means the first one.
     @State private var controllerItem: InspectorControllerItem?
     private let navigator = LibraryControllerNavigator.shared
@@ -1906,14 +1909,25 @@ private struct LibraryGameInspectorView: View {
         .onChange(of: game.id) {
             if let item = controllerItem, !controllerItems.contains(item) { controllerItem = nil }
         }
+        .onChange(of: game) { previous, current in
+            finishNameEdit(for: previous)
+            nameDraft = current.libraryDisplayName ?? current.title
+        }
+        .onAppear { nameDraft = game.libraryDisplayName ?? game.title }
+        .onDisappear { finishNameEdit(for: game) }
     }
 
     private var form: some View {
         Form {
             Section {
-                TextField("Name in library", text: nameBinding, axis: .vertical)
-                    .textFieldStyle(.roundedBorder)
-                    .controllerRing(ring(.name))                    .id(InspectorControllerItem.name)
+                VStack(alignment: .leading, spacing: 6) {
+                    Text("Name in library")
+                    TextField("Name in library", text: nameBinding, prompt: Text(game.title), axis: .vertical)
+                        .labelsHidden()
+                        .textFieldStyle(.roundedBorder)
+                }
+                .controllerRing(ring(.name))
+                .id(InspectorControllerItem.name)
                 Text("Renames how this game appears here only. The file on disk is not renamed.")
                     .font(.caption)
                     .foregroundStyle(.secondary)
@@ -2379,21 +2393,23 @@ private struct LibraryGameInspectorView: View {
 
     private var nameBinding: Binding<String> {
         Binding(
-            get: {
-                game.libraryDisplayName ?? game.title
-            },
+            get: { nameDraft },
             set: { new in
+                nameDraft = new
                 let trimmed = new.trimmingCharacters(in: .whitespacesAndNewlines)
-                if trimmed.isEmpty {
-                    game.libraryDisplayName = nil
-                } else if trimmed == game.title {
-                    game.libraryDisplayName = nil
-                } else {
-                    game.libraryDisplayName = trimmed
-                }
+                guard !trimmed.isEmpty else { return }
+                game.libraryDisplayName = trimmed == game.title ? nil : trimmed
                 try? modelContext.save()
             }
         )
+    }
+
+    private func finishNameEdit(for game: LibraryGame) {
+        guard nameDraft.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty,
+              !game.isDeleted, game.modelContext != nil,
+              game.libraryDisplayName != nil else { return }
+        game.libraryDisplayName = nil
+        try? modelContext.save()
     }
 
     private var pathBinding: Binding<String> {
