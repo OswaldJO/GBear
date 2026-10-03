@@ -8,6 +8,15 @@ For release notes style summaries, see `source control log.md`. For architecture
 
 ## Mac library — scanning & covers
 
+### BJ-131 — Opening Info scrolled the game's cover out of view
+| | |
+|---|---|
+| **When** | Oct 2 2026 (**in progress**) |
+| **Symptom** | Choosing Info on a cover opened the Info column, and the library jumped so far that the game's own cover was off screen; you had to scroll back to find it. |
+| **Cause** | The Info column narrows the grid, so `LibraryGamesGridView.columns(for:card:)` fits fewer columns. Every cover moves to a later row while the scroll offset stays put, so the selected game drifts down (further for games lower in the library). |
+| **Fix** | `LibraryGamesGridView.keepFocusedGameInView` runs on `onChange(of: columns.count)` and `onChange(of: inspectorGameID)`. It centers the game in the Info column (or the controller's selection, or the last game shown in Info after it closes), then re-centers it several times over about 0.7 s, with animations disabled. Also covers closing Info, the cover size slider and window resizes. The first attempt (one scroll, plus a retry 60 ms later) didn't work. The Info column slides in over 0.22 s and re-flows the grid at every column change along the way, so that scroll ran mid-animation against the lazy grid's estimated row positions. It landed several rows above the game (verified with screenshots, before and after, for Fear Effect and Spyro). |
+| **Commit** | *in progress* |
+
 ### BJ-130 — New GBA / GB covers "scraped" but never shown, and RomM games skipped
 | | |
 |---|---|

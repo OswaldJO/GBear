@@ -1394,6 +1394,9 @@ private struct LibraryGamesGridView: View {
     @AppStorage(LibraryGridMetrics.showsTitlesKey) private var showsTitles = true
     @Binding var controllerSelectedGameID: UUID?
     @State private var columnCount = 1
+    /// Kept after the Info column closes, so the grid can still bring that game back into view.
+    @State private var lastInspectedGameID: UUID?
+    @State private var scrollFocusTask: Task<Void, Never>?
     private let navigator = LibraryControllerNavigator.shared
 
     private var cardWidth: CGFloat {
@@ -1530,9 +1533,20 @@ private struct LibraryGamesGridView: View {
                             guard let id else { return }
                             withAnimation(.easeInOut(duration: 0.15)) { scroller.scrollTo(id) }
                         }
+                        // Opening / closing the Info column (or resizing) changes the column count, which moves every
+                        // cover to another row; keep the game being looked at on screen.
+                        .onChange(of: columns.count) { _, count in
+                            columnCount = count
+                            keepFocusedGameInView(scroller)
+                        }
+                        .onChange(of: inspectorGameID) { _, id in
+                            if id != nil { keepFocusedGameInView(scroller) }
+                        }
                     }
                     .onAppear { columnCount = columns.count }
-                    .onChange(of: columns.count) { _, count in columnCount = count }
+                    .onChange(of: inspectorGameID) { _, id in
+                        if let id { lastInspectedGameID = id }
+                    }
                 }
                 .onChange(of: navigator.commandID) { handleControllerCommand(navigator.command) }
                 .overlay(alignment: .bottomTrailing) {
@@ -1542,6 +1556,24 @@ private struct LibraryGamesGridView: View {
             }
         }
         .frame(maxWidth: .infinity, maxHeight: .infinity)
+    }
+
+    /// The Info column slides in over ~0.22s, re-flowing the grid several times, and the lazy grid only estimates
+    /// rows it hasn't laid out; re-pin the game until the layout settles. Unanimated so the inspector's transition
+    /// can't turn the jump into an interrupted scroll.
+    private func keepFocusedGameInView(_ scroller: ScrollViewProxy) {
+        guard let id = inspectorGameID ?? controllerSelectedGameID ?? lastInspectedGameID,
+              games.contains(where: { $0.id == id }) else { return }
+        scrollFocusTask?.cancel()
+        scrollFocusTask = Task { @MainActor in
+            for delay in [0, 60, 100, 120, 150, 250] {
+                if delay > 0 { try? await Task.sleep(for: .milliseconds(delay)) }
+                guard !Task.isCancelled else { return }
+                var transaction = Transaction()
+                transaction.disablesAnimations = true
+                withTransaction(transaction) { scroller.scrollTo(id, anchor: .center) }
+            }
+        }
     }
 
     private var coverSizeSlider: some View {
