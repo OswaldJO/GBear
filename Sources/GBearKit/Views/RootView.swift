@@ -693,6 +693,10 @@ public struct RootView: View {
                         .controllerRing(sidebarRing(.all), color: .white)
                         .tag(LibrarySidebarSelection.all)
                         .contextMenu {
+                            Button("Link All Suggested Discs", systemImage: "sparkles") {
+                                linkSuggestedDiscs(emulatorIDs: Set(emulators.map(\.id)), sectionName: "the library")
+                            }
+                            Divider()
                             Button("Clear All Games…", systemImage: "trash", role: .destructive) {
                                 confirmClearAllGames = true
                             }
